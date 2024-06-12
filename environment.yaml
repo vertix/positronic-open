@@ -1,0 +1,29 @@
+name: positronic
+channels:
+  - conda-forge
+  - nvidia
+  - pytorch
+dependencies:
+  - python=3.10
+  - jupyter
+  - numpy
+  - matplotlib
+  - rerun-sdk
+  - pip
+  - pip:
+    - isaacsim-kernel
+    - isaacsim-app
+    - isaacsim-asset
+    - isaacsim-core
+    # - isaacsim-robot  # !!!!
+
+    # - isaacsim-robot-setup
+    - isaacsim-sensor
+
+    # - isaacsim-robot-motion @ https://files.pythonhosted.org/packages/4c/4b/13adf7438e54de278e1b4b61351285d483bbac27584235d46c73dde22932/isaacsim_robot_motion-4.0.0.0.tar.gz
+    # - isaacsim-template @ https://pypi.nvidia.com/isaacsim-template/isaacsim_template-4.0.0.0-cp310-none-manylinux_2_34_x86_64.whl
+    # - isaacsim-test @ https://pypi.nvidia.com/isaacsim-test/isaacsim_test-4.0.0.0-cp310-none-manylinux_2_34_x86_64.whl
+    - isaacsim-utils
+    # - rerun-sdk
+variables:
+  PIP_EXTRA_INDEX_URL: https://pypi.nvidia.com/
