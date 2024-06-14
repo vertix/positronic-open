@@ -9,6 +9,7 @@ dependencies:
   - numpy
   - matplotlib
   - rerun-sdk
+  - flask
   - pip
   - pip:
     - isaacsim-kernel

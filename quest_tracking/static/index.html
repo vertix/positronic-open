@@ -1,0 +1,138 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1, user-scalable=no'>
+    <meta name='mobile-web-app-capable' content='yes'>
+    <meta name='apple-mobile-web-app-capable' content='yes'>
+
+    <title>Input Tracking</title>
+  </head>
+  <body>
+    <header>
+      <details open>
+        <summary>Input Tracking</summary>
+        <p>
+          This application tracks user input in an immersive AR environment using WebXR
+          and sends the data to a server.
+        </p>
+    </header>
+    <script type="module">
+        import { WebXRButton } from './webxr-button.js';
+
+        let xrButton = null;
+        let xrImmersiveRefSpace = null;
+        let gl = null;
+
+        function initXR() {
+          xrButton = new WebXRButton({
+            onRequestSession: onRequestSession,
+            onEndSession: onEndSession
+          });
+          document.querySelector('header').appendChild(xrButton.domElement);
+
+          if (navigator.xr) {
+            navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+              xrButton.enabled = supported;
+            });
+
+            navigator.xr.requestSession('inline').then(onSessionStarted);
+          }
+        }
+
+        function initGL() {
+          if (gl) return;
+
+          let webglCanvas = document.createElement('canvas');
+          gl = webglCanvas.getContext('webgl', { xrCompatible: true }) ||
+               webglCanvas.getContext('experimental-webgl', { xrCompatible: true });
+
+          if (!gl) {
+            console.error('This browser does not support WebGL.');
+            return;
+          }
+
+          document.body.appendChild(webglCanvas);
+        }
+
+        function onRequestSession() {
+          return navigator.xr.requestSession('immersive-ar', {
+            optionalFeatures: ['local-floor']
+          }).then((session) => {
+            xrButton.setSession(session);
+            onSessionStarted(session);
+          });
+        }
+
+        function onSessionStarted(session) {
+          session.addEventListener('end', onSessionEnded);
+
+          initGL();
+
+          let glLayer = new XRWebGLLayer(session, gl);
+          session.updateRenderState({ baseLayer: glLayer });
+
+          let refSpaceType = 'viewer';
+          session.requestReferenceSpace(refSpaceType).then((refSpace) => {
+            xrImmersiveRefSpace = refSpace;
+            session.requestAnimationFrame(onXRFrame);
+          });
+        }
+
+        function onEndSession(session) {
+          session.end();
+        }
+
+        function onSessionEnded(event) {
+          if (event.session.isImmersive) {
+            xrButton.setSession(null);
+          }
+        }
+
+        function updateInputSources(session, frame, refSpace) {
+          for (let inputSource of session.inputSources) {
+            let targetRayPose = frame.getPose(inputSource.targetRaySpace, refSpace);
+            if (targetRayPose && inputSource.gripSpace && inputSource.handedness === 'right') {
+              let gripPose = frame.getPose(inputSource.gripSpace, refSpace);
+              if (gripPose) {
+                let pos = gripPose.transform.position;
+                let orient = gripPose.transform.orientation;
+                let buttons = inputSource.gamepad.buttons.map(button => button.pressed);
+                sendTrackingData(pos, orient, buttons);
+              }
+            }
+          }
+        }
+
+        function sendTrackingData(pos, orient, buttons) {
+          let data = {
+            position: { x: pos.x, y: pos.y, z: pos.z },
+            orientation: { x: orient.x, y: orient.y, z: orient.z, w: orient.w },
+            buttons: buttons,
+            timestamp: Math.floor(Date.now())
+          };
+          fetch('/track', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+          }).then(response => {
+            return response.json();
+          }).then(responseData => {
+            console.log(JSON.stringify(data));
+          }).catch(error => {
+            console.error("Failed to send tracking data:", error);
+          });
+        }
+
+        function onXRFrame(t, frame) {
+          let session = frame.session;
+          let refSpace = xrImmersiveRefSpace;
+          let pose = frame.getViewerPose(refSpace);
+          session.requestAnimationFrame(onXRFrame);
+          updateInputSources(session, frame, refSpace);
+        }
+
+        // Start the XR application.
+        initXR();
+      </script>
+  </html>
