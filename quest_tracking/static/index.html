@@ -105,9 +105,25 @@
         }
 
         function sendTrackingData(pos, orient, buttons) {
+          let transformedPos = pos;
+          let transformedOrient = orient;
+          // Transform the position and orientation to the new coordinate system, where
+          // Z points up, X points forward, and Y points left
+          // let transformedPos = {
+          //   x: pos.z,
+          //   y: -pos.x,
+          //   z: pos.y
+          // };
+          // let transformedOrient = {
+          //   w: orient.w,
+          //   x: orient.z,
+          //   y: -orient.x,
+          //   z: orient.y
+          // };
+
           let data = {
-            position: { x: pos.x, y: pos.y, z: pos.z },
-            orientation: { x: orient.x, y: orient.y, z: orient.z, w: orient.w },
+            position: [transformedPos.x, transformedPos.y, transformedPos.z],
+            orientation: [transformedOrient.w, transformedOrient.x, transformedOrient.y, transformedOrient.z],
             buttons: buttons,
             timestamp: Math.floor(Date.now())
           };
@@ -136,3 +152,4 @@
         initXR();
       </script>
   </html>
+

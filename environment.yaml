@@ -10,6 +10,20 @@ dependencies:
   - matplotlib
   - rerun-sdk
   - flask
+  - scipy
   - pip
   - pip:
     - isaacsim
+    - isaacsim-kernel
+    - isaacsim-app
+    - isaacsim-asset
+    - isaacsim-core
+    - isaacsim-robot  # !!!!
+
+    - isaacsim-robot-setup
+    - isaacsim-sensor
+
+    - isaacsim-robot-motion
+    - isaacsim-template
+    - isaacsim-test
+    - isaacsim-utils

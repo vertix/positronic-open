@@ -8,7 +8,7 @@
             }
             dictionary Perspective = {
                 double3 position = (4.503187268008827, 4.503187268008827, 4.503187279866867)
-                double3 target = (-0.7359619485843645, 0.1235775009333473, 0.7340467155635899)
+                double3 target = (-0.7359619485843654, 0.12357750093334641, 0.734046715563589)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -137,11 +137,11 @@ def Xform "World"
     def Camera "Camera"
     {
         float2 clippingRange = (0.01, 10000000)
-        float focalLength = 10.14756
+        float focalLength = 10
         float focusDistance = 400
-        quatd xformOp:orient = (0.5689205284475226, 0.419915982442907, 0.4199159824429069, 0.5689205284475226)
+        quatd xformOp:orient = (0.6408741641873803, 0.29879810186332695, -0.2987981018633268, -0.6408741641873799)
         double3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (1.6416678936325741, -3.5527136788004544e-15, 1.6664331287277)
+        double3 xformOp:translate = (-1.4352852006308912, -3.5527136788003195e-15, 2.2782206673478496)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
     }
 

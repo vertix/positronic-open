@@ -7,5 +7,7 @@
 			"path": "../../.local/share/ov/pkg/isaac-sim-4.0.0"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"files.trimTrailingWhitespace": true
+	}
 }
