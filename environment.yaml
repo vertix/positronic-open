@@ -13,17 +13,21 @@ dependencies:
   - scipy
   - pip
   - pip:
-    - isaacsim
-    - isaacsim-kernel
-    - isaacsim-app
-    - isaacsim-asset
-    - isaacsim-core
-    - isaacsim-robot  # !!!!
+    - dm_control
+    # - frankx
+    # - https://artifactory.kinovaapps.com/ui/native/generic-public/kortex/API/3.3.0/kortex_api-3.3.0.2-py3-none-any.whl
 
-    - isaacsim-robot-setup
-    - isaacsim-sensor
+  #   - isaacsim
+  #   - isaacsim-kernel
+  #   - isaacsim-app
+  #   - isaacsim-asset
+  #   - isaacsim-core
+  #   - isaacsim-robot  # !!!!
 
-    - isaacsim-robot-motion
-    - isaacsim-template
-    - isaacsim-test
-    - isaacsim-utils
+  #   - isaacsim-robot-setup
+  #   - isaacsim-sensor
+
+  #   - isaacsim-robot-motion
+  #   - isaacsim-template
+  #   - isaacsim-test
+  #   - isaacsim-utils
