@@ -22,13 +22,14 @@ class Transform3D:
         self.orientation = R.from_quat(orientation)  # np.quaternion([w, x, y, z])
 
     def __mul__(self, other):
-        new_position = self.position + self.orientation.apply(other.position)
+        # new_position = self.position + self.orientation.apply(other.position)
+        new_position = self.position + other.position
         new_orientation = self.orientation * other.orientation
         return Transform3D(new_position, new_orientation.as_quat())
 
     def inverse(self):
         inv_orientation = self.orientation.inv()
-        inv_position = -inv_orientation.apply(self.position)
+        inv_position = -self.position
         return Transform3D(inv_position, inv_orientation.as_quat())
 
     def __str__(self):
@@ -111,10 +112,10 @@ def main():
                 if tracker_position['but']:
                     tracker_origin = tracker_position['transform']
                     franka_origin = get_real_ee_position()
-                    tracking_shift = franka_origin * tracker_origin.inverse()
-                    # print(f"tracking_shift: {tracking_shift}")
+                    # tracking_shift = franka_origin * tracker_origin.inverse()
+                    tracking_shift = tracker_origin.inverse() * franka_origin
                 elif tracking_shift is not None:
-                    target = tracking_shift * tracker_position['transform']
+                    target = tracker_position['transform'] * tracking_shift
 
                     # tracking_move = tracker_origin.inverse() * tracker_position['transform']
                     # franka_move = franka_origin.inverse() * Transform3D(data.qpos[:3], data.qpos[3:7])

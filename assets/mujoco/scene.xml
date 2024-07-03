@@ -21,10 +21,10 @@
     <!-- <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/> -->
 
     <body name="ee_mocap" mocap="true">
-      <geom type="sphere" size="0.03" rgba="1 0 1 1"/>
+      <geom type="ellipsoid" size="0.02 0.035 0.06" rgba="1 0 1 1"/>
     </body>
     <body name="tracker_mocap" mocap="true">
-      <geom type="sphere" size="0.03" rgba="0 1 0 1"/>
+      <geom type="ellipsoid" size="0.02 0.035 0.06" rgba="0 1 0 1"/>
     </body>
   </worldbody>
 </mujoco>
