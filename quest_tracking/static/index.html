@@ -23,6 +23,7 @@
         let xrButton = null;
         let xrImmersiveRefSpace = null;
         let gl = null;
+        let lastSentTime = 0;
 
         function initXR() {
           xrButton = new WebXRButton({
@@ -105,21 +106,27 @@
         }
 
         function sendTrackingData(pos, orient, buttons) {
-          let transformedPos = pos;
-          let transformedOrient = orient;
+          const now = Date.now();
+          if (now - lastSentTime < 66) {
+            return;
+          }
+          lastSentTime = now;
+
+          // let transformedPos = pos;
+          // let transformedOrient = orient;
           // Transform the position and orientation to the new coordinate system, where
           // Z points up, X points forward, and Y points left
-          // let transformedPos = {
-          //   x: pos.z,
-          //   y: -pos.x,
-          //   z: pos.y
-          // };
-          // let transformedOrient = {
-          //   w: orient.w,
-          //   x: orient.z,
-          //   y: -orient.x,
-          //   z: orient.y
-          // };
+          let transformedPos = {
+            x: pos.z,
+            y: -pos.x,
+            z: pos.y
+          };
+          let transformedOrient = {
+            w: orient.w,
+            x: orient.z,
+            y: -orient.x,
+            z: orient.y
+          };
 
           let data = {
             position: [transformedPos.x, transformedPos.y, transformedPos.z],
