@@ -107,26 +107,27 @@
 
         function sendTrackingData(pos, orient, buttons) {
           const now = Date.now();
-          if (now - lastSentTime < 66) {
+          const hertz = 12;
+          if (now - lastSentTime < 1000 / hertz) {
             return;
           }
           lastSentTime = now;
 
-          // let transformedPos = pos;
-          // let transformedOrient = orient;
+          let transformedPos = pos;
+          let transformedOrient = orient;
           // Transform the position and orientation to the new coordinate system, where
           // Z points up, X points forward, and Y points left
-          let transformedPos = {
-            x: pos.z,
-            y: -pos.x,
-            z: pos.y
-          };
-          let transformedOrient = {
-            w: orient.w,
-            x: orient.z,
-            y: -orient.x,
-            z: orient.y
-          };
+          // let transformedPos = {
+          //   x: pos.z,
+          //   y: -pos.x,
+          //   z: pos.y
+          // };
+          // let transformedOrient = {
+          //   w: orient.w,
+          //   x: orient.z,
+          //   y: -orient.x,
+          //   z: orient.y
+          // };
 
           let data = {
             position: [transformedPos.x, transformedPos.y, transformedPos.z],
