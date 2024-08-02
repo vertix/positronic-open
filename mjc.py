@@ -55,10 +55,10 @@ def process_latest_request():
             but = (data['buttons'][4], data['buttons'][5]) if len(data['buttons']) > 5 else (False, False)
 
             pos = np.array([-pos[2], -pos[0], pos[1]])
-            # Compute updated rotation quaternion given coordinate system transformation above
-            # Transform the orientation to the new coordinate system, where Z points up, X points forward, and Y points left
-            transformed_quat = np.array([quat[3], quat[2], -quat[0], quat[1]])
-            quat = transformed_quat
+            quat = np.array([quat[0], -quat[3], -quat[1], quat[2]])
+            # Rotate quat 90 degrees around Y axis
+            rotation_y_90 = np.array([np.cos(np.pi/4), 0, np.sin(np.pi/4), 0])  # 90 degrees rotation around Y
+            quat = q_mul(rotation_y_90, quat)
 
             with tracker_position_lock:
                 tracker_position['pos'] = pos
@@ -124,8 +124,9 @@ class MujocoFrankaRobot(Robot):
             physics=self.physics,
             site_name='end_effector',
             target_pos=target_position,
-            # target_quat=target_orientation,
+            target_quat=target_orientation,
             joint_names=self.joints,
+            rot_weight=0.5,
         )
         if result.success:
             # TODO: This highly relies on the order of the joints in the model
@@ -163,7 +164,7 @@ def main():
             elif but[1]:
                 is_tracking = False
             elif is_tracking:
-                target = pos + tr_diff[0], q_mul(tr_diff[1], quat)
+                target = pos + tr_diff[0], quat # q_mul(quat, tr_diff[1])  # quat #
                 for i in range(3):
                     rr.log(f"target/position/{i}", rr.Scalar(target[0][i]))
                 for i in range(4):
