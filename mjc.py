@@ -7,9 +7,9 @@ from flask import Flask, request, jsonify
 import numpy as np
 import rerun as rr
 
-rr.init("mujoco_sim", spawn=False)
-# rr.connect()
-rr.save("mujoco.rrd")
+rr.init("mujoco_sim", spawn=True)
+rr.connect()
+# rr.save("mujoco.rrd")
 
 
 app = Flask(__name__, static_url_path='', static_folder='quest_tracking/static')
@@ -78,39 +78,96 @@ def xmat_to_quat(xmat):
     mujoco.mju_mat2Quat(site_quat, xmat)
     return site_quat
 
+
+# The abstract class for a Robot, that may have different implementations
+# for different simulators and different physical robots.
+class Robot:
+    def __init__(self):
+        pass
+
+    @property
+    def forward_kinematics(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Returns the end effector position and orientation.
+
+        Returns:
+            tuple: A tuple containing two numpy arrays:
+                - position (np.ndarray): 3D position vector
+                - orientation (np.ndarray): 4D quaternion
+        """
+        pass
+
+    @property
+    def inverse_kinematics(self, target_position: np.ndarray, target_orientation: np.ndarray) -> bool:
+        """
+        Returns the inverse kinematics solution for the robot.
+
+        Returns:
+            bool: True if the inverse kinematics solution was found and applied, False otherwise.
+        """
+        pass
+
+
+class MujocoFrankaRobot(Robot):
+    def __init__(self, model: mujoco.MjModel, data: mujoco.MjData):
+        self.model = model
+        self.data = data
+        self.ee_id = model.site('end_effector').id
+        self.physics = mujoco.Physics.from_model(data)
+        self.joints = [f'joint{i}' for i in range(1, 8)]
+
+    def forward_kinematics(self) -> tuple[np.ndarray, np.ndarray]:
+        return self.data.site_xpos[self.ee_id], xmat_to_quat(self.data.site_xmat[self.ee_id])
+
+    def inverse_kinematics(self, target_position: np.ndarray, target_orientation: np.ndarray) -> bool:
+        result = ik.qpos_from_site_pose(
+            physics=self.physics,
+            site_name='end_effector',
+            target_pos=target_position,
+            # target_quat=target_orientation,
+            joint_names=self.joints,
+        )
+        if result.success:
+            # TODO: This highly relies on the order of the joints in the model
+            self.data.ctrl[:7] = result.qpos[:7]
+            for i in range(7):
+                rr.log(f'ik/qpos/{i}', rr.Scalar(result.qpos[i]))
+            rr.log('ik/err_norm', rr.Scalar(result.err_norm))
+
+            return True
+        return False
+
 def main():
     model = mujoco.MjModel.from_xml_path("assets/mujoco/scene.xml")
     data = mujoco.MjData(model)
-    physics = mujoco.Physics.from_model(data)
-    joints = [f'joint{i}' for i in range(1, 8)]
-    site_id = model.site('end_effector').id
     mocap_ee_id, mocap_tracker_id = 0, 1
 
-    def get_real_ee_position():
-        return data.site_xpos[site_id], xmat_to_quat(data.site_xmat[site_id])
-        # return data.mocap_pos[mocap_ee_id], data.mocap_quat[mocap_ee_id]
+    robot = MujocoFrankaRobot(model, data)
 
     is_tracking = False
     tr_diff = None
-    tracker_origin = None
     franka_origin = None
     target = None
 
-    with mujoco.viewer.launch_passive(model, data, show_right_ui=False) as viewer:
-        rr.set_time_seconds("time", data.time)
+    with mujoco.viewer.launch_passive(model, data, show_right_ui=False) as viewer, open('simulation_log.txt', 'a') as log_file:
         while viewer.is_running():
+            rr.set_time_seconds("time", data.time)
+
             with tracker_position_lock:
                 pos, quat, but = tracker_position['pos'], tracker_position['quat'], tracker_position['but']
-                # quat = np.array([1.0, 0., 0., 0.])
 
             if but[0]:
-                franka_origin = get_real_ee_position()
+                franka_origin = robot.forward_kinematics()
                 tr_diff = franka_origin[0] - pos, q_mul(q_inv(quat), franka_origin[1])
                 is_tracking = True
             elif but[1]:
                 is_tracking = False
             elif is_tracking:
                 target = pos + tr_diff[0], q_mul(tr_diff[1], quat)
+                for i in range(3):
+                    rr.log(f"target/position/{i}", rr.Scalar(target[0][i]))
+                for i in range(4):
+                    rr.log(f"target/orientation/{i}", rr.Scalar(target[1][i]))
 
             data.mocap_pos[mocap_tracker_id] = pos
             data.mocap_quat[mocap_tracker_id] = quat
@@ -119,24 +176,15 @@ def main():
                 data.mocap_pos[mocap_ee_id] = target[0]
                 data.mocap_quat[mocap_ee_id] = target[1]
 
-                result = ik.qpos_from_site_pose(
-                    physics=physics,
-                    site_name='end_effector',
-                    target_pos=target[0],
-                    target_quat=target[1],
-                    joint_names=joints,
-                )
+                with viewer.lock():
+                    if not robot.inverse_kinematics(target[0], target[1]):
+                        print(f"IK failed for {target}")
 
-                if result.success:
-                    for i in range(7):
-                        rr.log(f'ik/{i}', rr.Scalar(result.qpos[i]))
-                        rr.log(f'ctrl/{i}', rr.Scalar(data.ctrl[i]))
-
-                    data.ctrl[:7] = result.qpos[:7]
-                else:
-                    print(f"IK failed: target: {target}")
+            for i in range(7):
+                rr.log(f'ctrl/{i}', rr.Scalar(data.ctrl[i]))
 
             mujoco.mj_step(model, data)
+
             viewer.sync()
 
 if __name__ == "__main__":
