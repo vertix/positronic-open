@@ -101,7 +101,7 @@ def main():
         while viewer.is_running():
             with tracker_position_lock:
                 pos, quat, but = tracker_position['pos'], tracker_position['quat'], tracker_position['but']
-                quat = np.array([1.0, 0., 0., 0.])
+                # quat = np.array([1.0, 0., 0., 0.])
 
             if but[0]:
                 franka_origin = get_real_ee_position()
@@ -110,7 +110,7 @@ def main():
             elif but[1]:
                 is_tracking = False
             elif is_tracking:
-                target = pos + tr_diff[0], q_mul(quat, tr_diff[1])
+                target = pos + tr_diff[0], q_mul(tr_diff[1], quat)
 
             data.mocap_pos[mocap_tracker_id] = pos
             data.mocap_quat[mocap_tracker_id] = quat
@@ -123,7 +123,7 @@ def main():
                     physics=physics,
                     site_name='end_effector',
                     target_pos=target[0],
-                    # target_quat=target[1],
+                    target_quat=target[1],
                     joint_names=joints,
                 )
 
@@ -140,19 +140,21 @@ def main():
             viewer.sync()
 
 if __name__ == "__main__":
-    import logging
-    log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)  # Set the logging level to ERROR to suppress INFO logs
+    def run_server():
+        import logging
+        log = logging.getLogger('werkzeug')
+        log.setLevel(logging.ERROR)  # Set the logging level to ERROR to suppress INFO logs
+        app.run(
+            host='0.0.0.0',
+            port=5005,
+            ssl_context=('cert.pem', 'key.pem')
+        )
 
-    # import cProfile
-    # with cProfile.Profile() as pr:
-    flask_thread = threading.Thread(
-        target=app.run, args=('0.0.0.0', 5005), kwargs={'ssl_context': ('cert.pem', 'key.pem')})
+    flask_thread = threading.Thread(target=run_server)
     flask_thread.start()
     worker_thread = threading.Thread(target=process_latest_request)
     worker_thread.start()
     main()
-    # pr.dump_stats('profile.pstat')
 
     flask_thread.join()
     worker_thread.join()
