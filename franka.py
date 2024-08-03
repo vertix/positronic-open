@@ -118,6 +118,10 @@ class FrankaRobot(Robot):
     def __init__(self, ip: str, relative_dynamics_factor: float = 0.02):
         self.robot = franky.Robot(ip, realtime_config=RealtimeConfig.Ignore)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
+        self.robot.recover_from_errors()
+        motion = franky.JointWaypointMotion([
+            franky.JointWaypoint([ 0.0,  -0.3, 0.0, -1.8, 0.0, 1.5,  0.6])])
+        self.robot.move(motion)
 
     @property
     def forward_kinematics(self) -> tuple[np.ndarray, np.ndarray]:
@@ -156,13 +160,18 @@ def main():
         if but[0]:
             franka_origin = robot.forward_kinematics
             tr_diff = franka_origin[0] - pos, q_mul(q_inv(quat), franka_origin[1])
+            if not is_tracking:
+                print(f'Start tracking {tr_diff}')
             is_tracking = True
         elif but[1]:
+            if is_tracking:
+                print('Stop tracking')
+
             robot.stop()
+            target = None
             is_tracking = False
         elif is_tracking:
             target = pos + tr_diff[0], q_mul(quat, tr_diff[1])  # quat #
-            print(target)
             for i in range(3):
                 rr.log(f"target/position/{i}", rr.Scalar(target[0][i]))
             for i in range(4):
@@ -186,24 +195,16 @@ def main():
 if __name__ == "__main__":
     def run_server():
         log = logging.getLogger('werkzeug')
-        log.setLevel(logging.ERROR)  # Set the logging level to ERROR to suppress INFO logs
+        # log.setLevel(logging.ERROR)  # Set the logging level to ERROR to suppress INFO logs
+        log.setLevel(logging.CRITICAL)
+        app.logger.setLevel(logging.CRITICAL)
 
-        # Redirect stdout and stderr
-        with open('server_output.log', 'w') as f:
-            # original_stdout = sys.stdout
-            # original_stderr = sys.stderr
-            # sys.stdout = f
-            # sys.stderr = f
-            try:
-                app.run(
-                    host='0.0.0.0',
-                    port=5005,
-                    ssl_context=('cert.pem', 'key.pem')
-                )
-            finally:
-                pass
-                # sys.stdout = original_stdout
-                # sys.stderr = original_stderr
+        app.run(
+            host='0.0.0.0',
+            port=5005,
+            ssl_context=('cert.pem', 'key.pem'),
+            # debug=True
+        )
 
     flask_thread = threading.Thread(target=run_server)
     flask_thread.start()
