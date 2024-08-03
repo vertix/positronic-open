@@ -73,7 +73,7 @@
           let glLayer = new XRWebGLLayer(session, gl);
           session.updateRenderState({ baseLayer: glLayer });
 
-          let refSpaceType = 'viewer';
+          let refSpaceType = 'local';
           session.requestReferenceSpace(refSpaceType).then((refSpace) => {
             xrImmersiveRefSpace = refSpace;
             session.requestAnimationFrame(onXRFrame);

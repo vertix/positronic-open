@@ -14,6 +14,7 @@ dependencies:
   - pip
   - pip:
     - dm_control
+    - franky-panda
     # - frankx
     # - https://artifactory.kinovaapps.com/ui/native/generic-public/kortex/API/3.3.0/kortex_api-3.3.0.2-py3-none-any.whl
 
