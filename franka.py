@@ -21,7 +21,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('franka.log'), #, mode='w'),
+        logging.FileHandler('franka.log', mode='w'),
         logging.StreamHandler(sys.stderr)
     ]
 )
@@ -47,14 +47,14 @@ class FrankaRobot:
         self.robot = franky.Robot(ip) #, realtime_config=RealtimeConfig.Ignore)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
         self.robot.set_collision_behavior(
-            [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
-            [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
-            [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
-            [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
-            [20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
-            [20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
-            [10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
-            [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
+            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
+            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
+            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
         )
         self.robot.recover_from_errors()
         motion = franky.JointWaypointMotion([
@@ -80,7 +80,7 @@ class FrankaRobot:
             if self.gripper_grasped:
                 logger.info(f"Grasping at {target_position} {target_orientation}")
                 try:
-                    self.gripper.grasp(0.0, self.gripper_speed, 7.0, epsilon_outer=1.0)
+                    self.gripper.grasp_async(0.0, self.gripper_speed, 20.0, epsilon_outer=1.0 * self.gripper.max_width)
                 except franky.CommandException as e:
                     logger.warning(f"Grasping failed: {e}")
                     return False
@@ -157,7 +157,6 @@ def robot_update(state: State, pos: np.ndarray, quat: np.ndarray, but: tuple[boo
         if state.is_tracking:
             logger.info('Stop tracking')
 
-        state.robot.stop()
         state.target = None
         state.is_tracking = False
     elif state.is_tracking:
