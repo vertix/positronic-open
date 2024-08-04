@@ -21,7 +21,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('franka.log'),
+        logging.FileHandler('franka.log'), #, mode='w'),
         logging.StreamHandler(sys.stderr)
     ]
 )
@@ -43,25 +43,57 @@ def q_mul(q1, q2):
     return np.array([res[3], res[0], res[1], res[2]])
 
 class FrankaRobot:
-    def __init__(self, ip: str, relative_dynamics_factor: float = 0.02):
+    def __init__(self, ip: str, relative_dynamics_factor: float = 0.02, gripper_speed: float = 0.02):
         self.robot = franky.Robot(ip) #, realtime_config=RealtimeConfig.Ignore)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
+        self.robot.set_collision_behavior(
+            [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+            [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+            [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+            [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+            [20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+            [20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+            [10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+            [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+        )
         self.robot.recover_from_errors()
         motion = franky.JointWaypointMotion([
-            franky.JointWaypoint([ 0.0,  -0.3, 0.0, -1.8, 0.0, 1.5,  0.6])])
+            franky.JointWaypoint([ 0.0,  -0.3, 0.0, -1.8, 0.0, 1.5,  0.65])])
         self.robot.move(motion)
 
-    @property
-    def forward_kinematics(self) -> tuple[np.ndarray, np.ndarray]:
-        pos = self.robot.current_pose.end_effector_pose
-        return pos.translation, pos.quaternion
+        self.gripper = franky.Gripper(ip)
+        self.gripper_speed = gripper_speed
+        self.gripper.homing()
+        self.gripper_grasped = False
 
-    def inverse_kinematics(self, target_position: np.ndarray, target_orientation: np.ndarray) -> bool:
-        pos = Affine(translation=target_position, quaternion=target_orientation)
+    @property
+    def forward_kinematics(self) -> tuple[np.ndarray, np.ndarray, bool]:
+        pos = self.robot.current_pose.end_effector_pose
+        return pos.translation, pos.quaternion, self.gripper_grasped
+
+    def inverse_kinematics(self,
+                           target_position: np.ndarray,
+                           target_orientation: np.ndarray,
+                           gripper_grasped: bool) -> bool:
+        if self.gripper_grasped != gripper_grasped:
+            self.gripper_grasped = gripper_grasped
+            if self.gripper_grasped:
+                logger.info(f"Grasping at {target_position} {target_orientation}")
+                try:
+                    self.gripper.grasp(0.0, self.gripper_speed, 7.0, epsilon_outer=1.0)
+                except franky.CommandException as e:
+                    logger.warning(f"Grasping failed: {e}")
+                    return False
+            else:
+                logger.info(f"Opening at {target_position} {target_orientation}")
+                self.gripper.open_async(self.gripper_speed)
+
         try:
+            pos = Affine(translation=target_position, quaternion=target_orientation)
             self.robot.move(CartesianMotion(pos, ReferenceType.Absolute), asynchronous=True)
         except franky.ControlException as e:
-            logger.warn(f"IK failed for {target_position} {target_orientation}: {e}")
+            self.robot.recover_from_errors()
+            logger.warning(f"IK failed for {target_position} {target_orientation}: {e}")
             return False
         return True
 
@@ -71,14 +103,12 @@ class FrankaRobot:
 
     def stop(self):
         self.robot.stop()
-        # motion = franky.CartesianPoseStopMotion()
-        # self.robot.move(motion)
+        self.gripper.open(self.gripper_speed)
 
 class State:
     def __init__(self):
         self.is_tracking = False
         self.tr_diff = None
-        self.franka_origin = None
         self.target = None
         self.robot = None
         self.start_time = None
@@ -92,9 +122,10 @@ def get_state():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    state.robot = FrankaRobot("172.168.0.2", 0.3)
+    state.robot = FrankaRobot("172.168.0.2", 0.2, 0.4)
     state.start_time = time.time()
     yield
+    state.robot.stop()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -108,13 +139,21 @@ async def webxr_button():
 
 
 def robot_update(state: State, pos: np.ndarray, quat: np.ndarray, but: tuple[bool, bool]):
-    if but[0]:
-        state.franka_origin = state.robot.forward_kinematics
-        state.tr_diff = state.franka_origin[0] - pos, q_mul(q_inv(quat), state.franka_origin[1])
+    track_but, untrack_but, grasp_but, open_but = but
+
+    t, q, grasped = state.robot.forward_kinematics
+    for i in range(3):
+        rr.log(f"franka/position/{i}", rr.Scalar(t[i]))
+    for i in range(4):
+        rr.log(f"franka/orientation/{i}", rr.Scalar(q[i]))
+    rr.log(f"franka/gripper", rr.Scalar(grasped))
+
+    if track_but:
+        state.tr_diff = t - pos, q_mul(q_inv(quat), q)
         if not state.is_tracking:
-            logger.info(f'Start tracking {state.tr_diff}')
+            logger.info(f'Start tracking at {t} {q}')
         state.is_tracking = True
-    elif but[1]:
+    elif untrack_but:
         if state.is_tracking:
             logger.info('Stop tracking')
 
@@ -122,20 +161,19 @@ def robot_update(state: State, pos: np.ndarray, quat: np.ndarray, but: tuple[boo
         state.target = None
         state.is_tracking = False
     elif state.is_tracking:
-        state.target = pos + state.tr_diff[0], q_mul(quat, state.tr_diff[1])  # quat #
+        if grasped:
+            grasped = not open_but
+        else:
+            grasped = grasp_but
+
+        state.target = pos + state.tr_diff[0], q_mul(quat, state.tr_diff[1]), grasped
         for i in range(3):
             rr.log(f"target/position/{i}", rr.Scalar(state.target[0][i]))
         for i in range(4):
             rr.log(f"target/orientation/{i}", rr.Scalar(state.target[1][i]))
 
-    if state.target is not None and state.is_tracking:
-        state.robot.inverse_kinematics(state.target[0], state.robot.forward_kinematics[1])
-
-    t, q = state.robot.forward_kinematics
-    for i in range(3):
-        rr.log(f"franka/position/{i}", rr.Scalar(t[i]))
-    for i in range(4):
-        rr.log(f"franka/orientation/{i}", rr.Scalar(q[i]))
+        if state.target is not None and state.is_tracking:
+            state.robot.inverse_kinematics(*state.target)
 
     for i, v in enumerate(state.robot.joint_positions):
         rr.log(f'joints/{i}', rr.Scalar(v))
@@ -149,16 +187,24 @@ def process_latest_request(state: State):
     if state.last_ts is None or data['timestamp'] > state.last_ts:
         state.last_ts = data['timestamp']
         with state.robot_update_lock:
+            # logger.info(f'buttons: {data["buttons"]}')
             pos = np.array(data['position'])
             quat = np.array(data['orientation'])
-            but = (data['buttons'][4], data['buttons'][5]) if len(data['buttons']) > 5 else (False, False)
+            if len(data['buttons']) > 6:
+                but = (data['buttons'][4], data['buttons'][5], data['buttons'][0], data['buttons'][1])
+            else:
+                but = (False, False, False, False)
 
-            pos = np.array([-pos[2], -pos[0], pos[1]])
-            quat = np.array([quat[0], -quat[3], -quat[1], quat[2]])
+            pos = np.array([pos[2], pos[0], pos[1]])
+            quat = np.array([quat[0], quat[3], quat[1], quat[2]])
+
+            # Don't ask my why these transformations, I just got them
             # Rotate quat 90 degrees around Y axis
-            rotation_y_90 = np.array([np.cos(np.pi/4), 0, np.sin(np.pi/4), 0])
-            quat = q_mul(rotation_y_90, quat)
-            robot_update(state, pos, quat, but)
+            rotation_y_90 = np.array([np.cos(-np.pi/4), 0, np.sin(-np.pi/4), 0])
+            res_quat = q_mul(rotation_y_90, quat)
+            res_quat = np.array([-res_quat[0], res_quat[1], res_quat[2], res_quat[3]])
+            # logger.info(f'rotation: {q_mul(res_quat, q_inv(quat))}')
+            robot_update(state, pos, res_quat, but)
 
         state.latest_request_queue.task_done()
 
