@@ -5,16 +5,22 @@ channels:
   - pytorch
 dependencies:
   - python=3.10
+  - libstdcxx-ng>=12.1.0
+  - gxx_linux-64
   - jupyter
   - numpy
   - matplotlib
   - rerun-sdk
   - flask
   - scipy
+  - requests
+  - fastapi
+  - uvicorn
   - pip
   - pip:
     - dm_control
-    - franky-panda
+    # - franky-panda
+
     # - frankx
     # - https://artifactory.kinovaapps.com/ui/native/generic-public/kortex/API/3.3.0/kortex_api-3.3.0.2-py3-none-any.whl
 
