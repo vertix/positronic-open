@@ -98,7 +98,8 @@
               if (gripPose) {
                 let pos = gripPose.transform.position;
                 let orient = gripPose.transform.orientation;
-                let buttons = inputSource.gamepad.buttons.map(button => button.pressed);
+                // let buttons = inputSource.gamepad.buttons.map(button => button.pressed);
+                let buttons = inputSource.gamepad.buttons.map(button => button.value);
                 sendTrackingData(pos, orient, buttons);
               }
             }
@@ -113,32 +114,16 @@
           }
           lastSentTime = now;
 
-          let transformedPos = pos;
-          let transformedOrient = orient;
-          // Transform the position and orientation to the new coordinate system, where
-          // Z points up, X points forward, and Y points left
-          // let transformedPos = {
-          //   x: pos.z,
-          //   y: -pos.x,
-          //   z: pos.y
-          // };
-          // let transformedOrient = {
-          //   w: orient.w,
-          //   x: orient.z,
-          //   y: -orient.x,
-          //   z: orient.y
-          // };
-
           let data = {
-            position: [transformedPos.x, transformedPos.y, transformedPos.z],
-            orientation: [transformedOrient.w, transformedOrient.x, transformedOrient.y, transformedOrient.z],
+            position: [pos.x, pos.y, pos.z],
+            orientation: [orient.w, orient.x, orient.y, orient.z],
             buttons: buttons,
             timestamp: Math.floor(Date.now())
           };
           fetch('/track', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(data)
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify(data)
           }).then(response => {
             return response.json();
           }).then(responseData => {
