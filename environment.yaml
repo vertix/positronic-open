@@ -16,6 +16,7 @@ dependencies:
   - requests
   - fastapi
   - uvicorn
+  - pymodbus
   - pip
   - pip:
     - dm_control
