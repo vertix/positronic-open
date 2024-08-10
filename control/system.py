@@ -43,19 +43,36 @@ class PortContainer:
     Container for managing multiple ports.
     """
     def __init__(self, ports: Dict[str, Any]):
-        self.ports = ports
+        self._ports = ports
 
     def __getattr__(self, name: str):
         """
         Get a port by name.
         """
-        return self.ports[name]
+        return self._ports[name]
+
+    def __setattr__(self, name: str, value: Any):
+        """
+        Set an attribute and bind input ports if applicable.
+        """
+        if name == "_ports":
+            self.__dict__[name] = value
+            return
+
+        if name not in self._ports:
+            raise ValueError(f"Port {name} not found")
+        if not isinstance(self._ports[name], InputPort):
+            raise ValueError(f"Port {name} is not an InputPort")
+        if not isinstance(value, OutputPort):
+            raise TypeError(f"Expected OutputPort, got {type(value).__name__}")
+        self._ports[name].bind(value)
+
 
     def __getitem__(self, name: str):
         """
         Get a port by name using item access.
         """
-        return self.ports[name]
+        return self._ports[name]
 
 
 class System(ABC):
@@ -117,7 +134,11 @@ class EventSystem(System):
     @classmethod
     def on_event(cls, event_name: str):
         """
-        Decorator to register an event handler.
+        Decorator to register an event handler. Example:
+
+        @EventSystem.on_event('joints')
+        def on_joints(value):
+            self.robot.set_joints(value)
         """
         def decorator(func):
             func._event_name = event_name
@@ -146,5 +167,7 @@ class EventSystem(System):
                 name, value = yield
                 if name in self._handlers:
                     self._handlers[name](value)
+                else:
+                    raise ValueError(f"Input {name} is not recognized")
         except GeneratorExit:
             self.on_stop()

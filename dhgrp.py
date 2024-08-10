@@ -4,7 +4,7 @@ from ctypes import c_uint16
 
 import numpy as np
 
-from system import System, InputPort, OutputPort, EventSystem
+from control import EventSystem
 
 
 class DHGripper(EventSystem):
