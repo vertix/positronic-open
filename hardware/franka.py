@@ -64,14 +64,17 @@ class Franka(EventSystem):
 
     @EventSystem.on_event('gripper_grasped')
     async def on_gripper_grasped(self, value):
-        if self.gripper_grasped != value:
-            self.gripper_grasped = value
-            if self.gripper_grasped:
+        if self.gripper_grasped:
+            if value < 0.33:
+                self.gripper.open(self.gripper_speed)
+                self.gripper_grasped = False
+        else:
+            if value > 0.66:
                 try:
-                    self.gripper.grasp_async(0.0, self.gripper_speed, 20.0, epsilon_outer=1.0 * self.gripper.max_width)
+                    self.gripper.grasp(0.0, self.gripper_speed, 20.0,
+                                       epsilon_outer=1.0 * self.gripper.max_width)
+                    self.gripper_grasped = True
                 except franky.CommandException as e:
                     logger.warning(f"Grasping failed: {e}")
-            else:
-                self.gripper.open_async(self.gripper_speed)
 
         await self.outs.gripper_grasped.write(self.gripper_grasped)

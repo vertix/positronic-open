@@ -29,15 +29,15 @@ class TeleopSystem(ControlSystem):
         return Transform3D(pos, res_quat)
 
     @classmethod
-    def _parse_buttons(cls, value: List[float]) -> Tuple[bool, bool, bool, bool]:
+    def _parse_buttons(cls, value: List[float]) -> Tuple[float, float, float]:
         if len(value) > 6:
-            but = (value[4], value[5], value[0], value[1])
+            but = value[4], value[5], value[0]
         else:
-            but = (False, False, False, False)
+            but = 0., 0., 0.
         return but
 
     async def run(self):
-        track_but, untrack_but, grasp = False, False, False
+        track_but, untrack_but, grasp = 0., 0., 0.
         robot_t = None
         teleop_t = None
         offset = None
@@ -50,8 +50,7 @@ class TeleopSystem(ControlSystem):
                 if input_name == "teleop_transform":
                     teleop_t = self._parse_position(value)
                 elif input_name == "teleop_buttons":
-                    track_but, untrack_but, grasp_but, open_but = self._parse_buttons(value)
-                    grasp = (grasp and not open_but) or (not grasp and grasp_but)
+                    track_but, untrack_but, grasp_but = self._parse_buttons(value)
 
                 if track_but:
                     # Note that translation and rotation offsets are independent
@@ -62,11 +61,10 @@ class TeleopSystem(ControlSystem):
                     is_tracking = False
                     offset = None
                 elif is_tracking:
-                    await self.outs.gripper_grasped.write(grasp)
+                    await self.outs.gripper_grasped.write(grasp_but)
                     target = Transform3D(teleop_t.translation + offset.translation,
                                     q_mul(teleop_t.quaternion, offset.quaternion))
                     await self.outs.transform.write(target)
-
 
 
 async def main():
