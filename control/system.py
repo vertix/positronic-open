@@ -10,12 +10,12 @@ class OutputPort:
     def __init__(self):
         self.bound_to = []
 
-    def write(self, value: Any):
+    async def write(self, value: Any):
         """
         Write a value to all bound input ports.
         """
         for port in self.bound_to:
-            port.write(value)
+            await port.write(value)
 
 
 class InputPort:
@@ -26,7 +26,7 @@ class InputPort:
         self.system = system
         self.name = name
         self.bound_to = None
-        self.queue = asyncio.Queue()
+        self.queue = asyncio.Queue(maxsize=5)
 
     def bind(self, port: OutputPort):
         """
@@ -37,11 +37,14 @@ class InputPort:
         self.bound_to = port
         port.bound_to.append(self)
 
-    def write(self, value: Any):
+    async def write(self, value: Any):
         """
         Send a value to the parent system's control loop.
+        If there are unread values, they are discarded.
         """
-        self.queue.put_nowait((self.name, value))
+        while not self.queue.empty():
+            self.queue.get_nowait()
+        await self.queue.put(value)
 
 
 class PortContainer:
@@ -83,7 +86,7 @@ class InputPortContainer(PortContainer):
                  for port in self._ports.values()}
 
         while tasks:
-            done, pending = await asyncio.wait(tasks.keys(), return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(tasks.keys(), return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 name = tasks.pop(task)
                 value = await task
@@ -149,19 +152,19 @@ class EventSystem(ControlSystem):
             return func
         return decorator
 
-    def on_start(self):
+    async def on_start(self):
         """
         Hook method called when the system starts.
         """
         pass
 
-    def on_stop(self):
+    async def on_stop(self):
         """
         Hook method called when the system stops.
         """
         pass
 
-    def on_after_input(self):
+    async def on_after_input(self):
         """
         Hook method called on any input. It is called after on_event callbacks.
         """
@@ -171,9 +174,13 @@ class EventSystem(ControlSystem):
         """
         Control loop coroutine that handles events.
         """
-        self.on_start()
-        async for name, value in self._inputs.read():
-            if name in self._handlers:
-                self._handlers[name](value)
-            self.on_after_input()
-        self.on_stop()
+        await self.on_start()
+        try:
+            async for name, value in self.ins.read():
+                if name in self._handlers:
+                    await self._handlers[name](value)
+                await self.on_after_input()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await self.on_stop()

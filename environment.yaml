@@ -4,7 +4,7 @@ channels:
   - nvidia
   - pytorch
 dependencies:
-  - python=3.10
+  - python=3.11
   - libstdcxx-ng>=12.1.0
   - gxx_linux-64
   - jupyter
@@ -17,6 +17,8 @@ dependencies:
   - fastapi
   - uvicorn
   - pymodbus
+  - pcre
+  - poco
   - pip
   - pip:
     - dm_control

@@ -45,4 +45,4 @@ class Map(ControlSystem):
         """
         async for name, value in self._inputs.read():
             map_fn = self.map_fns.get(name, self.default_map_fn)
-            self.outs[name].write(map_fn(name, value))
+            await self.outs[name].write(map_fn(name, value))

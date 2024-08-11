@@ -32,7 +32,7 @@ class Franka(EventSystem):
         self.gripper_speed = gripper_speed
         self.gripper_grasped = None
 
-    def on_start(self):
+    async def on_start(self):
         self.robot.recover_from_errors()
         motion = franky.JointWaypointMotion([
             franky.JointWaypoint([ 0.0,  -0.3, 0.0, -1.8, 0.0, 1.5,  0.65])])
@@ -41,16 +41,16 @@ class Franka(EventSystem):
         self.gripper_grasped = False
 
         pos = self.robot.current_pose.end_effector_pose
-        self.outs.transform.write(Transform(pos.translation, pos.quaternion))
-        self.outs.joint_positions.write(self.robot.current_joint_state.position)
-        self.outs.gripper_grasped.write(self.gripper_grasped)
+        await self.outs.transform.write(Transform(pos.translation, pos.quaternion))
+        await self.outs.joint_positions.write(self.robot.current_joint_state.position)
+        await self.outs.gripper_grasped.write(self.gripper_grasped)
 
-    def on_stop(self):
+    async def on_stop(self):
         self.robot.stop()
         self.gripper.open(self.gripper_speed)
 
     @EventSystem.on_event('transform')
-    def on_transform(self, value):
+    async def on_transform(self, value):
         try:
             pos = franky.Affine(translation=value.translation, quaternion=value.quaternion)
             self.robot.move(franky.CartesianMotion(pos, franky.ReferenceType.Absolute), asynchronous=True)
@@ -59,11 +59,11 @@ class Franka(EventSystem):
             logger.warning(f"IK failed for {value}: {e}")
 
         pos = self.robot.current_pose.end_effector_pose
-        self.outs.transform.write(Transform(pos.translation, pos.quaternion))
-        self.outs.joint_positions.write(self.robot.current_joint_state.position)
+        await self.outs.transform.write(Transform(pos.translation, pos.quaternion))
+        await self.outs.joint_positions.write(self.robot.current_joint_state.position)
 
     @EventSystem.on_event('gripper_grasped')
-    def on_gripper_grasped(self, value):
+    async def on_gripper_grasped(self, value):
         if self.gripper_grasped != value:
             self.gripper_grasped = value
             if self.gripper_grasped:
@@ -74,4 +74,4 @@ class Franka(EventSystem):
             else:
                 self.gripper.open_async(self.gripper_speed)
 
-        self.outs.gripper_grasped.write(self.gripper_grasped)
+        await self.outs.gripper_grasped.write(self.gripper_grasped)
