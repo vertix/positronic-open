@@ -29,7 +29,7 @@ class WebXR(ControlSystem):
         self.ssl_keyfile = ssl_keyfile
         self.ssl_certfile = ssl_certfile
 
-    def _control(self):
+    async def run(self):
         app = FastAPI()
         last_ts = None
 
@@ -68,11 +68,9 @@ class WebXR(ControlSystem):
 
             return JSONResponse(content={"success": True})
 
-        if False:  # We need this to tell Python that this is a coroutine
-            yield
-        uvicorn.run(app, host="0.0.0.0", port=self.port,
-                    ssl_keyfile=self.ssl_keyfile, ssl_certfile=self.ssl_certfile,
-                    log_config={'version': 1, 'disable_existing_loggers': False,
+        config = uvicorn.Config(app, host="0.0.0.0", port=self.port,
+                                ssl_keyfile=self.ssl_keyfile, ssl_certfile=self.ssl_certfile,
+                                log_config={'version': 1, 'disable_existing_loggers': False,
                                 'handlers': {
                                     'file': {
                                         'class': 'logging.FileHandler',
@@ -92,3 +90,5 @@ class WebXR(ControlSystem):
                                     }
                                 }},
                     )
+        server = uvicorn.Server(config)
+        await server.serve()

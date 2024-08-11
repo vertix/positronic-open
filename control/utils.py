@@ -11,19 +11,17 @@ class Logger(ControlSystem):
         super().__init__(inputs=inputs)
         self.level = level
 
-    def _control(self):
-        while True:
-            name, value = yield
-            if name not in self.inputs:
-                raise ValueError(f"Input {name} not recognized")
+    async def run(self):
+        async for name, value in self._inputs.read():
             logging.log(self.level, f"{name}: {value}")
 
 
 class Map(ControlSystem):
     """
-    Map is a System that applies a mapping function to its input ports and writes the result to the corresponding output ports.
-    The mapping function can be specified for each input port individually via keyword arguments, or a default mapping function can be provided.
-    Either a default mapping function must be defined, or all mappings for all inputs must be defined.
+    Map is a System that applies a mapping function to its input ports and writes the result to
+    the corresponding output ports. The mapping function can be specified for each input port
+    individually via keyword arguments, or a default mapping function can be provided. Either a
+    default mapping function must be defined, or all mappings for all inputs must be defined.
 
     Example usage:
     map = Map(inputs=['joints', 'pos'],
@@ -32,7 +30,7 @@ class Map(ControlSystem):
     """
     def __init__(self, inputs: List[str], default: Callable[[str, Any], Any] = None, **kwargs):
         """
-        Initialize the Map system.
+        Initialize the Map system. The outputs have the same names as the inputs.
         """
         super().__init__(inputs=inputs, outputs=inputs)
         self.default_map_fn = default
@@ -41,11 +39,10 @@ class Map(ControlSystem):
         if not self.default_map_fn and not all(input_name in self.map_fns for input_name in inputs):
             raise ValueError("Either default_map_fn must be defined, or all mappings for all inputs must be defined")
 
-    def _control(self):
+    async def run(self):
         """
         Control loop coroutine.
         """
-        while True:
-            name, value = yield
+        async for name, value in self._inputs.read():
             map_fn = self.map_fns.get(name, self.default_map_fn)
             self.outs[name].write(map_fn(name, value))

@@ -1,3 +1,5 @@
+import asyncio
+
 import franky
 
 from control import ControlSystem, utils
@@ -12,7 +14,7 @@ class TeleopSystem(ControlSystem):
             inputs=["teleop_transform", "teleop_buttons", "robot_transform"],
             outputs=["transform", "gripper_grasped"])
 
-    def _control(self):
+    def run(self):
         track_but, untrack_but, grasp = False, False, False
         robot_t = None
         teleop_t = None
@@ -44,7 +46,7 @@ class TeleopSystem(ControlSystem):
                 self.outs.transform.write(target)
 
 
-def main():
+async def main():
     # webxr = WebXR(port=5005)
     # franka = Franka("172.168.0.2", 0.2, 0.4, franky.RealtimeConfig.Ignore)
     # teleop = TeleopSystem()
@@ -60,9 +62,12 @@ def main():
     logger = utils.Map(inputs=["transform", "buttons"], default=lambda n, v : print(f'{n}: {v}'))
     logger.ins.transform = webxr.outs.transform
     logger.ins.buttons = webxr.outs.buttons
-    logger.start()
-    webxr.start()  # WebXR must start last, as it is a blocking call
+
+    await asyncio.gather(logger.run(), webxr.run())
+
+    # logger.run()
+    # webxr.start()  # WebXR must start last, as it is a blocking call
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

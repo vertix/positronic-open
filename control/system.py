@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+import asyncio
+from typing import Any, List
 
 
 class OutputPort:
@@ -24,32 +25,39 @@ class InputPort:
     def __init__(self, system: 'ControlSystem', name: str):
         self.system = system
         self.name = name
+        self.bound_to = None
+        self.queue = asyncio.Queue()
 
     def bind(self, port: OutputPort):
         """
         Bind this input port to an output port.
         """
+        if self.bound_to is not None:
+            self.bound_to.bound_to.remove(self)
+        self.bound_to = port
         port.bound_to.append(self)
 
     def write(self, value: Any):
         """
-        Send a value to the system's control loop.
+        Send a value to the parent system's control loop.
         """
-        self.system._control_loop.send((self.name, value))
+        self.queue.put_nowait((self.name, value))
 
 
 class PortContainer:
-    """
-    Container for managing multiple ports.
-    """
-    def __init__(self, ports: Dict[str, Any]):
-        self._ports = ports
+    def __init__(self, ports: List[str]):
+        self._ports = {name: OutputPort() for name in ports}
 
     def __getattr__(self, name: str):
-        """
-        Get a port by name.
-        """
         return self._ports[name]
+
+    def __getitem__(self, name: str):
+        return self._ports[name]
+
+
+class InputPortContainer(PortContainer):
+    def __init__(self, ports: List[str]):
+        self._ports = {name: InputPort(self, name) for name in ports}
 
     def __setattr__(self, name: str, value: Any):
         """
@@ -67,12 +75,20 @@ class PortContainer:
             raise TypeError(f"Expected OutputPort, got {type(value).__name__}")
         self._ports[name].bind(value)
 
+    async def read(self):
+        """
+        Async generator to yield values from any of the input ports as they arrive.
+        """
+        tasks = {asyncio.create_task(port.queue.get()): port.name
+                 for port in self._ports.values()}
 
-    def __getitem__(self, name: str):
-        """
-        Get a port by name using item access.
-        """
-        return self._ports[name]
+        while tasks:
+            done, pending = await asyncio.wait(tasks.keys(), return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                name = tasks.pop(task)
+                value = await task
+                yield name, value
+                tasks[asyncio.create_task(self._ports[name].queue.get())] = name
 
 
 class ControlSystem(ABC):
@@ -80,10 +96,10 @@ class ControlSystem(ABC):
     Abstract base class for a system with input and output ports.
     """
     def __init__(self, *, inputs: List[str] = [], outputs: List[str] = []):
-        self._inputs = PortContainer({name: InputPort(self, name) for name in inputs})
-        self._outputs = PortContainer({name: OutputPort() for name in outputs})
+        self._inputs = InputPortContainer(inputs)
+        self._outputs = PortContainer(outputs)
 
-        self._control_loop = self._control()
+        self._control_loop = self.run()
 
     @property
     def ins(self) -> PortContainer:
@@ -100,23 +116,11 @@ class ControlSystem(ABC):
         return self._outputs
 
     @abstractmethod
-    def _control(self):
+    async def run(self):
         """
         Abstract control loop coroutine.
         """
         pass
-
-    def start(self):
-        """
-        Start the control loop.
-        """
-        self._control_loop.send(None)
-
-    def stop(self):
-        """
-        Stop the control loop.
-        """
-        self._control_loop.close()
 
 
 class EventSystem(ControlSystem):
@@ -163,18 +167,13 @@ class EventSystem(ControlSystem):
         """
         pass
 
-    def _control(self):
+    async def run(self):
         """
         Control loop coroutine that handles events.
         """
         self.on_start()
-        try:
-            while True:
-                name, value = yield
-                if name in self._handlers:
-                    self._handlers[name](value)
-                else:
-                    raise ValueError(f"Input {name} is not recognized")
-                self.on_after_input()
-        except GeneratorExit:
-            self.on_stop()
+        async for name, value in self._inputs.read():
+            if name in self._handlers:
+                self._handlers[name](value)
+            self.on_after_input()
+        self.on_stop()
