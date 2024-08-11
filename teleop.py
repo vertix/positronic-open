@@ -1,9 +1,11 @@
 import asyncio
+from typing import List, Tuple
 
 import franky
+import numpy as np
 
 from control import ControlSystem, utils
-from geom import Transform, q_mul, q_inv
+from geom import Transform3D, q_mul, q_inv
 from hardware import Franka
 from webxr import WebXR
 
@@ -13,6 +15,26 @@ class TeleopSystem(ControlSystem):
         super().__init__(
             inputs=["teleop_transform", "teleop_buttons", "robot_transform"],
             outputs=["transform", "gripper_grasped"])
+
+    @classmethod
+    def _parse_position(cls, value: Transform3D) -> Transform3D:
+        pos = np.array([value.translation[2], value.translation[0], value.translation[1]])
+        quat = np.array([value.quaternion[0], value.quaternion[3], value.quaternion[1], value.quaternion[2]])
+
+        # Don't ask my why these transformations, I just got them
+        # Rotate quat 90 degrees around Y axis
+        rotation_y_90 = np.array([np.cos(-np.pi/4), 0, np.sin(-np.pi/4), 0])
+        res_quat = q_mul(rotation_y_90, quat)
+        res_quat = np.array([-res_quat[0], res_quat[1], res_quat[2], res_quat[3]])
+        return Transform3D(pos, res_quat)
+
+    @classmethod
+    def _parse_buttons(cls, value: List[float]) -> Tuple[bool, bool, bool, bool]:
+        if len(value) > 6:
+            but = (value[4], value[5], value[0], value[1])
+        else:
+            but = (False, False, False, False)
+        return but
 
     async def run(self):
         track_but, untrack_but, grasp = False, False, False
@@ -26,22 +48,22 @@ class TeleopSystem(ControlSystem):
                 robot_t = value
             else:
                 if input_name == "teleop_transform":
-                    teleop_t = value
+                    teleop_t = self._parse_position(value)
                 elif input_name == "teleop_buttons":
-                    track_but, untrack_but, grasp_but, open_but = value
+                    track_but, untrack_but, grasp_but, open_but = self._parse_buttons(value)
                     grasp = (grasp and not open_but) or (not grasp and grasp_but)
 
                 if track_but:
                     # Note that translation and rotation offsets are independent
-                    offset = Transform(-teleop_t.translation + robot_t.translation,
+                    offset = Transform3D(-teleop_t.translation + robot_t.translation,
                                     q_mul(q_inv(teleop_t.quaternion), robot_t.quaternion))
                     is_tracking = True
                 elif untrack_but:
                     is_tracking = False
                     offset = None
                 elif is_tracking:
-                    # await self.outs.gripper_grasped.write(grasp)
-                    target = Transform(teleop_t.translation + offset.translation,
+                    await self.outs.gripper_grasped.write(grasp)
+                    target = Transform3D(teleop_t.translation + offset.translation,
                                     q_mul(teleop_t.quaternion, offset.quaternion))
                     await self.outs.transform.write(target)
 

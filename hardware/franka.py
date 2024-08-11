@@ -3,7 +3,7 @@ import logging
 import franky
 
 from control import EventSystem
-from geom import Transform
+from geom import Transform3D
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +34,14 @@ class Franka(EventSystem):
 
     async def on_start(self):
         self.robot.recover_from_errors()
-        motion = franky.JointWaypointMotion([
-            franky.JointWaypoint([ 0.0,  -0.3, 0.0, -1.8, 0.0, 1.5,  0.65])])
+        motion = franky.CartesianMotion(franky.Affine([0.45, 0, 0.55], [1, 0, 0, 0]),
+                                        franky.ReferenceType.Absolute)
         self.robot.move(motion)
         self.gripper.homing()
         self.gripper_grasped = False
 
         pos = self.robot.current_pose.end_effector_pose
-        await self.outs.transform.write(Transform(pos.translation, pos.quaternion))
+        await self.outs.transform.write(Transform3D(pos.translation, pos.quaternion))
         await self.outs.joint_positions.write(self.robot.current_joint_state.position)
         await self.outs.gripper_grasped.write(self.gripper_grasped)
 
@@ -59,7 +59,7 @@ class Franka(EventSystem):
             logger.warning(f"IK failed for {value}: {e}")
 
         pos = self.robot.current_pose.end_effector_pose
-        await self.outs.transform.write(Transform(pos.translation, pos.quaternion))
+        await self.outs.transform.write(Transform3D(pos.translation, pos.quaternion))
         await self.outs.joint_positions.write(self.robot.current_joint_state.position)
 
     @EventSystem.on_event('gripper_grasped')

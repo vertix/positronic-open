@@ -3,7 +3,7 @@ from collections import namedtuple
 import numpy as np
 
 # y = R * x + t
-Transform = namedtuple('Transform', ['translation', 'quaternion'])
+Transform3D = namedtuple('Transform3D', ['translation', 'quaternion'])
 
 # All quaternions are in the form [w, x, y, z]
 def q_mul(q1, q2):

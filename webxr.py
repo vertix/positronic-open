@@ -10,7 +10,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from control import ControlSystem
-from geom import Transform, q_mul
+from geom import Transform3D, q_mul
 
 
 # 2. Утолщить основу фланца, сделать дырки под болты
@@ -44,22 +44,9 @@ class WebXR(ControlSystem):
                 last_ts = data['timestamp']
                 pos = np.array(data['position'])
                 quat = np.array(data['orientation'])
-                if len(data['buttons']) > 6:
-                    but = (data['buttons'][4], data['buttons'][5], data['buttons'][0], data['buttons'][1])
-                else:
-                    but = (False, False, False, False)
 
-                pos = np.array([pos[2], pos[0], pos[1]])
-                quat = np.array([quat[0], quat[3], quat[1], quat[2]])
-
-                # Don't ask my why these transformations, I just got them
-                # Rotate quat 90 degrees around Y axis
-                rotation_y_90 = np.array([np.cos(-np.pi/4), 0, np.sin(-np.pi/4), 0])
-                res_quat = q_mul(rotation_y_90, quat)
-                res_quat = np.array([-res_quat[0], res_quat[1], res_quat[2], res_quat[3]])
-
-                await self.outs.buttons.write(but)
-                await self.outs.transform.write(Transform(pos, res_quat))
+                await self.outs.buttons.write(data['buttons'])
+                await self.outs.transform.write(Transform3D(pos, quat))
 
             return JSONResponse(content={"success": True})
 
