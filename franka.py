@@ -6,7 +6,6 @@ import sys
 import threading
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.responses import FileResponse
 import uvicorn
@@ -141,17 +140,17 @@ async def webxr_button():
 def robot_update(state: State, pos: np.ndarray, quat: np.ndarray, but: tuple[bool, bool]):
     track_but, untrack_but, grasp_but, open_but = but
 
-    t, q, grasped = state.robot.forward_kinematics
+    robo_t, robo_q, grasped = state.robot.forward_kinematics
     for i in range(3):
-        rr.log(f"franka/position/{i}", rr.Scalar(t[i]))
+        rr.log(f"franka/position/{i}", rr.Scalar(robo_t[i]))
     for i in range(4):
-        rr.log(f"franka/orientation/{i}", rr.Scalar(q[i]))
+        rr.log(f"franka/orientation/{i}", rr.Scalar(robo_q[i]))
     rr.log(f"franka/gripper", rr.Scalar(grasped))
 
     if track_but:
-        state.tr_diff = t - pos, q_mul(q_inv(quat), q)
+        state.tr_diff = -pos + robo_t, q_mul(q_inv(quat), robo_q)
         if not state.is_tracking:
-            logger.info(f'Start tracking at {t} {q}')
+            logger.info(f'Start tracking at {robo_t} {robo_q}')
         state.is_tracking = True
     elif untrack_but:
         if state.is_tracking:

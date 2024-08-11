@@ -21,7 +21,7 @@ class InputPort:
     """
     Represents an input port that can bind to an output port and send values to the system's control loop.
     """
-    def __init__(self, system: 'System', name: str):
+    def __init__(self, system: 'ControlSystem', name: str):
         self.system = system
         self.name = name
 
@@ -75,7 +75,7 @@ class PortContainer:
         return self._ports[name]
 
 
-class System(ABC):
+class ControlSystem(ABC):
     """
     Abstract base class for a system with input and output ports.
     """
@@ -119,7 +119,7 @@ class System(ABC):
         self._control_loop.close()
 
 
-class EventSystem(System):
+class EventSystem(ControlSystem):
     """
     System that handles events with registered handlers.
     """
@@ -157,6 +157,12 @@ class EventSystem(System):
         """
         pass
 
+    def on_after_input(self):
+        """
+        Hook method called on any input. It is called after on_event callbacks.
+        """
+        pass
+
     def _control(self):
         """
         Control loop coroutine that handles events.
@@ -169,5 +175,6 @@ class EventSystem(System):
                     self._handlers[name](value)
                 else:
                     raise ValueError(f"Input {name} is not recognized")
+                self.on_after_input()
         except GeneratorExit:
             self.on_stop()

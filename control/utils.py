@@ -1,9 +1,9 @@
 from typing import Any, Callable, List
-from .system import System
+from .system import ControlSystem
 import logging
 
 
-class Logger(System):
+class Logger(ControlSystem):
     """
     Logger is a System that logs the values of its input ports.
     """
@@ -19,7 +19,7 @@ class Logger(System):
             logging.log(self.level, f"{name}: {value}")
 
 
-class Map(System):
+class Map(ControlSystem):
     """
     Map is a System that applies a mapping function to its input ports and writes the result to the corresponding output ports.
     The mapping function can be specified for each input port individually via keyword arguments, or a default mapping function can be provided.

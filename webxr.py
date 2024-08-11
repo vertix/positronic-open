@@ -8,7 +8,7 @@ import uvicorn
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from control import System
+from control import ControlSystem
 
 
 # 2. Утолщить основу фланца, сделать дырки под болты
@@ -22,7 +22,7 @@ def _q_mul(q1, q2):
     return np.array([res[3], res[0], res[1], res[2]])
 
 
-class WebXR(System):
+class WebXR(ControlSystem):
     def __init__(self, port: int, ssl_keyfile: str = "key.pem", ssl_certfile: str = "cert.pem"):
         super().__init__(outputs=["transform", "buttons"])
         self.port = port
@@ -68,7 +68,8 @@ class WebXR(System):
 
             return JSONResponse(content={"success": True})
 
-        yield
+        if False:  # We need this to tell Python that this is a coroutine
+            yield
         uvicorn.run(app, host="0.0.0.0", port=self.port,
                     ssl_keyfile=self.ssl_keyfile, ssl_certfile=self.ssl_certfile,
                     log_config={'version': 1, 'disable_existing_loggers': False,
@@ -78,15 +79,10 @@ class WebXR(System):
                                         'formatter': 'default',
                                         'filename': 'webxr.log',
                                         'mode': 'w',  # Overwrite the log file on every start
-                                    },
-                                    'console': {
-                                        'class': 'logging.StreamHandler',
-                                        'formatter': 'default',
-                                    }
-                                },
+                                    }},
                                 'loggers': {
                                     '': {
-                                        'handlers': ['file', 'console'],
+                                        'handlers': ['file'],
                                         'level': 'INFO',
                                     }
                                 },
