@@ -102,8 +102,6 @@ class ControlSystem(ABC):
         self._inputs = InputPortContainer(inputs)
         self._outputs = PortContainer(outputs)
 
-        self._control_loop = self.run()
-
     @property
     def ins(self) -> PortContainer:
         """

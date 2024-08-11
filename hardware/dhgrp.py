@@ -1,3 +1,5 @@
+import asyncio
+
 import pymodbus.client as ModbusClient
 from time import sleep
 from ctypes import c_uint16
@@ -24,22 +26,22 @@ class DHGripper(EventSystem):
     def _state_r(self):
         return self.client.read_holding_registers(0x20A, 1, slave=1).registers[0]
 
-    def on_start(self):
+    async def on_start(self):
         if self._state_g() != 1 or self._state_r() != 1:
             self.client.write_register(0x100, 0xa5, slave=1)
             while self._state_g() != 1 and self._state_r() != 1:
-                sleep(0.1)
+                await asyncio.sleep(0.1)
 
     @EventSystem.on_event('grip')
-    def on_grip(self, value):
+    async def on_grip(self, value):
         self.client.write_register(0x103, c_uint16(value).value, slave=1)
 
     @EventSystem.on_event('force')
-    def on_force(self, value):
+    async def on_force(self, value):
         self.client.write_register(0x101, c_uint16(value).value, slave=1)
 
     @EventSystem.on_event('speed')
-    def on_speed(self, value):
+    async def on_speed(self, value):
         self.client.write_register(0x104, c_uint16(value).value, slave=1)
 
 # connection = client.connect()
@@ -155,23 +157,24 @@ def test():
         grip(0)
 
 
-if __name__ == "__main__":
-    # test()
+async def main():
     gripper = DHGripper("/dev/ttyUSB0")
-    gripper.start()
     gripper.ins.speed.write(20)
     gripper.ins.force.write(100)
 
-    try:
+    async def test():
         while True:
             for width in (np.cos(np.linspace(0, 2 * np.pi, 15)) + 1) * 500:
-                gripper.ins.grip.write(int(width))
+                await gripper.ins.grip.write(int(width))
                 print(int(width))
-                sleep(0.02)
-    except KeyboardInterrupt:
-        gripper.stop()
+                await asyncio.sleep(0.02)
 
+    await asyncio.gather(test(), gripper.run())
 
+if __name__ == "__main__":
+    asyncio.run(main())
+
+    # test()
     # while True:
     #     for v in range(0, 1000, 333):
     #         runner.send(("grip", 0, v))
