@@ -1,7 +1,11 @@
 from abc import ABC, abstractmethod
 import asyncio
+import logging
 from typing import Any, List
 
+# Set up logging
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
 
 class OutputPort:
     """
@@ -44,6 +48,7 @@ class InputPort:
         """
         while not self.queue.empty():
             self.queue.get_nowait()
+        logger.debug(f"Write to {self.name}")
         await self.queue.put(value)
 
 
@@ -90,6 +95,7 @@ class InputPortContainer(PortContainer):
             for task in done:
                 name = tasks.pop(task)
                 value = await task
+                logger.debug(f"Read from {name}")
                 yield name, value
                 tasks[asyncio.create_task(self._ports[name].queue.get())] = name
 

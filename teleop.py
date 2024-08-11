@@ -7,6 +7,7 @@ import numpy as np
 from control import ControlSystem, utils
 from geom import Transform3D, q_mul, q_inv
 from hardware import Franka
+from hardware import DHGripper
 from webxr import WebXR
 
 
@@ -14,7 +15,7 @@ class TeleopSystem(ControlSystem):
     def __init__(self):
         super().__init__(
             inputs=["teleop_transform", "teleop_buttons", "robot_transform"],
-            outputs=["transform", "gripper_grasped"])
+            outputs=["transform", "gripper_width"])
 
     @classmethod
     def _parse_position(cls, value: Transform3D) -> Transform3D:
@@ -37,7 +38,7 @@ class TeleopSystem(ControlSystem):
         return but
 
     async def run(self):
-        track_but, untrack_but, grasp = 0., 0., 0.
+        track_but, untrack_but, grasp_but = 0., 0., 0.
         robot_t = None
         teleop_t = None
         offset = None
@@ -54,32 +55,37 @@ class TeleopSystem(ControlSystem):
 
                 if track_but:
                     # Note that translation and rotation offsets are independent
-                    offset = Transform3D(-teleop_t.translation + robot_t.translation,
-                                    q_mul(q_inv(teleop_t.quaternion), robot_t.quaternion))
+                    if teleop_t is not None and robot_t is not None:
+                        offset = Transform3D(-teleop_t.translation + robot_t.translation,
+                                             q_mul(q_inv(teleop_t.quaternion), robot_t.quaternion))
                     is_tracking = True
                 elif untrack_but:
                     is_tracking = False
                     offset = None
                 elif is_tracking:
-                    await self.outs.gripper_grasped.write(grasp_but)
-                    target = Transform3D(teleop_t.translation + offset.translation,
-                                    q_mul(teleop_t.quaternion, offset.quaternion))
-                    await self.outs.transform.write(target)
+                    await self.outs.gripper_width.write(grasp_but)
+                    if offset is not None:
+                        target = Transform3D(teleop_t.translation + offset.translation,
+                                             q_mul(teleop_t.quaternion, offset.quaternion))
+                        await self.outs.transform.write(target)
 
 
 async def main():
     webxr = WebXR(port=5005)
-    franka = Franka("172.168.0.2", 0.2, 0.4, franky.RealtimeConfig.Ignore)
+    # franka = Franka("172.168.0.2", 0.2, 0.4, franky.RealtimeConfig.Ignore)
+    gripper = DHGripper("/dev/ttyUSB0")
     teleop = TeleopSystem()
 
-    teleop.ins.teleop_transform = webxr.outs.transform
+    # teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
-    teleop.ins.robot_transform = franka.outs.transform
+    # teleop.ins.robot_transform = franka.outs.transform
 
-    franka.ins.transform = teleop.outs.transform
-    franka.ins.gripper_grasped = teleop.outs.gripper_grasped
+    gripper.ins.grip = teleop.outs.gripper_width
 
-    await asyncio.gather(teleop.run(), webxr.run(), franka.run())
+    # franka.ins.transform = teleop.outs.transform
+    # franka.ins.gripper_grasped = teleop.outs.gripper_width
+
+    await asyncio.gather(teleop.run(), webxr.run(), gripper.run())
 
 
 if __name__ == "__main__":
