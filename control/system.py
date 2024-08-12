@@ -51,6 +51,15 @@ class InputPort:
         logger.debug(f"Write to {self.name}")
         await self.queue.put(value)
 
+    async def read(self, timeout: float = None):
+        """
+        Read a value from the input port. Returns None if timeout is reached.
+        """
+        try:
+            return await asyncio.wait_for(self.queue.get(), timeout)
+        except asyncio.TimeoutError:
+            return None
+
 
 class PortContainer:
     def __init__(self, ports: List[str]):
@@ -83,15 +92,20 @@ class InputPortContainer(PortContainer):
             raise TypeError(f"Expected OutputPort, got {type(value).__name__}")
         self._ports[name].bind(value)
 
-    async def read(self):
+    async def read(self, timeout: float = None):
         """
-        Async generator to yield values from any of the input ports as they arrive.
+        Async generator to yield values from any of the input ports as they arrive,
+        or yield None if the timeout is reached.
         """
         tasks = {asyncio.create_task(port.queue.get()): port.name
                  for port in self._ports.values()}
 
         while tasks:
-            done, _ = await asyncio.wait(tasks.keys(), return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(tasks.keys(), timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            if not done:
+                yield None, None
+                continue
+
             for task in done:
                 name = tasks.pop(task)
                 value = await task

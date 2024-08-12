@@ -20,8 +20,8 @@ dependencies:
   - pcre
   - poco
   - pip
-  - pip:
-    - dm_control
+  # - pip:
+  #   - dm_control
     # - franky-panda
 
     # - frankx
