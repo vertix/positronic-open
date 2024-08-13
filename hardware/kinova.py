@@ -35,7 +35,7 @@ class Kinova(ControlSystem):
         self.transport, self.router, self.s_manager = None, None, None
         self.base, self.cyclic = None, None
 
-    async def on_start(self):
+    def on_start(self):
         self.transport = TCPTransport()
         self.router = RouterClient(self.transport, RouterClient.basicErrorCallback)
         self.transport.connect(self.ip, 10000)  # 10000 is the default TCP port for Kinova Gen3
@@ -68,21 +68,14 @@ class Kinova(ControlSystem):
             if action.name == "Home":
                 action_handle = action.handle
         self.base.ExecuteActionFromReference(action_handle)
-
-        # All other commands are low level
-        self._set_servo_mode(Base_pb2.LOW_LEVEL_SERVOING)
-        # Set first actuator in torque mode now that the command is equal to measure
-        for actuator_id in range(1, 8):
-            control_mode_message = ActuatorConfig_pb2.ControlModeInformation()
-            control_mode_message.control_mode = ActuatorConfig_pb2.ControlMode.Value('POSITION')
-            self.actuator_config.SetControlMode(control_mode_message, actuator_id)
+        print("Home position reached")
 
     def _set_servo_mode(self, mode: Base_pb2.ServoingMode):
         base_servo_mode = Base_pb2.ServoingModeInformation()
         base_servo_mode.servoing_mode = mode
         self.base.SetServoingMode(base_servo_mode)
 
-    async def on_stop(self):
+    def on_stop(self):
         if self.s_manager != None:
             router_options = RouterClientSendOptions()
             router_options.timeout_ms = 1000
@@ -119,6 +112,23 @@ class Kinova(ControlSystem):
         )
         joints = degrees_to_radians(np.array([a.position for a in feedback.actuators]))
         return pos, joints
+
+    def _inverse_kinematics(self, transform: Transform3D):
+        euler = radians_to_degrees(quat_to_euler(transform.quaternion))
+        ik_data = Base_pb2.IKData()
+        ik_data.cartesian_pose.x = transform.translation[0]
+        ik_data.cartesian_pose.y = transform.translation[1]
+        ik_data.cartesian_pose.z = transform.translation[2]
+        ik_data.cartesian_pose.theta_x = euler[0]
+        ik_data.cartesian_pose.theta_y = euler[1]
+        ik_data.cartesian_pose.theta_z = euler[2]
+
+        for a in radians_to_degrees(self._last_joints):
+            ja = ik_data.guess.joint_angles.add()
+            ja.value = a
+
+        joint_angels = self.base.ComputeInverseKinematics(ik_data)
+        return degrees_to_radians(np.array([a.value for a in joint_angels.joint_angles]))
 
     def execute_cartesian_move(self, transform: Transform3D):
         euler = radians_to_degrees(quat_to_euler(transform.quaternion))
@@ -163,19 +173,48 @@ class Kinova(ControlSystem):
         # cartesian_pose.theta_z = euler[2]
         # self.base.ExecuteAction(action)
 
+    def execute_velocity_move(self, velocity_degrees: np.ndarray, joints_degrees: np.ndarray):
+        command = BaseCyclic_pb2.Command()
+        command.frame_id = self._frame_id % 65536
+        for i, v in enumerate(velocity_degrees):
+            ac = command.actuators.add()
+            ac.command_id = command.frame_id
+            ac.flags = 1  # servoing, whatever that means
+            ac.velocity = v
+            ac.position = joints_degrees[i]
+
+        send_option = RouterClientSendOptions()
+        feedback = self.cyclic.Refresh(command, 0, send_option)
+        self._frame_id += 1
+        return self._feedback_to_pose(feedback)
+
+
     async def run(self):
-        await self.on_start()
+        VEL_LIMIT = 1  # degrees per second
+        VEL_GAIN  = 0.05  # degrees per second per degree
+        self.on_start()
         try:
-            async for input_name, value in self.ins.read(1.0):  # Send current pose at least every second
+            target_joints, joints = None, None
+            async for input_name, value in self.ins.read(1 / 40):  # 40 Hz
                 if input_name == "target_transform":
-                    pos, joints = self.execute_cartesian_move(value)
+                    target_joints = self._inverse_kinematics(value)
+
+                if target_joints is not None and joints is not None:
+                    delta = radians_to_degrees(target_joints - joints)
+                    if np.max(np.abs(delta)) >= 0.5:  # If the target is close, use position control
+                        velocity = np.clip(delta * VEL_GAIN, -VEL_LIMIT, VEL_LIMIT)
+                        pos, joints = self.execute_velocity_move(velocity, radians_to_degrees(joints))
+                    else:
+                        pos, joints = self._current_pose
                 else:
                     pos, joints = self._current_pose
 
                 await self.outs.transform.write(pos)
                 await self.outs.joint_positions.write(joints)
+        except KeyboardInterrupt:
+            print("Stopping Kinova ...")
         finally:
-            await self.on_stop()
+            self.on_stop()
 
 
 async def _main():
@@ -190,13 +229,13 @@ async def _main():
             # while time.time() - start_time < 60:
             for _ in range(6):
                 t = (time.time() - start_time) / 10 * 2 * np.pi      # One period every 10 seconds
-                delta = np.array([0., np.cos(t), np.sin(t)]) * 0.1   # Radius of 10cm
+                delta = np.array([0., np.cos(t), np.sin(t)]) * 0.02   # Radius of 2cm
                 await self.outs.robot_pos.write(Transform3D(robot_pos.translation + delta, robot_pos.quaternion))
                 await asyncio.sleep(0.5)
 
     manager = Manager()
     manager.ins.robot_pos = kinova.outs.transform
-    kinova.ins.transform = manager.outs.robot_pos
+    kinova.ins.target_transform = manager.outs.robot_pos
 
     await asyncio.gather(kinova.run(), manager.run())
 
