@@ -1,6 +1,6 @@
-
 import asyncio
 import logging
+import threading
 import time
 
 import numpy as np
@@ -24,6 +24,11 @@ from kortex_api.UDPTransport import UDPTransport
 from kortex_api.RouterClient import RouterClient, RouterClientSendOptions
 from kortex_api.SessionManager import SessionManager
 from kortex_api.autogen.messages import Session_pb2
+
+import ruckig
+import rerun as rr
+rr.init("kinova", spawn=False)
+rr.save('kinova.rrd')
 
 logger = logging.getLogger(__name__)
 
@@ -49,48 +54,42 @@ class Kinova(ControlSystem):
         self.s_manager = SessionManager(self.router)
         self.s_manager.CreateSession(session_info)
 
-        self.actuator_config = ActuatorConfigClient(self.router)
-
         self.base = BaseClient(self.router)
         self.cyclic = BaseCyclicClient(self.router)
-        self._frame_id = 0
         self._last_joints = np.zeros(7)
 
         # This is needed so that robot can be managed by low level control
-        self._set_servo_mode(Base_pb2.SINGLE_LEVEL_SERVOING)
+        self.base.SetServoingMode(Base_pb2.ServoingModeInformation(servoing_mode=Base_pb2.SINGLE_LEVEL_SERVOING))
 
         # Move robot to home position
         action_type = Base_pb2.RequestedActionType()
         action_type.action_type = Base_pb2.REACH_JOINT_ANGLES
         action_list = self.base.ReadAllActions(action_type)
-        action_handle = None
-        for action in action_list.action_list:
-            if action.name == "Home":
-                action_handle = action.handle
+        action_handle = [a.handle for a in action_list.action_list if a.name == "Home"][0]
+
+        def check(n, e):
+            if n.action_event in [Base_pb2.ACTION_END, Base_pb2.ACTION_ABORT]:
+                e.set()
+
+        e = threading.Event()
+        notification_handle = self.base.OnNotificationActionTopic(
+            lambda n: check(n, e), Base_pb2.NotificationOptions())
+
         self.base.ExecuteActionFromReference(action_handle)
+        finished = e.wait(30)
+        if not finished:
+            raise Exception("Home position not reached")
+        self.base.Unsubscribe(notification_handle)
         print("Home position reached")
 
-    def _set_servo_mode(self, mode: Base_pb2.ServoingMode):
-        base_servo_mode = Base_pb2.ServoingModeInformation()
-        base_servo_mode.servoing_mode = mode
-        self.base.SetServoingMode(base_servo_mode)
-
     def on_stop(self):
+        self.base.Stop()
         if self.s_manager != None:
             router_options = RouterClientSendOptions()
             router_options.timeout_ms = 1000
             self.s_manager.CloseSession(router_options)
         self.transport.disconnect()
-
-    @property
-    def _current_pose(self):
-        """
-        Get the tuple of the current pose and joint positions.
-        """
-        feedback = self.cyclic.RefreshFeedback()
-        pos, joints = self._feedback_to_pose(feedback)
-        self._last_joints = joints
-        return pos, joints
+        print("Disconnected")
 
     @classmethod
     def _feedback_to_pose(cls, feedback: BaseCyclic_pb2.Feedback):
@@ -110,10 +109,10 @@ class Kinova(ControlSystem):
                 )
             )
         )
-        joints = degrees_to_radians(np.array([a.position for a in feedback.actuators]))
+        joints = np.array([a.position for a in feedback.actuators])
         return pos, joints
 
-    def _inverse_kinematics(self, transform: Transform3D):
+    def _inverse_kinematics(self, transform: Transform3D, joints_guess: np.ndarray):
         euler = radians_to_degrees(quat_to_euler(transform.quaternion))
         ik_data = Base_pb2.IKData()
         ik_data.cartesian_pose.x = transform.translation[0]
@@ -123,94 +122,99 @@ class Kinova(ControlSystem):
         ik_data.cartesian_pose.theta_y = euler[1]
         ik_data.cartesian_pose.theta_z = euler[2]
 
-        for a in radians_to_degrees(self._last_joints):
+        for a in joints_guess:
             ja = ik_data.guess.joint_angles.add()
             ja.value = a
 
         joint_angels = self.base.ComputeInverseKinematics(ik_data)
-        return degrees_to_radians(np.array([a.value for a in joint_angels.joint_angles]))
+        return np.array([a.value for a in joint_angels.joint_angles])
 
-    def execute_cartesian_move(self, transform: Transform3D):
-        euler = radians_to_degrees(quat_to_euler(transform.quaternion))
+    @classmethod
+    def _normalise_angles(cls, target, base, period=360):
+        res = target - base
+        res[res > period / 2] -= period
+        res[res < -period / 2] += period
+        return base + res
 
-        ik_data = Base_pb2.IKData()
-        ik_data.cartesian_pose.x = transform.translation[0]
-        ik_data.cartesian_pose.y = transform.translation[1]
-        ik_data.cartesian_pose.z = transform.translation[2]
-        ik_data.cartesian_pose.theta_x = euler[0]
-        ik_data.cartesian_pose.theta_y = euler[1]
-        ik_data.cartesian_pose.theta_z = euler[2]
-
-        for a in radians_to_degrees(self._last_joints):
-            ja = ik_data.guess.joint_angles.add()
-            ja.value = a
-
-        joint_angels = self.base.ComputeInverseKinematics(ik_data)
-        command = BaseCyclic_pb2.Command()
-        command.frame_id = self._frame_id % 65536
-        for angle in joint_angels.joint_angles:
-            ac = command.actuators.add()
-            ac.command_id = command.frame_id
-            ac.flags = 1  # servoing, whatever that means
-            ac.position = angle.value
-
-        send_option = RouterClientSendOptions()
-        # send_option.andForget = False
-        # send_option.delay_ms = 0
-        # send_option.timeout_ms = 3000
-
-        feedback = self.cyclic.Refresh(command, 0, send_option)
-        self._frame_id += 1
-        return self._feedback_to_pose(feedback)
-
-        # action = Base_pb2.Action()
-        # cartesian_pose = action.reach_pose.target_pose
-        # cartesian_pose.x = transform.translation[0]
-        # cartesian_pose.y = transform.translation[1]
-        # cartesian_pose.z = transform.translation[2]
-        # cartesian_pose.theta_x = euler[0]
-        # cartesian_pose.theta_y = euler[1]
-        # cartesian_pose.theta_z = euler[2]
-        # self.base.ExecuteAction(action)
-
-    def execute_velocity_move(self, velocity_degrees: np.ndarray, joints_degrees: np.ndarray):
-        command = BaseCyclic_pb2.Command()
-        command.frame_id = self._frame_id % 65536
-        for i, v in enumerate(velocity_degrees):
-            ac = command.actuators.add()
-            ac.command_id = command.frame_id
-            ac.flags = 1  # servoing, whatever that means
-            ac.velocity = v
-            ac.position = joints_degrees[i]
-
-        send_option = RouterClientSendOptions()
-        feedback = self.cyclic.Refresh(command, 0, send_option)
-        self._frame_id += 1
-        return self._feedback_to_pose(feedback)
-
-
-    async def run(self):
-        VEL_LIMIT = 1  # degrees per second
-        VEL_GAIN  = 0.05  # degrees per second per degree
+    async def _run(self):
         self.on_start()
         try:
-            target_joints, joints = None, None
+            last_joints = None
             async for input_name, value in self.ins.read(1 / 40):  # 40 Hz
-                if input_name == "target_transform":
-                    target_joints = self._inverse_kinematics(value)
-
-                if target_joints is not None and joints is not None:
-                    delta = radians_to_degrees(target_joints - joints)
-                    if np.max(np.abs(delta)) >= 0.5:  # If the target is close, use position control
-                        velocity = np.clip(delta * VEL_GAIN, -VEL_LIMIT, VEL_LIMIT)
-                        pos, joints = self.execute_velocity_move(velocity, radians_to_degrees(joints))
-                    else:
-                        pos, joints = self._current_pose
-                else:
-                    pos, joints = self._current_pose
-
+                feedback = self.cyclic.RefreshFeedback()
+                pos, joints = self._feedback_to_pose(feedback)
                 await self.outs.transform.write(pos)
-                await self.outs.joint_positions.write(joints)
+
+                if last_joints is not None:
+                    joints = self._normalise_angles(joints, last_joints)
+                last_joints = joints
+                await self.outs.joint_positions.write(degrees_to_radians(joints))
+
+                if input_name == "target_transform":
+                    action = Base_pb2.Action()
+                    cartesian_pose = action.reach_pose.target_pose
+                    cartesian_pose.x = value.translation[0]
+                    cartesian_pose.y = value.translation[1]
+                    cartesian_pose.z = value.translation[2]
+                    euler = radians_to_degrees(quat_to_euler(value.quaternion))
+                    cartesian_pose.theta_x = euler[0]
+                    cartesian_pose.theta_y = euler[1]
+                    cartesian_pose.theta_z = euler[2]
+                    self.base.ExecuteAction(action)
+        except KeyboardInterrupt:
+            print("Stopping Kinova ...")
+        finally:
+            self.on_stop()
+
+    async def run(self):
+        self.on_start()
+        try:
+            control = ruckig.Ruckig(7, 1 / 20)  # 20 Hz
+            tracking = False
+            inp_ctrl = ruckig.InputParameter(7)
+
+            inp_ctrl.target_velocity = [0.0] * 7
+            inp_ctrl.target_acceleration = [0.0] * 7
+
+            inp_ctrl.max_position = [np.inf, 128.9, np.inf, 147.8, np.inf, 120.3, np.inf]
+            inp_ctrl.min_position = [-np.inf, -128.9, -np.inf, -147.8, -np.inf, -120.3, -np.inf]
+            inp_ctrl.max_velocity = [30.0] * 7
+            inp_ctrl.max_acceleration = [15.0] * 7
+            inp_ctrl.max_jerk = [6.0] * 7
+
+            out = ruckig.OutputParameter(7)
+            last_joints = None
+            async for input_name, value in self.ins.read(1 / 40):  # 40 Hz
+                feedback = self.cyclic.RefreshFeedback()
+                pos, joints = self._feedback_to_pose(feedback)
+                await self.outs.transform.write(pos)
+
+                if last_joints is not None:
+                    joints = self._normalise_angles(joints, last_joints)
+                last_joints = joints
+                await self.outs.joint_positions.write(degrees_to_radians(joints))
+
+                if input_name == "target_transform":
+                    target_joints = self._inverse_kinematics(value, joints)
+                    inp_ctrl.target_position = self._normalise_angles(target_joints, joints)
+                    tracking = True
+
+                if tracking:
+                    inp_ctrl.current_position = joints
+                    inp_ctrl.target_position = self._normalise_angles(inp_ctrl.target_position, joints)
+
+                    _res = control.update(inp_ctrl, out)
+                    out.pass_to_input(inp_ctrl)
+
+                    joint_speeds = Base_pb2.JointSpeeds()
+                    for i in range(7):
+                        js = joint_speeds.joint_speeds.add()
+                        js.joint_identifier = i
+                        js.value = out.new_velocity[i]
+                        js.duration = 2  # Some caution period
+
+                    self.base.SendJointSpeedsCommand(joint_speeds)
+
         except KeyboardInterrupt:
             print("Stopping Kinova ...")
         finally:
@@ -221,21 +225,33 @@ async def _main():
     kinova = Kinova('192.168.1.10')
     class Manager(ControlSystem):
         def __init__(self):
-            super().__init__(inputs=["robot_pos",], outputs=["robot_pos"])
+            super().__init__(inputs=["robot_pos", "joints"], outputs=["target_pos"])
 
         async def run(self):
             robot_pos = await self.ins.robot_pos.read()
             start_time = time.time()
-            # while time.time() - start_time < 60:
-            for _ in range(6):
-                t = (time.time() - start_time) / 10 * 2 * np.pi      # One period every 10 seconds
-                delta = np.array([0., np.cos(t), np.sin(t)]) * 0.02   # Radius of 2cm
-                await self.outs.robot_pos.write(Transform3D(robot_pos.translation + delta, robot_pos.quaternion))
-                await asyncio.sleep(0.5)
+            last_command_time = None
+            async for input_name, value in self.ins.read(1 / 40):
+                if input_name == "joints":
+                    rr.set_time_seconds('time', time.time() - start_time)
+                    for i, v in enumerate(radians_to_degrees(value)):
+                        rr.log(f"joint_{i}", rr.Scalar(v))
+
+                if last_command_time is None or time.time() - last_command_time > 1:
+                    t = (time.time() - start_time) / 10 * 2 * np.pi      # One period every 10 seconds
+                    delta = np.array([0., np.cos(t), np.sin(t)]) * 0.20   # Radius of 10 cm
+                    target = Transform3D(robot_pos.translation + delta, robot_pos.quaternion)
+                    last_command_time = time.time()
+                    await self.outs.target_pos.write(target)
+
+                if time.time() - start_time > 30:
+                    break
+
 
     manager = Manager()
     manager.ins.robot_pos = kinova.outs.transform
-    kinova.ins.target_transform = manager.outs.robot_pos
+    manager.ins.joints = kinova.outs.joint_positions
+    kinova.ins.target_transform = manager.outs.target_pos
 
     await asyncio.gather(kinova.run(), manager.run())
 
