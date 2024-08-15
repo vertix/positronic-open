@@ -1,12 +1,11 @@
 import asyncio
 from typing import List, Tuple
 
-import franky
 import numpy as np
 
 from control import ControlSystem, utils
 from geom import Transform3D, q_mul, q_inv
-from hardware import Franka
+from hardware import Franka, Kinova
 from hardware import DHGripper
 from webxr import WebXR
 
@@ -59,9 +58,11 @@ class TeleopSystem(ControlSystem):
                         offset = Transform3D(-teleop_t.translation + robot_t.translation,
                                              q_mul(q_inv(teleop_t.quaternion), robot_t.quaternion))
                     is_tracking = True
+                    print('Started tracking')
                 elif untrack_but:
                     is_tracking = False
                     offset = None
+                    print('Stopped tracking')
                 elif is_tracking:
                     await self.outs.gripper_width.write(grasp_but)
                     if offset is not None:
@@ -69,23 +70,21 @@ class TeleopSystem(ControlSystem):
                                              q_mul(teleop_t.quaternion, offset.quaternion))
                         await self.outs.transform.write(target)
 
-
 async def main():
     webxr = WebXR(port=5005)
     # franka = Franka("172.168.0.2", 0.2, 0.4, franky.RealtimeConfig.Ignore)
+    kinova = Kinova('192.168.1.10')
     gripper = DHGripper("/dev/ttyUSB0")
     teleop = TeleopSystem()
 
-    # teleop.ins.teleop_transform = webxr.outs.transform
+    teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
-    # teleop.ins.robot_transform = franka.outs.transform
+    teleop.ins.robot_transform = kinova.outs.transform
 
     gripper.ins.grip = teleop.outs.gripper_width
+    kinova.ins.target_transform = teleop.outs.transform
 
-    # franka.ins.transform = teleop.outs.transform
-    # franka.ins.gripper_grasped = teleop.outs.gripper_width
-
-    await asyncio.gather(teleop.run(), webxr.run(), gripper.run())
+    await asyncio.gather(teleop.run(), webxr.run(), kinova.run(), gripper.run())
 
 
 if __name__ == "__main__":

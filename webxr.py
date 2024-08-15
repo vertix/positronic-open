@@ -66,7 +66,7 @@ class WebXR(ControlSystem):
                                     }},
                                 'loggers': {
                                     '': {
-                                        'handlers': ['file'], # 'console'],
+                                        'handlers': ['file'], #, 'console'],
                                         'level': 'INFO',
                                     }
                                 },
