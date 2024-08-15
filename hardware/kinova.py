@@ -16,6 +16,7 @@ collections.MutableSet = collections.abc.MutableSet
 from kortex_api.autogen.client_stubs.BaseClientRpc import BaseClient
 from kortex_api.autogen.client_stubs.BaseCyclicClientRpc import BaseCyclicClient
 from kortex_api.autogen.messages import Base_pb2, BaseCyclic_pb2
+from kortex_api.Exceptions.KServerException import KServerException
 
 from kortex_api.TCPTransport import TCPTransport
 from kortex_api.UDPTransport import UDPTransport
@@ -82,8 +83,12 @@ class KinovaController:
             ja = ik_data.guess.joint_angles.add()
             ja.value = a
 
-        joint_angels = self.base.ComputeInverseKinematics(ik_data)
-        return np.array([a.value for a in joint_angels.joint_angles])
+        try:
+            joint_angels = self.base.ComputeInverseKinematics(ik_data)
+            return np.array([a.value for a in joint_angels.joint_angles])
+        except KServerException as e:
+            logger.error(f"Failed to compute inverse kinematics: {e}")
+            return None
 
     def run(self):
         # region kortex setup
@@ -219,8 +224,9 @@ class Kinova(ControlSystem):
             async for input_name, value in self.ins.read(1 / 40):
                 if input_name == "target_transform":
                     target_joints = controller.inverse_kinematics(value)
-                    with controller.target_lock:
-                        controller.target_joints = target_joints
+                    if target_joints is not None:
+                        with controller.target_lock:
+                            controller.target_joints = target_joints
 
                 with controller.output_lock:
                     if controller.output is not None:
