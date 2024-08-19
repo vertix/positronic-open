@@ -4,7 +4,7 @@ from typing import List, Tuple
 import numpy as np
 
 from control import ControlSystem, utils
-from geom import Transform3D, q_mul, q_inv
+from geom import Quaternion, Transform3D
 from hardware import Franka, Kinova
 from hardware import DHGripper
 from webxr import WebXR
@@ -13,19 +13,20 @@ from webxr import WebXR
 class TeleopSystem(ControlSystem):
     def __init__(self):
         super().__init__(
-            inputs=["teleop_transform", "teleop_buttons", "robot_transform"],
-            outputs=["transform", "gripper_width"])
+            inputs=["teleop_transform", "teleop_buttons", "robot_position"],
+            outputs=["robot_target_position", "gripper_target_grasp"])
 
     @classmethod
     def _parse_position(cls, value: Transform3D) -> Transform3D:
         pos = np.array([value.translation[2], value.translation[0], value.translation[1]])
-        quat = np.array([value.quaternion[0], value.quaternion[3], value.quaternion[1], value.quaternion[2]])
+        quat = Quaternion(value.quaternion[0], value.quaternion[3], value.quaternion[1], value.quaternion[2])
 
         # Don't ask my why these transformations, I just got them
         # Rotate quat 90 degrees around Y axis
-        rotation_y_90 = np.array([np.cos(-np.pi/4), 0, np.sin(-np.pi/4), 0])
-        res_quat = q_mul(rotation_y_90, quat)
-        res_quat = np.array([-res_quat[0], res_quat[1], res_quat[2], res_quat[3]])
+        res_quat = quat
+        rotation_y_90 = Quaternion(np.cos(-np.pi/4), 0, np.sin(-np.pi/4), 0)
+        res_quat = rotation_y_90 * quat
+        res_quat = Quaternion(-res_quat[0], res_quat[1], res_quat[2], res_quat[3])
         return Transform3D(pos, res_quat)
 
     @classmethod
@@ -44,31 +45,36 @@ class TeleopSystem(ControlSystem):
         is_tracking = False
 
         async for input_name, value in self.ins.read():
-            if input_name == "robot_transform":
+            if input_name == "robot_position":
                 robot_t = value
-            else:
-                if input_name == "teleop_transform":
-                    teleop_t = self._parse_position(value)
-                elif input_name == "teleop_buttons":
-                    track_but, untrack_but, grasp_but = self._parse_buttons(value)
+            elif input_name == "teleop_transform":
+                teleop_t = self._parse_position(value)
+                if is_tracking:
+                    if offset is not None:
+                        target = Transform3D(teleop_t.translation + offset.translation,
+                                             teleop_t.quaternion * offset.quaternion)
+                        await self.outs.robot_target_position.write(target)
+            elif input_name == "teleop_buttons":
+                track_but, untrack_but, grasp_but = self._parse_buttons(value)
+
+                if is_tracking: await self.outs.gripper_target_grasp.write(grasp_but)
 
                 if track_but:
                     # Note that translation and rotation offsets are independent
                     if teleop_t is not None and robot_t is not None:
                         offset = Transform3D(-teleop_t.translation + robot_t.translation,
-                                             q_mul(q_inv(teleop_t.quaternion), robot_t.quaternion))
-                    is_tracking = True
-                    print('Started tracking')
+                                             teleop_t.quaternion.inv * robot_t.quaternion)
+                        print(teleop_t)
+                        print(robot_t)
+                        print(offset)
+                    if not is_tracking:
+                        print('Started tracking')
+                        is_tracking = True
                 elif untrack_but:
-                    is_tracking = False
-                    offset = None
-                    print('Stopped tracking')
-                elif is_tracking:
-                    await self.outs.gripper_width.write(grasp_but)
-                    if offset is not None:
-                        target = Transform3D(teleop_t.translation + offset.translation,
-                                             q_mul(teleop_t.quaternion, offset.quaternion))
-                        await self.outs.transform.write(target)
+                    if is_tracking:
+                        print('Stopped tracking')
+                        is_tracking = False
+                        offset = None
 
 async def main():
     webxr = WebXR(port=5005)
@@ -79,10 +85,10 @@ async def main():
 
     teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
-    teleop.ins.robot_transform = kinova.outs.transform
+    teleop.ins.robot_position = kinova.outs.position
 
-    gripper.ins.grip = teleop.outs.gripper_width
-    kinova.ins.target_transform = teleop.outs.transform
+    gripper.ins.grip = teleop.outs.gripper_target_grasp
+    kinova.ins.target_position = teleop.outs.robot_target_position
 
     await asyncio.gather(teleop.run(), webxr.run(), kinova.run(), gripper.run())
 
