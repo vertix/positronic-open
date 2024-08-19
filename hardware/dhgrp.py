@@ -166,15 +166,14 @@ class DHGripper(EventSystem):
 
 async def _main():
     gripper = DHGripper("/dev/ttyUSB0")
-    gripper.ins.speed.write(20)
-    gripper.ins.force.write(100)
+    await gripper.ins.speed.write(20)
+    await gripper.ins.force.write(100)
 
     async def test():
         while True:
-            for width in (np.cos(np.linspace(0, 2 * np.pi, 15)) + 1) * 500:
-                await gripper.ins.grip.write(int(width))
-                print(int(width))
-                await asyncio.sleep(0.02)
+            for width in (np.sin(np.linspace(0, 2 * np.pi, 15)) + 1):
+                await gripper.ins.grip.write(width)
+                await asyncio.sleep(0.05)
 
     await asyncio.gather(test(), gripper.run())
 

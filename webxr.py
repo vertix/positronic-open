@@ -7,15 +7,9 @@ from fastapi.responses import JSONResponse
 from starlette.responses import FileResponse
 import uvicorn
 import numpy as np
-from scipy.spatial.transform import Rotation
 
 from control import ControlSystem
-from geom import Transform3D, q_mul
-
-
-# 2. Утолщить основу фланца, сделать дырки под болты
-# 3. Расширить крепления под болты гриппера
-# 4. Чуть расширить отверстия под болты гриппера
+from geom import Transform3D
 
 class WebXR(ControlSystem):
     def __init__(self, port: int, ssl_keyfile: str = "key.pem", ssl_certfile: str = "cert.pem"):
