@@ -19,8 +19,11 @@ dependencies:
   - pymodbus
   - pcre
   - poco
-  - pip
-  # - pip:
+  - pytorch
+  - pytorch3d
+  - pip:
+    - pytest
+    - ikpy[plot]
   #   - dm_control
     # - franky-panda
 
