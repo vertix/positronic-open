@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 
 class Franka(EventSystem):
     def __init__(self, ip: str, relative_dynamics_factor: float = 0.02, gripper_speed: float = 0.02,
-                 realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Enforce):
+                 realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Ignore):
         super().__init__(
-            inputs=["transform", "gripper_grasped"],
-            outputs=["transform", "gripper_grasped", "joint_positions"])
+            inputs=["target_position", "gripper_grasped"],
+            outputs=["position", "gripper_grasped", "joint_positions"])
 
         self.robot = franky.Robot(ip, realtime_config=realtime_config)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
@@ -28,29 +28,37 @@ class Franka(EventSystem):
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
         )
 
-        self.gripper = franky.Gripper(ip)
-        self.gripper_speed = gripper_speed
-        self.gripper_grasped = None
+        try:
+            self.gripper = franky.Gripper(ip)
+            self.gripper_speed = gripper_speed
+            self.gripper_grasped = None
+        except Exception as e:
+            logger.warning(f"Did not connect to gripper: {e}")
+            self.gripper = None
+            self.gripper_speed = 0.0
+            self.gripper_grasped = None
 
     async def on_start(self):
         self.robot.recover_from_errors()
-        motion = franky.CartesianMotion(franky.Affine([0.45, 0, 0.55], [1, 0, 0, 0]),
-                                        franky.ReferenceType.Absolute)
-        self.robot.move(motion)
-        self.gripper.homing()
-        self.gripper_grasped = False
+        self.robot.move(franky.JointWaypointMotion([
+            franky.JointWaypoint([0.0,  -0.31, 0.0, -1.83, 0.0, 1.522,  0.785])]))
+
+        if self.gripper:
+            self.gripper.homing()
+            self.gripper_grasped = False
 
         pos = self.robot.current_pose.end_effector_pose
-        await self.outs.transform.write(Transform3D(pos.translation, pos.quaternion))
+        await self.outs.position.write(Transform3D(pos.translation, pos.quaternion))
         await self.outs.joint_positions.write(self.robot.current_joint_state.position)
         await self.outs.gripper_grasped.write(self.gripper_grasped)
 
     async def on_stop(self):
         self.robot.stop()
-        self.gripper.open(self.gripper_speed)
+        if self.gripper:
+            self.gripper.open(self.gripper_speed)
 
-    @EventSystem.on_event('transform')
-    async def on_transform(self, value):
+    @EventSystem.on_event('target_position')
+    async def on_target_position(self, value):
         try:
             pos = franky.Affine(translation=value.translation, quaternion=value.quaternion)
             self.robot.move(franky.CartesianMotion(pos, franky.ReferenceType.Absolute), asynchronous=True)
@@ -59,7 +67,7 @@ class Franka(EventSystem):
             logger.warning(f"IK failed for {value}: {e}")
 
         pos = self.robot.current_pose.end_effector_pose
-        await self.outs.transform.write(Transform3D(pos.translation, pos.quaternion))
+        await self.outs.position.write(Transform3D(pos.translation, pos.quaternion))
         await self.outs.joint_positions.write(self.robot.current_joint_state.position)
 
     @EventSystem.on_event('gripper_grasped')

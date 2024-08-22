@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import List, Tuple
 
 import numpy as np
@@ -9,6 +10,9 @@ from hardware import Franka, Kinova
 from hardware import DHGripper
 from webxr import WebXR
 
+logging.basicConfig(level=logging.INFO,
+                     handlers=[logging.StreamHandler(),
+                               logging.FileHandler("teleop.log", mode="w")])
 
 class TeleopSystem(ControlSystem):
     def __init__(self):
@@ -64,33 +68,30 @@ class TeleopSystem(ControlSystem):
                     if teleop_t is not None and robot_t is not None:
                         offset = Transform3D(-teleop_t.translation + robot_t.translation,
                                              teleop_t.quaternion.inv * robot_t.quaternion)
-                        print(teleop_t)
-                        print(robot_t)
-                        print(offset)
                     if not is_tracking:
-                        print('Started tracking')
+                        logging.info('Started tracking')
                         is_tracking = True
                 elif untrack_but:
                     if is_tracking:
-                        print('Stopped tracking')
+                        logging.info('Stopped tracking')
                         is_tracking = False
                         offset = None
 
 async def main():
     webxr = WebXR(port=5005)
-    # franka = Franka("172.168.0.2", 0.2, 0.4, franky.RealtimeConfig.Ignore)
-    kinova = Kinova('192.168.1.10')
+    franka = Franka("172.168.0.2", 0.2, 0.4)
+    # kinova = Kinova('192.168.1.10')
     gripper = DHGripper("/dev/ttyUSB0")
     teleop = TeleopSystem()
 
     teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
-    teleop.ins.robot_position = kinova.outs.position
+    teleop.ins.robot_position = franka.outs.position
 
     gripper.ins.grip = teleop.outs.gripper_target_grasp
-    kinova.ins.target_position = teleop.outs.robot_target_position
+    franka.ins.target_position = teleop.outs.robot_target_position
 
-    await asyncio.gather(teleop.run(), webxr.run(), kinova.run(), gripper.run())
+    await asyncio.gather(teleop.run(), webxr.run(), franka.run(), gripper.run())
 
 
 if __name__ == "__main__":
