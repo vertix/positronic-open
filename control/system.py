@@ -46,19 +46,28 @@ class InputPort:
         Send a value to the parent system's control loop.
         If there are unread values, they are discarded.
         """
-        while not self.queue.empty():
-            self.queue.get_nowait()
+        if self.queue.full():
+            await self.queue.get()
+            self.queue.task_done()
         logger.debug(f"Write to {self.name}")
         await self.queue.put(value)
+        await asyncio.sleep(0)  # Yield control to let readers to catch up
 
     async def read(self, timeout: float = None):
         """
         Read a value from the input port. Returns None if timeout is reached.
         """
-        try:
-            return await asyncio.wait_for(self.queue.get(), timeout)
-        except asyncio.TimeoutError:
-            return None
+        if timeout is None:
+            res = await self.queue.get()
+        else:
+            try:
+                res = await asyncio.wait_for(self.queue.get(), timeout)
+            except asyncio.TimeoutError:
+                return None
+        self.queue.task_done()
+        logger.debug(f"Read from {self.name}")
+        return res
+
 
 
 class PortContainer:
@@ -108,7 +117,7 @@ class InputPortContainer(PortContainer):
 
             for task in done:
                 name = tasks.pop(task)
-                value = await task
+                value = task.result()
                 logger.debug(f"Read from {name}")
                 yield name, value
                 tasks[asyncio.create_task(self._ports[name].queue.get())] = name
