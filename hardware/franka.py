@@ -1,15 +1,16 @@
 import logging
+import time
 
 import franky
 
-from control import EventSystem
+from control import ControlSystem
 from geom import Transform3D
 
 logger = logging.getLogger(__name__)
 
 
-class Franka(EventSystem):
-    def __init__(self, ip: str, relative_dynamics_factor: float = 0.02, gripper_speed: float = 0.02,
+class Franka(ControlSystem):
+    def __init__(self, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
                  realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Ignore):
         super().__init__(
             inputs=["target_position", "gripper_grasped"],
@@ -27,6 +28,7 @@ class Franka(EventSystem):
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
         )
+        self.time_diff = None
 
         try:
             self.gripper = franky.Gripper(ip)
@@ -38,6 +40,18 @@ class Franka(EventSystem):
             self.gripper_speed = 0.0
             self.gripper_grasped = None
 
+    def _to_time(self, state: franky.RobotState):
+        return
+
+    async def _write_outputs(self, state: franky.RobotState):
+        pos, joints, state = self.robot.current_pose.end_effector_pose, self.robot.current_joint_state, self.robot.state
+        timestamp = int((state.time.to_sec() + self.time_diff) * 1000)
+
+        await self.outs.position.write(Transform3D(pos.translation, pos.quaternion), timestamp)
+        await self.outs.joint_positions.write(joints.position, timestamp)
+        if self.gripper:
+            await self.outs.gripper_grasped.write(self.gripper_grasped, timestamp)
+
     async def on_start(self):
         self.robot.recover_from_errors()
         self.robot.move(franky.JointWaypointMotion([
@@ -47,17 +61,32 @@ class Franka(EventSystem):
             self.gripper.homing()
             self.gripper_grasped = False
 
-        pos = self.robot.current_pose.end_effector_pose
-        await self.outs.position.write(Transform3D(pos.translation, pos.quaternion))
-        await self.outs.joint_positions.write(self.robot.current_joint_state.position)
-        await self.outs.gripper_grasped.write(self.gripper_grasped)
+        self.time_diff = time.monotonic() - self.robot.state.time.to_sec()
+        await self._write_outputs(self.robot.state)
 
     async def on_stop(self):
         self.robot.stop()
         if self.gripper:
             self.gripper.open(self.gripper_speed)
 
-    @EventSystem.on_event('target_position')
+    async def run(self):
+        await self.on_start()
+        try:
+            async for name, _ts, value in self.ins.read(timeout=None):
+                if name == "target_position":
+                    await self.on_target_position(value)
+                elif name == "gripper_grasped":
+                    await self.on_gripper_grasped(value)
+
+                pos = self.robot.current_pose.end_effector_pose
+                await self.outs.position.write(Transform3D(pos.translation, pos.quaternion))
+                await self.outs.joint_positions.write(self.robot.current_joint_state.position)
+
+                if self.gripper:
+                    await self.outs.gripper_grasped.write(self.gripper_grasped)
+        finally:
+            await self.on_stop()
+
     async def on_target_position(self, value):
         try:
             pos = franky.Affine(translation=value.translation, quaternion=value.quaternion)
@@ -66,11 +95,7 @@ class Franka(EventSystem):
             self.robot.recover_from_errors()
             logger.warning(f"IK failed for {value}: {e}")
 
-        pos = self.robot.current_pose.end_effector_pose
-        await self.outs.position.write(Transform3D(pos.translation, pos.quaternion))
-        await self.outs.joint_positions.write(self.robot.current_joint_state.position)
 
-    @EventSystem.on_event('gripper_grasped')
     async def on_gripper_grasped(self, value):
         if self.gripper_grasped:
             if value < 0.33:
@@ -84,5 +109,3 @@ class Franka(EventSystem):
                     self.gripper_grasped = True
                 except franky.CommandException as e:
                     logger.warning(f"Grasping failed: {e}")
-
-        await self.outs.gripper_grasped.write(self.gripper_grasped)

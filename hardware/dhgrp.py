@@ -38,17 +38,17 @@ class DHGripper(EventSystem):
         await asyncio.sleep(0.5)
 
     @EventSystem.on_event('grip')
-    async def on_grip(self, value):
+    async def on_grip(self, _ts, value):
         """Accepts value in range [0, 1]. 0 means fully open, 1 means fully closed."""
         width = round((1 - value) * 1000)
         self.client.write_register(0x103, c_uint16(width).value, slave=1)
 
     @EventSystem.on_event('force')
-    async def on_force(self, value):
+    async def on_force(self, _ts, value):
         self.client.write_register(0x101, c_uint16(value).value, slave=1)
 
     @EventSystem.on_event('speed')
-    async def on_speed(self, value):
+    async def on_speed(self, _ts, value):
         self.client.write_register(0x104, c_uint16(value).value, slave=1)
 
 # connection = client.connect()

@@ -48,7 +48,7 @@ class TeleopSystem(ControlSystem):
         offset = None
         is_tracking = False
 
-        async for input_name, value in self.ins.read():
+        async for input_name, _ts, value in self.ins.read():
             if input_name == "robot_position":
                 robot_t = value
             elif input_name == "teleop_transform":
@@ -79,19 +79,19 @@ class TeleopSystem(ControlSystem):
 
 async def main():
     webxr = WebXR(port=5005)
-    franka = Franka("172.168.0.2", 0.2, 0.4)
+    franka = Franka("172.168.0.2", 0.6, 0.4)
     # kinova = Kinova('192.168.1.10')
-    gripper = DHGripper("/dev/ttyUSB0")
+    # gripper = DHGripper("/dev/ttyUSB0")
     teleop = TeleopSystem()
 
     teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
     teleop.ins.robot_position = franka.outs.position
 
-    gripper.ins.grip = teleop.outs.gripper_target_grasp
+    # gripper.ins.grip = teleop.outs.gripper_target_grasp
     franka.ins.target_position = teleop.outs.robot_target_position
 
-    await asyncio.gather(teleop.run(), webxr.run(), franka.run(), gripper.run())
+    await asyncio.gather(teleop.run(), webxr.run(), franka.run()) #, gripper.run())
 
 
 if __name__ == "__main__":

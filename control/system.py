@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import asyncio
 import logging
-from typing import Any, List
+from typing import Any, List, Optional
 
 # Set up logging
 logging.basicConfig(level=logging.WARNING)
@@ -14,12 +14,19 @@ class OutputPort:
     def __init__(self):
         self.bound_to = []
 
-    async def write(self, value: Any):
+    async def write(self, value: Any, timestamp: Optional[int] = None):
         """
         Write a value to all bound input ports.
         """
         for port in self.bound_to:
-            await port.write(value)
+            await port.write(value, timestamp)
+
+    @property
+    def subscribed(self):
+        """
+        Check if the port is subscribed to by any input ports.
+        """
+        return len(self.bound_to) > 0
 
 
 class InputPort:
@@ -41,7 +48,7 @@ class InputPort:
         self.bound_to = port
         port.bound_to.append(self)
 
-    async def write(self, value: Any):
+    async def write(self, value: Any, timestamp: Optional[int] = None):
         """
         Send a value to the parent system's control loop.
         If there are unread values, they are discarded.
@@ -50,20 +57,20 @@ class InputPort:
             await self.queue.get()
             self.queue.task_done()
         logger.debug(f"Write to {self.name}")
-        await self.queue.put(value)
+        await self.queue.put((timestamp, value))
         await asyncio.sleep(0)  # Yield control to let readers to catch up
 
-    async def read(self, timeout: float = None):
+    async def read(self, timeout: Optional[float] = None):
         """
         Read a value from the input port. Returns None if timeout is reached.
         """
-        if timeout is None:
-            res = await self.queue.get()
-        else:
-            try:
+        try:
+            if timeout is None:
+                res = await self.queue.get()
+            else:
                 res = await asyncio.wait_for(self.queue.get(), timeout)
-            except asyncio.TimeoutError:
-                return None
+        except asyncio.TimeoutError:
+            return None
         self.queue.task_done()
         logger.debug(f"Read from {self.name}")
         return res
@@ -101,7 +108,7 @@ class InputPortContainer(PortContainer):
             raise TypeError(f"Expected OutputPort, got {type(value).__name__}")
         self._ports[name].bind(value)
 
-    async def read(self, timeout: float = None):
+    async def read(self, timeout: Optional[float] = None):
         """
         Async generator to yield values from any of the input ports as they arrive,
         or yield None if the timeout is reached.
@@ -112,14 +119,14 @@ class InputPortContainer(PortContainer):
         while tasks:
             done, _ = await asyncio.wait(tasks.keys(), timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
             if not done:
-                yield None, None
+                yield None, None, None
                 continue
 
             for task in done:
                 name = tasks.pop(task)
                 value = task.result()
                 logger.debug(f"Read from {name}")
-                yield name, value
+                yield name, value[0], value[1]
                 tasks[asyncio.create_task(self._ports[name].queue.get())] = name
 
 
@@ -203,9 +210,9 @@ class EventSystem(ControlSystem):
         """
         await self.on_start()
         try:
-            async for name, value in self.ins.read():
+            async for name, ts, value in self.ins.read():
                 if name in self._handlers:
-                    await self._handlers[name](value)
+                    await self._handlers[name](ts, value)
                 await self.on_after_input()
         except asyncio.CancelledError:
             pass

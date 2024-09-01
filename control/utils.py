@@ -12,7 +12,7 @@ class Logger(ControlSystem):
         self.level = level
 
     async def run(self):
-        async for name, value in self._inputs.read():
+        async for name, _ts, value in self._inputs.read():
             logging.log(self.level, f"{name}: {value}")
 
 
@@ -43,6 +43,6 @@ class Map(ControlSystem):
         """
         Control loop coroutine.
         """
-        async for name, value in self._inputs.read():
+        async for name, _ts, value in self._inputs.read():
             map_fn = self.map_fns.get(name, self.default_map_fn)
             await self.outs[name].write(map_fn(name, value))

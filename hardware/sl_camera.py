@@ -65,7 +65,7 @@ async def _main():
             video_writer = None
             try:
                 while True:
-                    record = await self.ins.record.read()
+                    _, record = await self.ins.record.read()
                     if record is None or not record.success:
                         continue
 

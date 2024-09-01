@@ -298,7 +298,7 @@ class Kinova(ControlSystem):
         control_thread.start()
 
         try:
-            async for input_name, value in self.ins.read(1 / 40):
+            async for input_name, _ts, value in self.ins.read(1 / 40):
                 if input_name == "target_position":
                     target_joints = controller.inverse_kinematics(value)
                     if target_joints is not None:
@@ -330,10 +330,10 @@ async def _main():
             super().__init__(inputs=["robot_pos", "joints"], outputs=["target_pos"])
 
         async def run(self):
-            robot_pos = await self.ins.robot_pos.read()
+            _, robot_pos = await self.ins.robot_pos.read()
             start_time = time.time()
             last_command_time = None
-            async for input_name, value in self.ins.read(1 / 50):
+            async for input_name, _ts, value in self.ins.read(1 / 50):
                 # if input_name == "robot_pos":
                 #     print(robot_pos)
 
