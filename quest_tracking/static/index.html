@@ -108,7 +108,7 @@
 
         function sendTrackingData(pos, orient, buttons) {
           const now = Date.now();
-          const hertz = 12;
+          const hertz = 40;
           if (now - lastSentTime < 1000 / hertz) {
             return;
           }
