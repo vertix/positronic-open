@@ -8,6 +8,7 @@ from control import ControlSystem, utils
 from geom import Quaternion, Transform3D
 from hardware import Franka, Kinova
 from hardware import DHGripper
+from tools.rerun import Rerun
 from webxr import WebXR
 
 logging.basicConfig(level=logging.INFO,
@@ -79,10 +80,14 @@ class TeleopSystem(ControlSystem):
 
 async def main():
     webxr = WebXR(port=5005)
-    franka = Franka("172.168.0.2", 0.6, 0.4)
+    franka = Franka("172.168.0.2", 0.4, 0.4, reporting_frequency=10)
     # kinova = Kinova('192.168.1.10')
     # gripper = DHGripper("/dev/ttyUSB0")
     teleop = TeleopSystem()
+
+    rerun = Rerun("teleop",
+                  connect="127.0.0.1:9876",
+                  inputs={"ext_force_ee": None, 'ext_force_base': None})
 
     teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
@@ -91,7 +96,10 @@ async def main():
     # gripper.ins.grip = teleop.outs.gripper_target_grasp
     franka.ins.target_position = teleop.outs.robot_target_position
 
-    await asyncio.gather(teleop.run(), webxr.run(), franka.run()) #, gripper.run())
+    rerun.ins.ext_force_ee = franka.outs.ext_force_ee
+    rerun.ins.ext_force_base = franka.outs.ext_force_base
+
+    await asyncio.gather(teleop.run(), webxr.run(), franka.run(), rerun.run())
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import Optional
 
 import franky
 
@@ -11,10 +12,15 @@ logger = logging.getLogger(__name__)
 
 class Franka(ControlSystem):
     def __init__(self, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
+                 reporting_frequency: Optional[float] = None,
                  realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Ignore):
+        """
+        Args:
+            reporting_frequency: Frequency at which to report outputs. If None, they will be reported only on inputs.
+        """
         super().__init__(
             inputs=["target_position", "gripper_grasped"],
-            outputs=["position", "gripper_grasped", "joint_positions"])
+            outputs=["position", "gripper_grasped", "joint_positions", "ext_force_base", "ext_force_ee"])
 
         self.robot = franky.Robot(ip, realtime_config=realtime_config)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
@@ -29,6 +35,7 @@ class Franka(ControlSystem):
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
         )
         self.time_diff = None
+        self.reporting_frequency = reporting_frequency
 
         try:
             self.gripper = franky.Gripper(ip)
@@ -43,7 +50,7 @@ class Franka(ControlSystem):
     def _to_time(self, state: franky.RobotState):
         return
 
-    async def _write_outputs(self, state: franky.RobotState):
+    async def _write_outputs(self):
         pos, joints, state = self.robot.current_pose.end_effector_pose, self.robot.current_joint_state, self.robot.state
         timestamp = int((state.time.to_sec() + self.time_diff) * 1000)
 
@@ -52,17 +59,22 @@ class Franka(ControlSystem):
         if self.gripper:
             await self.outs.gripper_grasped.write(self.gripper_grasped, timestamp)
 
+        if self.outs.ext_force_base.subscribed:
+            await self.outs.ext_force_base.write(state.O_F_ext_hat_K, timestamp)
+        if self.outs.ext_force_ee.subscribed:
+            await self.outs.ext_force_ee.write(state.K_F_ext_hat_K, timestamp)
+
     async def on_start(self):
         self.robot.recover_from_errors()
         self.robot.move(franky.JointWaypointMotion([
-            franky.JointWaypoint([0.0,  -0.31, 0.0, -1.83, 0.0, 1.522,  0.785])]))
+            franky.JointWaypoint([0.0,  -0.31, 0.0, -1.53, 0.0, 1.522,  0.785])]))
 
         if self.gripper:
             self.gripper.homing()
             self.gripper_grasped = False
 
         self.time_diff = time.monotonic() - self.robot.state.time.to_sec()
-        await self._write_outputs(self.robot.state)
+        await self._write_outputs()
 
     async def on_stop(self):
         self.robot.stop()
@@ -72,18 +84,14 @@ class Franka(ControlSystem):
     async def run(self):
         await self.on_start()
         try:
-            async for name, _ts, value in self.ins.read(timeout=None):
+            to = 1.0 / self.reporting_frequency if self.reporting_frequency is not None else None
+            async for name, _ts, value in self.ins.read(timeout=to):
                 if name == "target_position":
                     await self.on_target_position(value)
                 elif name == "gripper_grasped":
                     await self.on_gripper_grasped(value)
 
-                pos = self.robot.current_pose.end_effector_pose
-                await self.outs.position.write(Transform3D(pos.translation, pos.quaternion))
-                await self.outs.joint_positions.write(self.robot.current_joint_state.position)
-
-                if self.gripper:
-                    await self.outs.gripper_grasped.write(self.gripper_grasped)
+                await self._write_outputs()
         finally:
             await self.on_stop()
 
@@ -94,7 +102,6 @@ class Franka(ControlSystem):
         except franky.ControlException as e:
             self.robot.recover_from_errors()
             logger.warning(f"IK failed for {value}: {e}")
-
 
     async def on_gripper_grasped(self, value):
         if self.gripper_grasped:

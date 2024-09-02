@@ -14,7 +14,6 @@ from control.system import EventSystem
 @dataclass
 class Record:
     success: bool
-    ts_ms: Optional[int] = None
     image: Optional[sl.Mat] = None
 
 
@@ -48,7 +47,7 @@ class SLCamera(ControlSystem):
                     continue
 
                 ts_ms = zed.get_timestamp(sl.TIME_REFERENCE.IMAGE).get_milliseconds()
-                await self.outs.record.write(Record(success=True, ts_ms=ts_ms, image=image))
+                await self.outs.record.write(Record(success=True, image=image), timestamp=ts_ms)
         finally:
             zed.close()
 
