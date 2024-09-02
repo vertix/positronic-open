@@ -6,9 +6,8 @@ import numpy as np
 
 from control import ControlSystem, utils
 from geom import Quaternion, Transform3D
-from hardware import Franka, Kinova
-from hardware import DHGripper
-from tools.rerun import Rerun
+from hardware import Franka, Kinova, DHGripper, sl_camera
+from tools import rerun
 from webxr import WebXR
 
 logging.basicConfig(level=logging.INFO,
@@ -84,10 +83,7 @@ async def main():
     # kinova = Kinova('192.168.1.10')
     # gripper = DHGripper("/dev/ttyUSB0")
     teleop = TeleopSystem()
-
-    rerun = Rerun("teleop",
-                  connect="127.0.0.1:9876",
-                  inputs={"ext_force_ee": None, 'ext_force_base': None})
+    cam = sl_camera.SLCamera(fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
 
     teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
@@ -96,10 +92,18 @@ async def main():
     # gripper.ins.grip = teleop.outs.gripper_target_grasp
     franka.ins.target_position = teleop.outs.robot_target_position
 
-    rerun.ins.ext_force_ee = franka.outs.ext_force_ee
-    rerun.ins.ext_force_base = franka.outs.ext_force_base
+    rr = rerun.Rerun("teleop",
+                     connect="127.0.0.1:9876",
+                     inputs={"ext_force_ee": None, 'ext_force_base': None, 'image': rerun.log_image})
+    rr.ins.ext_force_ee = franka.outs.ext_force_ee
+    rr.ins.ext_force_base = franka.outs.ext_force_base
 
-    await asyncio.gather(teleop.run(), webxr.run(), franka.run(), rerun.run())
+    @utils.mapping_port
+    def image(record):
+        return record.image.get_data()
+    rr.ins.image = image(cam.outs.record)
+
+    await asyncio.gather(teleop.run(), webxr.run(), franka.run(), rr.run(), cam.run())
 
 
 if __name__ == "__main__":

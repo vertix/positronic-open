@@ -8,21 +8,21 @@ import cv2
 import pyzed.sl as sl
 
 from control import ControlSystem
-from control.system import EventSystem
 
+SlImage = sl.Mat
 
 @dataclass
 class Record:
     success: bool
-    image: Optional[sl.Mat] = None
+    image: Optional[SlImage] = None
 
 
 class SLCamera(ControlSystem):
-    def __init__(self, fps=30, view=sl.VIEW.LEFT):
+    def __init__(self, fps=30, view=sl.VIEW.LEFT, resolution=sl.RESOLUTION.AUTO):
         super().__init__(inputs=[], outputs=['record'])
 
         self.init_params = sl.InitParameters()
-        self.init_params.camera_resolution = sl.RESOLUTION.AUTO
+        self.init_params.camera_resolution = resolution
         self.init_params.camera_fps = fps
         self.init_params.depth_mode = sl.DEPTH_MODE.NONE
         self.init_params.sdk_verbose = 1

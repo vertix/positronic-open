@@ -1,6 +1,19 @@
-from typing import Any, Callable, List
-from .system import ControlSystem
+from typing import Any, Callable, List, Optional
+from .system import ControlSystem, OutputPort
 import logging
+
+
+def mapping_port(fn: Callable[[Any], Any]):
+    class _MapOutputPort(OutputPort):
+        def __init__(self, original: OutputPort):
+            super().__init__()
+            self.original = original
+            self.original.bound_to.append(self)
+
+        async def write(self, value: Any, timestamp: Optional[int] = None):
+            await super().write(fn(value), timestamp)
+
+    return _MapOutputPort
 
 
 class Logger(ControlSystem):
@@ -16,7 +29,7 @@ class Logger(ControlSystem):
             logging.log(self.level, f"{name}: {value}")
 
 
-class Map(ControlSystem):
+class MapSystem(ControlSystem):
     """
     Map is a System that applies a mapping function to its input ports and writes the result to
     the corresponding output ports. The mapping function can be specified for each input port
