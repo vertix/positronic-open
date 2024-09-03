@@ -19,6 +19,8 @@ dependencies:
   - pytorch
   - pytorch3d
   - opencv
+  - av
   - pip
   - pip:
     - pytest
+    - lerobot

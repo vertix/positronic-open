@@ -2,11 +2,13 @@
 
 import asyncio
 from dataclasses import dataclass
+import queue
+import time
 from typing import Optional
 import threading
 from queue import Queue
 
-import cv2
+import av
 import pyzed.sl as sl
 
 from control import ControlSystem
@@ -60,11 +62,78 @@ class SLCamera(ControlSystem):
         thread.start()
         try:
             while True:
-                success, image, ts_ms = await asyncio.get_event_loop().run_in_executor(None, self.queue.get)
-                if not success:
-                    await self.outs.record.write(Record(success=False))
-                else:
-                    await self.outs.record.write(Record(success=True, image=image), timestamp=ts_ms)
+                try:
+                    success, image, ts_ms = self.queue.get_nowait()
+                    if not success:
+                        await self.outs.record.write(Record(success=False))
+                    else:
+                        await self.outs.record.write(Record(success=True, image=image), timestamp=ts_ms)
+                except queue.Empty:
+                    await asyncio.sleep(0.1)
+                    continue
+        finally:
+            self.stop_event.set()
+            thread.join()
+
+class VideoDumper(ControlSystem):
+    def __init__(self, filename: str, fps: int, width: int = None, height: int = None, codec: str = 'libx264'):
+        super().__init__(inputs=['record'], outputs=[])
+        self.filename = filename
+        self.fps = fps
+        self.width = width
+        self.height = height
+        self.codec = codec
+        self.queue = queue.Queue(maxsize=fps * 5)
+        self.stop_event = threading.Event()
+
+    def encode_video(self):
+        container = av.open(self.filename, mode='w', format='mp4')
+        stream = container.add_stream(self.codec, rate=self.fps)
+        stream.pix_fmt = 'yuv420p'
+        stream.options = {'crf': '27', 'g': '2', 'preset': 'ultrafast', 'tune': 'zerolatency'}
+        first_frame = True
+
+        try:
+            while not self.stop_event.is_set():
+                record = self.queue.get()
+                if record is None or not record.success:
+                    continue
+
+                image = record.image
+                if first_frame:
+                    first_frame = False
+                    frame_count = 0
+                    start_time = time.time()
+                    stream.width = self.width or image.get_width()
+                    stream.height = self.height or image.get_height()
+
+                frame = av.VideoFrame.from_ndarray(image.get_data()[:, :, :3], format='bgr24')
+                packet = stream.encode(frame)
+                container.mux(packet)
+                frame_count += 1
+
+                if frame_count % 30 == 0:
+                    print(f"Current FPS: {frame_count / (time.time() - start_time):.2f}")
+        finally:
+            packet = stream.encode(None)
+            container.mux(packet)
+            container.close()
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            print(f"Total frames written: {frame_count}")
+            print(f"Total time taken: {elapsed_time:.2f} seconds")
+            print(f"Average FPS: {frame_count / elapsed_time:.2f}")
+
+    async def run(self):
+        thread = threading.Thread(target=self.encode_video)
+        thread.start()
+        try:
+            while True:
+                _, record = await self.ins.record.read()
+                try:
+                    self.queue.put_nowait(record)
+                except queue.Full:
+                    continue
         finally:
             self.stop_event.set()
             thread.join()
@@ -72,36 +141,15 @@ class SLCamera(ControlSystem):
 
 # Test SLCamera system
 async def _main():
-    class VideoDumper(ControlSystem):
-        def __init__(self, filename: str, fps: int):
-            super().__init__(inputs=['record'], outputs=[])
-            self.filename = filename
-            self.fps = fps
 
-        async def run(self):
-            video_writer = None
-            try:
-                while True:
-                    _, record = await self.ins.record.read()
-                    if record is None or not record.success:
-                        continue
-
-                    image = record.image
-                    if video_writer is None:
-                        video_writer = cv2.VideoWriter(self.filename, cv2.VideoWriter_fourcc(*'XVID'),
-                                                       self.fps, (image.get_width(), image.get_height()))
-
-                    video_writer.write(cv2.cvtColor(image.get_data()[:, :, :3], cv2.COLOR_BGR2RGB))
-            finally:
-                if video_writer is not None:
-                    video_writer.release()
-
-
-    camera = SLCamera(fps=30, view=sl.VIEW.SIDE_BY_SIDE)
-    video_dumper = VideoDumper("video.avi", 30)
+    camera = SLCamera(fps=15, view=sl.VIEW.SIDE_BY_SIDE, resolution=sl.RESOLUTION.VGA)
+    video_dumper = VideoDumper("video.mp4", 15, codec='libx264')
     video_dumper.ins.record = camera.outs.record
 
     await asyncio.gather(video_dumper.run(), camera.run())
 
 if __name__ == "__main__":
-    asyncio.run(_main())
+    try:
+        asyncio.run(_main())
+    except KeyboardInterrupt:
+        print("Program interrupted by user, exiting...")
