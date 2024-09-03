@@ -96,9 +96,9 @@ async def main():
                      inputs={"ext_force_ee": rerun.log_array, 'ext_force_base': rerun.log_array, 'image': rerun.log_image})
 
     cam = sl_camera.SLCamera(fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
-    @utils.mapping_port
+    @utils.map_port
     def image(record):
-        return record.image.get_data()
+        return record.image.get_data()[:, :, :3]
     rr.ins.image = image(cam.outs.record)
 
     rr.ins.ext_force_ee = franka.outs.ext_force_ee

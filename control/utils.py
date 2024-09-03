@@ -3,7 +3,7 @@ from .system import ControlSystem, OutputPort
 import logging
 
 
-def mapping_port(fn: Callable[[Any], Any]):
+def map_port(fn: Callable[[Any], Any]):
     class _MapOutputPort(OutputPort):
         def __init__(self, original: OutputPort):
             super().__init__()

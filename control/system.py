@@ -76,7 +76,6 @@ class InputPort:
         return res
 
 
-
 class PortContainer:
     def __init__(self, ports: List[str]):
         self._ports = {name: OutputPort() for name in ports}
