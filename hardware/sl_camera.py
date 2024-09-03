@@ -3,6 +3,8 @@
 import asyncio
 from dataclasses import dataclass
 from typing import Optional
+import threading
+from queue import Queue
 
 import cv2
 import pyzed.sl as sl
@@ -28,28 +30,44 @@ class SLCamera(ControlSystem):
         self.init_params.sdk_verbose = 1
 
         self.view = view
+        self.queue = Queue()
+        self.stop_event = threading.Event()
 
-    async def run(self):
+    def read_camera_data(self):
         zed = sl.Camera()
         zed.open(self.init_params)
         try:
-            while True:
+            while not self.stop_event.is_set():
                 result = zed.grab()
                 if result != sl.ERROR_CODE.SUCCESS:
                     # TODO: Should we be more specific about the error?
                     # See(https://www.stereolabs.com/docs/api/python/classpyzed_1_1sl_1_1ERROR__CODE.html)
-                    await self.outs.record.write(Record(success=False))
+                    self.queue.put((False, None, None))
                     continue
 
                 image = sl.Mat()
                 if zed.retrieve_image(image, self.view) != sl.ERROR_CODE.SUCCESS:
-                    await self.outs.record.write(Record(success=False))
+                    self.queue.put((False, None, None))
                     continue
 
                 ts_ms = zed.get_timestamp(sl.TIME_REFERENCE.IMAGE).get_milliseconds()
-                await self.outs.record.write(Record(success=True, image=image), timestamp=ts_ms)
+                self.queue.put((True, image, ts_ms))
         finally:
             zed.close()
+
+    async def run(self):
+        thread = threading.Thread(target=self.read_camera_data)
+        thread.start()
+        try:
+            while True:
+                success, image, ts_ms = await asyncio.get_event_loop().run_in_executor(None, self.queue.get)
+                if not success:
+                    await self.outs.record.write(Record(success=False))
+                else:
+                    await self.outs.record.write(Record(success=True, image=image), timestamp=ts_ms)
+        finally:
+            self.stop_event.set()
+            thread.join()
 
 
 # Test SLCamera system

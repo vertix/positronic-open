@@ -34,7 +34,6 @@ class Franka(ControlSystem):
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
         )
-        self.time_diff = None
         self.reporting_frequency = reporting_frequency
 
         try:
@@ -47,22 +46,19 @@ class Franka(ControlSystem):
             self.gripper_speed = 0.0
             self.gripper_grasped = None
 
-    def _to_time(self, state: franky.RobotState):
-        return
-
     async def _write_outputs(self):
         pos, joints, state = self.robot.current_pose.end_effector_pose, self.robot.current_joint_state, self.robot.state
-        timestamp = int((state.time.to_sec() + self.time_diff) * 1000)
+        ts = int(time.time() * 1000)
 
-        await self.outs.position.write(Transform3D(pos.translation, pos.quaternion), timestamp)
-        await self.outs.joint_positions.write(joints.position, timestamp)
+        await self.outs.position.write(Transform3D(pos.translation, pos.quaternion), ts)
+        await self.outs.joint_positions.write(joints.position, ts)
         if self.gripper:
-            await self.outs.gripper_grasped.write(self.gripper_grasped, timestamp)
+            await self.outs.gripper_grasped.write(self.gripper_grasped, ts)
 
         if self.outs.ext_force_base.subscribed:
-            await self.outs.ext_force_base.write(state.O_F_ext_hat_K, timestamp)
+            await self.outs.ext_force_base.write(state.O_F_ext_hat_K, ts)
         if self.outs.ext_force_ee.subscribed:
-            await self.outs.ext_force_ee.write(state.K_F_ext_hat_K, timestamp)
+            await self.outs.ext_force_ee.write(state.K_F_ext_hat_K, ts)
 
     async def on_start(self):
         self.robot.recover_from_errors()
@@ -73,7 +69,6 @@ class Franka(ControlSystem):
             self.gripper.homing()
             self.gripper_grasped = False
 
-        self.time_diff = time.monotonic() - self.robot.state.time.to_sec()
         await self._write_outputs()
 
     async def on_stop(self):
