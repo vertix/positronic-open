@@ -62,7 +62,7 @@ class ThreadWorld(World):
         thread = threading.Thread(target=thread_target)
         try:
             thread.start()
-            thread.join()
+            await asyncio.to_thread(thread.join)
         finally:
             print("Stopping ThreadWorld")
             stop_event.set()

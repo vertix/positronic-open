@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import asyncio
+import queue
 from typing import Any, List, Optional
 
 class OutputPort:
@@ -69,6 +70,25 @@ class AsyncioInputPort(InputPort):
         return res
 
 
+class ThreadedInputPort(InputPort):
+    def __init__(self, binded_to: OutputPort):
+        self.queue = queue.Queue(maxsize=5)
+        binded_to._bind(self._write)
+
+    async def _write(self, value: Any, timestamp: Optional[int] = None):
+        await asyncio.get_running_loop().run_in_executor(
+            None, self.queue.put, (timestamp, value)
+        )
+
+    async def read(self, timeout: Optional[float] = None):
+        try:
+            return await asyncio.get_running_loop().run_in_executor(
+                None, self.queue.get, True, timeout
+            )
+        except queue.Empty:
+            return None
+
+
 class OutputPortContainer:
     def __init__(self, world, ports: List[str]):
         self._ports = {name: OutputPort(world) for name in ports}
@@ -89,7 +109,7 @@ class InputPortContainer(OutputPortContainer):
         if self.world == output_port.world:
             return AsyncioInputPort(output_port)
         else:
-            raise ValueError("Cross world binding is not supported")
+            return ThreadedInputPort(output_port)
 
     def __setattr__(self, name: str, output_port: Any):
         """

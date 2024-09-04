@@ -7,6 +7,7 @@ import numpy as np
 import yappi
 
 from control import ControlSystem, utils, World, MainThreadWorld
+from control.world import ThreadWorld
 from geom import Quaternion, Transform3D
 from hardware import Franka, DHGripper, sl_camera
 from tools import rerun as rr_tools
@@ -90,7 +91,9 @@ async def main(rerun, dh_gripper):
     world = MainThreadWorld()
     webxr = WebXR(world, port=5005)
     franka = Franka(world, "172.168.0.2", 0.4, 0.4, reporting_frequency=10)
-    teleop = TeleopSystem(world)
+
+    teleop_world = ThreadWorld()
+    teleop = TeleopSystem(teleop_world)
 
     teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
@@ -101,7 +104,6 @@ async def main(rerun, dh_gripper):
         gripper.ins.grip = teleop.outs.gripper_target_grasp
 
     franka.ins.target_position = teleop.outs.robot_target_position
-
     cam = sl_camera.SLCamera(world, fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
 
     # data_dumper = LerobotDatasetDumper(world, '', '')
@@ -128,7 +130,7 @@ async def main(rerun, dh_gripper):
     yappi.set_clock_type("cpu")
     yappi.start(profile_threads=False)
     try:
-        await world.run()
+        await asyncio.gather(world.run(), teleop_world.run(), cam_world.run())
     finally:
         print("Program interrupted by user, exiting...")
         yappi.stop()
