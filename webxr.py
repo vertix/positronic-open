@@ -78,7 +78,7 @@ class WebXR(ControlSystem):
         self.server_thread.start()
 
         try:
-            fps = FPSCounter("WebXR")
+            fps = FPSCounter("WebXR ")
             while True:
                 data = await asyncio.to_thread(self.data_queue.get)
                 pos = np.array(data['position'])

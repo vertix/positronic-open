@@ -89,7 +89,6 @@ async def main(rerun, dh_gripper):
     systems = []
     webxr = WebXR(port=5005)
     franka = Franka("172.168.0.2", 0.4, 0.4, reporting_frequency=10)
-    # kinova = Kinova('192.168.1.10')
     teleop = TeleopSystem()
 
     teleop.ins.teleop_transform = webxr.outs.transform
@@ -131,7 +130,7 @@ async def main(rerun, dh_gripper):
         rr.ins.ext_force_base = franka.outs.ext_force_base
 
     yappi.set_clock_type("cpu")
-    yappi.start()
+    yappi.start(profile_threads=False)
     try:
         await asyncio.gather(*[s.run() for s in systems])
     finally:

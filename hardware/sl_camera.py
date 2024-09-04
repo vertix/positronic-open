@@ -63,7 +63,7 @@ class SLCamera(ControlSystem):
         thread = threading.Thread(target=self.read_camera_data)
         thread.start()
         try:
-            fps = utils.FPSCounter("SLCamera")
+            fps = utils.FPSCounter("Camera")
             while True:
                 try:
                     success, image, ts_ms = self.queue.get_nowait()
@@ -71,9 +71,8 @@ class SLCamera(ControlSystem):
                         await self.outs.record.write(Record(success=False))
                     else:
                         await self.outs.record.write(Record(success=True, image=image), timestamp=ts_ms)
-                    await asyncio.sleep(0.1)
                 except queue.Empty:
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(1 / 60)
                     continue
                 fps.tick()
         finally:
