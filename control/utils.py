@@ -1,23 +1,24 @@
+import logging
 import time
 from typing import Any, Callable, List, Optional
 
 from control.world import World
 from .system import ControlSystem
 from .ports import OutputPort
-import logging
+from .ports import InputPort
 
 
 def map_port(fn: Callable[[Any], Any]):
-    class _MapOutputPort(OutputPort):
+    class _MapPort(OutputPort):
         def __init__(self, original: OutputPort):
             super().__init__(original.world)
             self.original = original
-            self.original.bound_to.append(self)
+            self.original._bind(self.write)
 
         async def write(self, value: Any, timestamp: Optional[int] = None):
             await super().write(fn(value), timestamp)
 
-    return _MapOutputPort
+    return _MapPort
 
 
 class FPSCounter:

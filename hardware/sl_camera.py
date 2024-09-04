@@ -75,6 +75,8 @@ class SLCamera(ControlSystem):
                     await asyncio.sleep(1 / 60)
                     continue
                 fps.tick()
+        except Exception as e:
+            print(f"SLCamera error: {e}")
         finally:
             print("Cancelling SLCamera")
             self.stop_event.set()

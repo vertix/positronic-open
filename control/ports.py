@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import asyncio
 from typing import Any, List, Optional
 
@@ -6,48 +7,47 @@ class OutputPort:
     Represents an output port that can write values to bound input ports.
     """
     def __init__(self, world):
-        self.bound_to = []
-        self.world = world
+        self._bound_to = []
+        self._world = world
 
     async def write(self, value: Any, timestamp: Optional[int] = None):
         """
         Write a value to all bound input ports.
         """
-        for port in self.bound_to:
-            await port.write(value, timestamp)
+        for port in self._bound_to:
+            await port(value, timestamp)
+
+    def _bind(self, callback):
+        self._bound_to.append(callback)
+
+    @property
+    def world(self):
+        return self._world
 
     @property
     def subscribed(self):
         """
         Check if the port is subscribed to by any input ports.
         """
-        return len(self.bound_to) > 0
+        return len(self._bound_to) > 0
 
 
-class AsyncioInputPort:
+class InputPort(ABC):
+    @abstractmethod
+    async def read(self, timeout: Optional[float] = None):
+        "Returns (timestamp, value) or None if timeout is reached"
+        pass
+
+
+class AsyncioInputPort(InputPort):
     """
     Represents an input port that can bind to an output port and send values to the system's control loop.
     """
-    def __init__(self, system: 'ControlSystem', name: str):
-        self.system = system
-        self.name = name
-        self.bound_to = None
+    def __init__(self, binded_to: OutputPort):
         self.queue = asyncio.Queue(maxsize=5)
+        binded_to._bind(self._write)
 
-    def bind(self, port: OutputPort):
-        """
-        Bind this input port to an output port.
-        """
-        if self.bound_to is not None:
-            self.bound_to.bound_to.remove(self)
-        self.bound_to = port
-        port.bound_to.append(self)
-
-    async def write(self, value: Any, timestamp: Optional[int] = None):
-        """
-        Send a value to the parent system's control loop.
-        If there are unread values, they are discarded.
-        """
+    async def _write(self, value: Any, timestamp: Optional[int] = None):
         # if self.queue.full():
         #     await self.queue.get()
         #     self.queue.task_done()
@@ -83,14 +83,11 @@ class OutputPortContainer:
 class InputPortContainer(OutputPortContainer):
     def __init__(self, world, ports: List[str]):
         self.world = world
-        self._ports = {}
-        self._port_names = ports
+        self._ports = {name: None for name in ports}
 
     def _create_port(self, name: str, output_port: OutputPort):
         if self.world == output_port.world:
-            res = AsyncioInputPort(self.world, name)
-            res.bind(output_port)
-            return res
+            return AsyncioInputPort(output_port)
         else:
             raise ValueError("Cross world binding is not supported")
 
@@ -98,17 +95,15 @@ class InputPortContainer(OutputPortContainer):
         """
         Set an attribute and bind input ports if applicable.
         """
-        if name in {"world", "_ports", "_port_names"}:
+        if name in {"world", "_ports"}:
             self.__dict__[name] = output_port
             return
 
-        if name not in self._port_names:
+        if name not in self._ports:
             raise ValueError(f"Port {name} not found")
-        # if not isinstance(self._ports[name], InputPort):
-        #     raise ValueError(f"Port {name} is not an InputPort")
         if not isinstance(output_port, OutputPort):
             raise TypeError(f"Expected OutputPort, got {type(output_port).__name__}")
-        if name not in self._ports:
+        if self._ports[name] is None:
             self._ports[name] = self._create_port(name, output_port)
         else:
             raise ValueError(f"Port {name} already assigned")
@@ -118,8 +113,8 @@ class InputPortContainer(OutputPortContainer):
         Async generator to yield values from any of the input ports as they arrive,
         or yield None if the timeout is reached.
         """
-        tasks = {asyncio.create_task(port.queue.get()): port.name
-                 for port in self._ports.values()}
+        tasks = {asyncio.create_task(port.queue.get()): name
+                 for name, port in self._ports.items() if port is not None}
 
         while tasks:
             done, _ = await asyncio.wait(tasks.keys(), timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
