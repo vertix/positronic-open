@@ -6,12 +6,12 @@ from ctypes import c_uint16
 
 import numpy as np
 
-from control import EventSystem
+from control import EventSystem, World
 
 
 class DHGripper(EventSystem):
-    def __init__(self, port: str):
-        super().__init__(inputs=['grip', 'force', 'speed'])
+    def __init__(self, world: World, port: str):
+        super().__init__(world, inputs=['grip', 'force', 'speed'])
         self.client = ModbusClient.ModbusSerialClient(
             port=port,
             baudrate=115200,
@@ -165,7 +165,8 @@ class DHGripper(EventSystem):
 
 
 async def _main():
-    gripper = DHGripper("/dev/ttyUSB0")
+    world = World()
+    gripper = DHGripper(world, "/dev/ttyUSB0")
     await gripper.ins.speed.write(20)
     await gripper.ins.force.write(100)
 
@@ -175,7 +176,7 @@ async def _main():
                 await gripper.ins.grip.write(width)
                 await asyncio.sleep(0.05)
 
-    await asyncio.gather(test(), gripper.run())
+    await asyncio.gather(test(), world.run())
 
 if __name__ == "__main__":
     asyncio.run(_main())

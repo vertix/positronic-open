@@ -6,7 +6,7 @@ from typing import Dict, Optional, Callable, Any
 import numpy as np
 import rerun as rr
 
-from control import ControlSystem
+from control import ControlSystem, World
 
 
 def log_array(name: str, ts: int, data: np.ndarray):
@@ -24,13 +24,13 @@ def log_image(name: str, ts: int, data: np.ndarray):
 
 
 class Rerun(ControlSystem):
-    def __init__(self, recording_id: str, spawn=False, save_path=None, connect=None, inputs: Dict[str, Optional[Callable[[Any], Any]]] = None):
+    def __init__(self, world: World, recording_id: str, spawn=False, save_path=None, connect=None, inputs: Dict[str, Optional[Callable[[Any], Any]]] = None):
         rr.init(recording_id, spawn=spawn)
         if save_path is not None:
             rr.save(save_path)
         if connect is not None:
             rr.connect(connect)
-        super().__init__(inputs=inputs.keys(), outputs=[])
+        super().__init__(world, inputs=inputs.keys(), outputs=[])
         self._input_fns = inputs
 
     def _default_fn(self, data: Any) -> Any:

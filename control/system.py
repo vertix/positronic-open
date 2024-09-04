@@ -133,9 +133,11 @@ class ControlSystem(ABC):
     """
     Abstract base class for a system with input and output ports.
     """
-    def __init__(self, *, inputs: List[str] = [], outputs: List[str] = []):
+    def __init__(self, world, *, inputs: List[str] = [], outputs: List[str] = []):
         self._inputs = InputPortContainer(inputs)
         self._outputs = PortContainer(outputs)
+        self._world = world
+        world.add_system(self)
 
     @property
     def ins(self) -> PortContainer:
@@ -163,8 +165,8 @@ class EventSystem(ControlSystem):
     """
     System that handles events with registered handlers.
     """
-    def __init__(self, *, inputs: List[str] = [], outputs: List[str] = []):
-        super().__init__(inputs=inputs, outputs=outputs)
+    def __init__(self, world, *, inputs: List[str] = [], outputs: List[str] = []):
+        super().__init__(world, inputs=inputs, outputs=outputs)
         self._handlers = {}
         for attr_name in dir(self):
             attr = getattr(self, attr_name)

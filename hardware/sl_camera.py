@@ -9,7 +9,7 @@ from queue import Queue
 
 import pyzed.sl as sl
 
-from control import ControlSystem, utils
+from control import ControlSystem, utils, World
 from tools.video import VideoDumper
 
 SlImage = sl.Mat
@@ -21,8 +21,8 @@ class Record:
 
 
 class SLCamera(ControlSystem):
-    def __init__(self, fps=30, view=sl.VIEW.LEFT, resolution=sl.RESOLUTION.AUTO):
-        super().__init__(inputs=[], outputs=['record'])
+    def __init__(self, world: World, fps=30, view=sl.VIEW.LEFT, resolution=sl.RESOLUTION.AUTO):
+        super().__init__(world, inputs=[], outputs=['record'])
 
         self.init_params = sl.InitParameters()
         self.init_params.camera_resolution = resolution
@@ -84,8 +84,9 @@ class SLCamera(ControlSystem):
 
 # Test SLCamera system
 async def _main():
-    camera = SLCamera(fps=15, view=sl.VIEW.SIDE_BY_SIDE, resolution=sl.RESOLUTION.VGA)
-    video_dumper = VideoDumper("video.mp4", 15, codec='libx264')
+    world = World()
+    camera = SLCamera(world, fps=15, view=sl.VIEW.SIDE_BY_SIDE, resolution=sl.RESOLUTION.VGA)
+    video_dumper = VideoDumper(world, "video.mp4", 15, codec='libx264')
 
     @utils.map_port
     def extract_np_image(record):
@@ -95,7 +96,8 @@ async def _main():
 
     video_dumper.ins.image = extract_np_image(camera.outs.record)
 
-    await asyncio.gather(video_dumper.run(), camera.run())
+    await world.run()
+
 
 if __name__ == "__main__":
     try:

@@ -10,13 +10,13 @@ from starlette.responses import FileResponse
 import uvicorn
 import numpy as np
 
-from control import ControlSystem
+from control import ControlSystem, World
 from control.utils import FPSCounter
 from geom import Transform3D
 
 class WebXR(ControlSystem):
-    def __init__(self, port: int, ssl_keyfile: str = "key.pem", ssl_certfile: str = "cert.pem"):
-        super().__init__(outputs=["transform", "buttons"])
+    def __init__(self, world: World, port: int, ssl_keyfile: str = "key.pem", ssl_certfile: str = "cert.pem"):
+        super().__init__(world, outputs=["transform", "buttons"])
         self.port = port
         self.ssl_keyfile = ssl_keyfile
         self.ssl_certfile = ssl_certfile

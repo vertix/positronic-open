@@ -1,5 +1,7 @@
 import time
 from typing import Any, Callable, List, Optional
+
+from control.world import World
 from .system import ControlSystem, OutputPort
 import logging
 
@@ -36,8 +38,8 @@ class Logger(ControlSystem):
     """
     Logger is a System that logs the values of its input ports.
     """
-    def __init__(self, level: int = logging.INFO, inputs: List[str] = []):
-        super().__init__(inputs=inputs)
+    def __init__(self, world: World, level: int = logging.INFO, inputs: List[str] = []):
+        super().__init__(world, inputs=inputs)
         self.level = level
 
     async def run(self):
@@ -57,11 +59,11 @@ class MapSystem(ControlSystem):
               default_map_fn=lambda n, v: v * 2,
               joints=lambda n, v: set_joints(v))
     """
-    def __init__(self, inputs: List[str], default: Callable[[str, Any], Any] = None, **kwargs):
+    def __init__(self, world: World, inputs: List[str], default: Callable[[str, Any], Any] = None, **kwargs):
         """
         Initialize the Map system. The outputs have the same names as the inputs.
         """
-        super().__init__(inputs=inputs, outputs=inputs)
+        super().__init__(world, inputs=inputs, outputs=inputs)
         self.default_map_fn = default
         self.map_fns = kwargs
 

@@ -6,7 +6,7 @@ import click
 import numpy as np
 import yappi
 
-from control import ControlSystem, utils
+from control import ControlSystem, utils, World
 from geom import Quaternion, Transform3D
 from hardware import Franka, DHGripper, sl_camera
 from tools import rerun as rr_tools
@@ -18,8 +18,9 @@ logging.basicConfig(level=logging.INFO,
                                logging.FileHandler("teleop.log", mode="w")])
 
 class TeleopSystem(ControlSystem):
-    def __init__(self):
+    def __init__(self, world: World):
         super().__init__(
+            world,
             inputs=["teleop_transform", "teleop_buttons", "robot_position"],
             outputs=["robot_target_position", "gripper_target_grasp", "start_tracking", "stop_tracking"])
 
@@ -86,10 +87,10 @@ class TeleopSystem(ControlSystem):
 
 
 async def main(rerun, dh_gripper):
-    systems = []
-    webxr = WebXR(port=5005)
-    franka = Franka("172.168.0.2", 0.4, 0.4, reporting_frequency=10)
-    teleop = TeleopSystem()
+    world = World()
+    webxr = WebXR(world, port=5005)
+    franka = Franka(world, "172.168.0.2", 0.4, 0.4, reporting_frequency=10)
+    teleop = TeleopSystem(world)
 
     teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
@@ -97,17 +98,13 @@ async def main(rerun, dh_gripper):
 
     if dh_gripper:
         gripper = DHGripper("/dev/ttyUSB0")
-        systems.append(gripper)
         gripper.ins.grip = teleop.outs.gripper_target_grasp
 
     franka.ins.target_position = teleop.outs.robot_target_position
-    systems.extend([webxr, franka, teleop])
 
-    cam = sl_camera.SLCamera(fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
-    systems.append(cam)
+    cam = sl_camera.SLCamera(world, fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
 
-    # data_dumper = LerobotDatasetDumper('', '')
-    # systems.append(data_dumper)
+    # data_dumper = LerobotDatasetDumper(world, '', '')
     # data_dumper.ins.image = cam.outs.record
     # data_dumper.ins.robot_joints = franka.outs.joint_positions
     # data_dumper.ins.robot_position = franka.outs.position
@@ -117,10 +114,9 @@ async def main(rerun, dh_gripper):
     # data_dumper.ins.end_episode = teleop.outs.stop_tracking
 
     if rerun:
-        rr = rr_tools.Rerun("teleop",
+        rr = rr_tools.Rerun(world, "teleop",
                          connect="127.0.0.1:9876",
                          inputs={"ext_force_ee": rr_tools.log_array, 'ext_force_base': rr_tools.log_array, 'image': rr_tools.log_image})
-        systems.append(rr)
         @utils.map_port
         def image(record):
             return record.image.get_data()[:, :, :3]
@@ -132,7 +128,7 @@ async def main(rerun, dh_gripper):
     yappi.set_clock_type("cpu")
     yappi.start(profile_threads=False)
     try:
-        await asyncio.gather(*[s.run() for s in systems])
+        await world.run()
     finally:
         print("Program interrupted by user, exiting...")
         yappi.stop()

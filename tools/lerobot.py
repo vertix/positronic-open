@@ -1,11 +1,11 @@
 from collections import defaultdict
 import time
 
-from control import ControlSystem
+from control import ControlSystem, World
 
 class LerobotDatasetDumper(ControlSystem):
-    def __init__(self, filename: str, video_filename: str):
-        super().__init__(inputs=['image', 'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints',
+    def __init__(self, world: World, filename: str, video_filename: str):
+        super().__init__(world, inputs=['image', 'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints',
                                  'start_episode', 'end_episode'], outputs=[])
         self.filename = filename
         self.video_filename = video_filename

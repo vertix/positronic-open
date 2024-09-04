@@ -40,7 +40,7 @@ from kortex_api.RouterClient import RouterClient, RouterClientSendOptions
 from kortex_api.SessionManager import SessionManager
 from kortex_api.autogen.messages import Session_pb2
 
-from control import ControlSystem
+from control import ControlSystem, World
 from geom import Quaternion, Transform3D, degrees_to_radians, radians_to_degrees
 
 logger = logging.getLogger(__name__)
@@ -286,8 +286,8 @@ class KinovaController:
 
 
 class Kinova(ControlSystem):
-    def __init__(self, ip: str):
-        super().__init__(inputs=["target_position",], outputs=["position", "joint_positions"])
+    def __init__(self, world: World, ip: str):
+        super().__init__(world, inputs=["target_position",], outputs=["position", "joint_positions"])
         self.ip = ip
 
     async def run(self):
