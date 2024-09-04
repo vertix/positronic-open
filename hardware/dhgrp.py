@@ -6,7 +6,7 @@ from ctypes import c_uint16
 
 import numpy as np
 
-from control import EventSystem, World
+from control import EventSystem, World, MainThreadWorld
 
 
 class DHGripper(EventSystem):
@@ -165,7 +165,7 @@ class DHGripper(EventSystem):
 
 
 async def _main():
-    world = World()
+    world = MainThreadWorld()
     gripper = DHGripper(world, "/dev/ttyUSB0")
     await gripper.ins.speed.write(20)
     await gripper.ins.force.write(100)

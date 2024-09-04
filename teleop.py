@@ -6,7 +6,7 @@ import click
 import numpy as np
 import yappi
 
-from control import ControlSystem, utils, World
+from control import ControlSystem, utils, World, MainThreadWorld
 from geom import Quaternion, Transform3D
 from hardware import Franka, DHGripper, sl_camera
 from tools import rerun as rr_tools
@@ -87,7 +87,7 @@ class TeleopSystem(ControlSystem):
 
 
 async def main(rerun, dh_gripper):
-    world = World()
+    world = MainThreadWorld()
     webxr = WebXR(world, port=5005)
     franka = Franka(world, "172.168.0.2", 0.4, 0.4, reporting_frequency=10)
     teleop = TeleopSystem(world)
