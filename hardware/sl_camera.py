@@ -9,7 +9,7 @@ from queue import Queue
 
 import pyzed.sl as sl
 
-from control import ControlSystem, utils, World, MainThreadWorld
+from control import ControlSystem, utils, World, MainThreadWorld, ThreadWorld
 from tools.video import VideoDumper
 
 SlImage = sl.Mat
@@ -84,7 +84,7 @@ class SLCamera(ControlSystem):
 
 # Test SLCamera system
 async def _main():
-    world = MainThreadWorld()
+    world = ThreadWorld()
     camera = SLCamera(world, fps=15, view=sl.VIEW.SIDE_BY_SIDE, resolution=sl.RESOLUTION.VGA)
     video_dumper = VideoDumper(world, "video.mp4", 15, codec='libx264')
 

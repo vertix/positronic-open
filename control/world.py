@@ -1,5 +1,6 @@
 from abc import abstractmethod
 import asyncio
+import threading
 from typing import List
 
 from control.system import ControlSystem
@@ -33,3 +34,38 @@ class MainThreadWorld(World):
 
     async def run(self):
         await asyncio.gather(*[s.run() for s in self._systems])
+
+
+class ThreadWorld(World):
+    async def run(self):
+        stop_event = threading.Event()
+
+        async def _run_systems():
+            try:
+                await asyncio.gather(*[s.run() for s in self._systems])
+            except asyncio.CancelledError:
+                print("Systems cancelled")
+
+        def thread_target():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            task = loop.create_task(_run_systems())
+
+            try:
+                while not stop_event.is_set():
+                    loop.run_until_complete(asyncio.sleep(0.1))
+            finally:
+                task.cancel()
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.close()
+
+        thread = threading.Thread(target=thread_target)
+        try:
+            thread.start()
+            thread.join()
+        finally:
+            print("Stopping ThreadWorld")
+            stop_event.set()
+            if thread.is_alive():
+                thread.join()
+            print("ThreadWorld stopped")
