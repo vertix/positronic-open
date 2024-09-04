@@ -51,7 +51,9 @@ class TeleopSystem(ControlSystem):
         offset = None
         is_tracking = False
 
+        fps = utils.FPSCounter("Teleop")
         async for input_name, _ts, value in self.ins.read():
+            fps.tick()
             if input_name == "robot_position":
                 robot_t = value
             elif input_name == "teleop_transform":
@@ -128,25 +130,26 @@ async def main(rerun, dh_gripper):
         rr.ins.ext_force_ee = franka.outs.ext_force_ee
         rr.ins.ext_force_base = franka.outs.ext_force_base
 
-    await asyncio.gather(*[s.run() for s in systems])
+    yappi.set_clock_type("cpu")
+    yappi.start()
+    try:
+        await asyncio.gather(*[s.run() for s in systems])
+    finally:
+        print("Program interrupted by user, exiting...")
+        yappi.stop()
+        yappi.get_func_stats().save("func.pstat", type='pstat')
+        yappi.get_func_stats().save("func.ystat")
+        with open("thread.ystat", "w") as f:
+            yappi.get_thread_stats().print_all(out=f)
+        print("Program exited, stats saved")
 
 
 @click.command()
 @click.option("--rerun", is_flag=True, default=False, help="Start logging into Rerun")
 @click.option("--dh_gripper", is_flag=True, default=False, help="Use DH gripper")
 def cli(rerun, dh_gripper):
-    yappi.set_clock_type("cpu")
-    yappi.start()
-    try:
-        asyncio.run(main(rerun, dh_gripper))
-    except KeyboardInterrupt:
-        yappi.stop()
-        yappi.get_func_stats().save("func.pstat", type='pstat')
-        yappi.get_func_stats().save("func.ystat")
-        with open("thread.ystat", "w") as f:
-            yappi.get_thread_stats().print_all(out=f)
-        print("Program interrupted by user, exiting...")
-    # finally:
+    asyncio.run(main(rerun, dh_gripper))
+
 
 if __name__ == "__main__":
     cli()

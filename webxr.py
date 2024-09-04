@@ -2,13 +2,16 @@
 # and outputs it further.
 
 import asyncio
+import threading
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import FileResponse
 import uvicorn
 import numpy as np
+from queue import Queue
 
 from control import ControlSystem
+from control.utils import FPSCounter
 from geom import Transform3D
 
 class WebXR(ControlSystem):
@@ -17,34 +20,15 @@ class WebXR(ControlSystem):
         self.port = port
         self.ssl_keyfile = ssl_keyfile
         self.ssl_certfile = ssl_certfile
+        self.app = FastAPI()
+        self.setup_routes()
 
-    async def run(self):
-        app = FastAPI()
-        last_ts = None
+        self.last_ts = None
 
-        @app.get("/")
-        async def root():
-            return FileResponse("quest_tracking/static/index.html")
+        self.data_queue = Queue()
+        self.server_thread = None
 
-        @app.get("/webxr-button.js")
-        async def webxr_button():
-            return FileResponse("quest_tracking/static/webxr-button.js")
-
-        @app.post('/track')
-        async def track(request: Request):
-            nonlocal last_ts
-            data = await request.json()
-            if last_ts is None or data['timestamp'] > last_ts:
-                last_ts = data['timestamp']
-                pos = np.array(data['position'])
-                quat = np.array(data['orientation'])
-
-                await self.outs.buttons.write(data['buttons'])
-                await self.outs.transform.write(Transform3D(pos, quat))
-
-            return JSONResponse(content={"success": True})
-
-        config = uvicorn.Config(app, host="0.0.0.0", port=self.port,
+        config = uvicorn.Config(self.app, host="0.0.0.0", port=self.port,
                                 ssl_keyfile=self.ssl_keyfile, ssl_certfile=self.ssl_certfile,
                                 log_config={'version': 1, 'disable_existing_loggers': False,
                                 'handlers': {
@@ -52,7 +36,7 @@ class WebXR(ControlSystem):
                                         'class': 'logging.FileHandler',
                                         'formatter': 'default',
                                         'filename': 'webxr.log',
-                                        'mode': 'w',  # Overwrite the log file on every start
+                                        'mode': 'w',
                                     },
                                     'console': {
                                         'class': 'logging.StreamHandler',
@@ -60,7 +44,7 @@ class WebXR(ControlSystem):
                                     }},
                                 'loggers': {
                                     '': {
-                                        'handlers': ['file'], #, 'console'],
+                                        'handlers': ['file'],
                                         'level': 'INFO',
                                     }
                                 },
@@ -70,8 +54,42 @@ class WebXR(ControlSystem):
                                     }
                                 }},
                     )
+        self.server = uvicorn.Server(config)
+
+    def setup_routes(self):
+        @self.app.get("/")
+        async def root():
+            return FileResponse("quest_tracking/static/index.html")
+
+        @self.app.get("/webxr-button.js")
+        async def webxr_button():
+            return FileResponse("quest_tracking/static/webxr-button.js")
+
+        @self.app.post('/track')
+        async def track(request: Request):
+            data = await request.json()
+            if self.last_ts is None or data['timestamp'] > self.last_ts:
+                self.last_ts = data['timestamp']
+                self.data_queue.put(data)
+            return JSONResponse(content={"success": True})
+
+    async def run(self):
+        self.server_thread = threading.Thread(target=self.server.run)
+        self.server_thread.start()
+
         try:
-            server = uvicorn.Server(config)
-            await server.serve()
-        except asyncio.CancelledError:
-            pass
+            fps = FPSCounter("WebXR")
+            while True:
+                data = await asyncio.to_thread(self.data_queue.get)
+                pos = np.array(data['position'])
+                quat = np.array(data['orientation'])
+
+                await self.outs.buttons.write(data['buttons'])
+                await self.outs.transform.write(Transform3D(pos, quat))
+                fps.tick()
+        finally:
+            print("Cancelling WebXR")
+            self.server.should_exit = True
+            self.server.force_exit = True
+            self.server_thread.join()
+            print("WebXR cancelled")

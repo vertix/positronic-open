@@ -24,3 +24,7 @@ dependencies:
   - pip:
     - pytest
     - lerobot
+    - click
+    - yappi
+
+# python /usr/local/zed/get_python_api.py

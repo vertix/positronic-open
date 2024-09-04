@@ -1,3 +1,4 @@
+import time
 from typing import Any, Callable, List, Optional
 from .system import ControlSystem, OutputPort
 import logging
@@ -15,6 +16,21 @@ def map_port(fn: Callable[[Any], Any]):
 
     return _MapOutputPort
 
+
+class FPSCounter:
+    def __init__(self, prefix: str, report_every_sec: float = 10.0):
+        self.prefix = prefix
+        self.report_every_sec = report_every_sec
+        self.last_report_time = time.monotonic()
+        self.frame_count = 0
+
+    def tick(self):
+        self.frame_count += 1
+        if time.monotonic() - self.last_report_time >= self.report_every_sec:
+            fps = self.frame_count / (time.monotonic() - self.last_report_time)
+            print(f"{self.prefix}: {fps:.2f} fps")
+            self.last_report_time = time.monotonic()
+            self.frame_count = 0
 
 class Logger(ControlSystem):
     """

@@ -63,6 +63,7 @@ class SLCamera(ControlSystem):
         thread = threading.Thread(target=self.read_camera_data)
         thread.start()
         try:
+            fps = utils.FPSCounter("SLCamera")
             while True:
                 try:
                     success, image, ts_ms = self.queue.get_nowait()
@@ -74,9 +75,12 @@ class SLCamera(ControlSystem):
                 except queue.Empty:
                     await asyncio.sleep(0.1)
                     continue
+                fps.tick()
         finally:
+            print("Cancelling SLCamera")
             self.stop_event.set()
             thread.join()
+            print("SLCamera cancelled")
 
 
 # Test SLCamera system

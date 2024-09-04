@@ -5,6 +5,7 @@ from typing import Optional
 import franky
 
 from control import ControlSystem
+from control.utils import FPSCounter
 from geom import Transform3D
 
 logger = logging.getLogger(__name__)
@@ -72,14 +73,17 @@ class Franka(ControlSystem):
         await self._write_outputs()
 
     async def on_stop(self):
+        print("Franka stopping")
         self.robot.stop()
         if self.gripper:
             self.gripper.open(self.gripper_speed)
+        print("Franka stopped")
 
     async def run(self):
         await self.on_start()
         try:
             to = 1.0 / self.reporting_frequency if self.reporting_frequency is not None else None
+            fps = FPSCounter("Franka")
             async for name, _ts, value in self.ins.read(timeout=to):
                 if name == "target_position":
                     await self.on_target_position(value)
@@ -87,6 +91,7 @@ class Franka(ControlSystem):
                     await self.on_gripper_grasped(value)
 
                 await self._write_outputs()
+                fps.tick()
         finally:
             await self.on_stop()
 
