@@ -7,147 +7,28 @@ from typing import Any, List, Optional
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-class OutputPort:
-    """
-    Represents an output port that can write values to bound input ports.
-    """
-    def __init__(self):
-        self.bound_to = []
 
-    async def write(self, value: Any, timestamp: Optional[int] = None):
-        """
-        Write a value to all bound input ports.
-        """
-        for port in self.bound_to:
-            await port.write(value, timestamp)
-
-    @property
-    def subscribed(self):
-        """
-        Check if the port is subscribed to by any input ports.
-        """
-        return len(self.bound_to) > 0
-
-
-class InputPort:
-    """
-    Represents an input port that can bind to an output port and send values to the system's control loop.
-    """
-    def __init__(self, system: 'ControlSystem', name: str):
-        self.system = system
-        self.name = name
-        self.bound_to = None
-        self.queue = asyncio.Queue(maxsize=5)
-
-    def bind(self, port: OutputPort):
-        """
-        Bind this input port to an output port.
-        """
-        if self.bound_to is not None:
-            self.bound_to.bound_to.remove(self)
-        self.bound_to = port
-        port.bound_to.append(self)
-
-    async def write(self, value: Any, timestamp: Optional[int] = None):
-        """
-        Send a value to the parent system's control loop.
-        If there are unread values, they are discarded.
-        """
-        # if self.queue.full():
-        #     await self.queue.get()
-        #     self.queue.task_done()
-        # logger.debug(f"Write to {self.name}")
-        await self.queue.put((timestamp, value))
-        await asyncio.sleep(0)  # Yield control to let readers to catch up
-
-    async def read(self, timeout: Optional[float] = None):
-        """
-        Read a value from the input port. Returns None if timeout is reached.
-        """
-        try:
-            if timeout is None:
-                res = await self.queue.get()
-            else:
-                res = await asyncio.wait_for(self.queue.get(), timeout)
-        except asyncio.TimeoutError:
-            return None
-        self.queue.task_done()
-        # logger.debug(f"Read from {self.name}")
-        return res
-
-
-class PortContainer:
-    def __init__(self, ports: List[str]):
-        self._ports = {name: OutputPort() for name in ports}
-
-    def __getattr__(self, name: str):
-        return self._ports[name]
-
-    def __getitem__(self, name: str):
-        return self._ports[name]
-
-
-class InputPortContainer(PortContainer):
-    def __init__(self, ports: List[str]):
-        self._ports = {name: InputPort(self, name) for name in ports}
-
-    def __setattr__(self, name: str, value: Any):
-        """
-        Set an attribute and bind input ports if applicable.
-        """
-        if name == "_ports":
-            self.__dict__[name] = value
-            return
-
-        if name not in self._ports:
-            raise ValueError(f"Port {name} not found")
-        if not isinstance(self._ports[name], InputPort):
-            raise ValueError(f"Port {name} is not an InputPort")
-        if not isinstance(value, OutputPort):
-            raise TypeError(f"Expected OutputPort, got {type(value).__name__}")
-        self._ports[name].bind(value)
-
-    async def read(self, timeout: Optional[float] = None):
-        """
-        Async generator to yield values from any of the input ports as they arrive,
-        or yield None if the timeout is reached.
-        """
-        tasks = {asyncio.create_task(port.queue.get()): port.name
-                 for port in self._ports.values()}
-
-        while tasks:
-            done, _ = await asyncio.wait(tasks.keys(), timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
-            if not done:
-                yield None, None, None
-                continue
-
-            for task in done:
-                name = tasks.pop(task)
-                value = task.result()
-                # logger.debug(f"Read from {name}")
-                yield name, value[0], value[1]
-                tasks[asyncio.create_task(self._ports[name].queue.get())] = name
-
+from control.ports import InputPortContainer, OutputPortContainer
 
 class ControlSystem(ABC):
     """
     Abstract base class for a system with input and output ports.
     """
     def __init__(self, world, *, inputs: List[str] = [], outputs: List[str] = []):
-        self._inputs = InputPortContainer(inputs)
-        self._outputs = PortContainer(outputs)
+        self._inputs = InputPortContainer(world, inputs)
+        self._outputs = OutputPortContainer(world, outputs)
         self._world = world
         world.add_system(self)
 
     @property
-    def ins(self) -> PortContainer:
+    def ins(self) -> InputPortContainer:
         """
         Get the input ports.
         """
         return self._inputs
 
     @property
-    def outs(self) -> PortContainer:
+    def outs(self) -> OutputPortContainer:
         """
         Get the output ports.
         """

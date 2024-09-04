@@ -2,14 +2,15 @@ import time
 from typing import Any, Callable, List, Optional
 
 from control.world import World
-from .system import ControlSystem, OutputPort
+from .system import ControlSystem
+from .ports import OutputPort
 import logging
 
 
 def map_port(fn: Callable[[Any], Any]):
     class _MapOutputPort(OutputPort):
         def __init__(self, original: OutputPort):
-            super().__init__()
+            super().__init__(original.world)
             self.original = original
             self.original.bound_to.append(self)
 
