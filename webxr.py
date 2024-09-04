@@ -2,13 +2,13 @@
 # and outputs it further.
 
 import asyncio
+import queue
 import threading
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import FileResponse
 import uvicorn
 import numpy as np
-from queue import Queue
 
 from control import ControlSystem
 from control.utils import FPSCounter
@@ -25,7 +25,7 @@ class WebXR(ControlSystem):
 
         self.last_ts = None
 
-        self.data_queue = Queue()
+        self.data_queue = queue.Queue()
         self.server_thread = None
 
         config = uvicorn.Config(self.app, host="0.0.0.0", port=self.port,
@@ -80,13 +80,15 @@ class WebXR(ControlSystem):
         try:
             fps = FPSCounter("WebXR ")
             while True:
-                data = await asyncio.to_thread(self.data_queue.get)
-                pos = np.array(data['position'])
-                quat = np.array(data['orientation'])
-
-                await self.outs.buttons.write(data['buttons'])
-                await self.outs.transform.write(Transform3D(pos, quat))
-                fps.tick()
+                try:
+                    data = self.data_queue.get_nowait()
+                    pos = np.array(data['position'])
+                    quat = np.array(data['orientation'])
+                    await self.outs.buttons.write(data['buttons'])
+                    await self.outs.transform.write(Transform3D(pos, quat))
+                    fps.tick()
+                except queue.Empty:
+                    await asyncio.sleep(1 / 100)
         finally:
             print("Cancelling WebXR")
             self.server.should_exit = True
