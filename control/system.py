@@ -53,10 +53,10 @@ class InputPort:
         Send a value to the parent system's control loop.
         If there are unread values, they are discarded.
         """
-        if self.queue.full():
-            await self.queue.get()
-            self.queue.task_done()
-        logger.debug(f"Write to {self.name}")
+        # if self.queue.full():
+        #     await self.queue.get()
+        #     self.queue.task_done()
+        # logger.debug(f"Write to {self.name}")
         await self.queue.put((timestamp, value))
         await asyncio.sleep(0)  # Yield control to let readers to catch up
 
@@ -72,7 +72,7 @@ class InputPort:
         except asyncio.TimeoutError:
             return None
         self.queue.task_done()
-        logger.debug(f"Read from {self.name}")
+        # logger.debug(f"Read from {self.name}")
         return res
 
 
@@ -124,7 +124,7 @@ class InputPortContainer(PortContainer):
             for task in done:
                 name = tasks.pop(task)
                 value = task.result()
-                logger.debug(f"Read from {name}")
+                # logger.debug(f"Read from {name}")
                 yield name, value[0], value[1]
                 tasks[asyncio.create_task(self._ports[name].queue.get())] = name
 
