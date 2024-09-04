@@ -37,21 +37,24 @@ class SLCamera(ControlSystem):
     def read_camera_data(self):
         zed = sl.Camera()
         zed.open(self.init_params)
+        SUCCESS = sl.ERROR_CODE.SUCCESS
+        TIME_REF_IMAGE = sl.TIME_REFERENCE.IMAGE
+
         try:
             while not self.stop_event.is_set():
                 result = zed.grab()
-                if result != sl.ERROR_CODE.SUCCESS:
+                if result != SUCCESS:
                     # TODO: Should we be more specific about the error?
                     # See(https://www.stereolabs.com/docs/api/python/classpyzed_1_1sl_1_1ERROR__CODE.html)
                     self.queue.put((False, None, None))
                     continue
 
                 image = sl.Mat()
-                if zed.retrieve_image(image, self.view) != sl.ERROR_CODE.SUCCESS:
+                if zed.retrieve_image(image, self.view) != SUCCESS:
                     self.queue.put((False, None, None))
                     continue
 
-                ts_ms = zed.get_timestamp(sl.TIME_REFERENCE.IMAGE).get_milliseconds()
+                ts_ms = zed.get_timestamp(TIME_REF_IMAGE).get_milliseconds()
                 self.queue.put((True, image, ts_ms))
         finally:
             zed.close()
@@ -67,6 +70,7 @@ class SLCamera(ControlSystem):
                         await self.outs.record.write(Record(success=False))
                     else:
                         await self.outs.record.write(Record(success=True, image=image), timestamp=ts_ms)
+                    await asyncio.sleep(0.1)
                 except queue.Empty:
                     await asyncio.sleep(0.1)
                     continue

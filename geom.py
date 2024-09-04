@@ -1,7 +1,6 @@
 from collections import namedtuple
 
-import autograd.numpy as np
-# import numpy as np
+import numpy as np
 
 # y = R * x + t
 class Transform3D:

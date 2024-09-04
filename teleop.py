@@ -2,12 +2,15 @@ import asyncio
 import logging
 from typing import List, Tuple
 
+import click
 import numpy as np
+import yappi
 
 from control import ControlSystem, utils
 from geom import Quaternion, Transform3D
-from hardware import Franka, Kinova, DHGripper, sl_camera
-from tools import rerun
+from hardware import Franka, DHGripper, sl_camera
+from tools import rerun as rr_tools
+from tools.lerobot import LerobotDatasetDumper
 from webxr import WebXR
 
 logging.basicConfig(level=logging.INFO,
@@ -18,7 +21,7 @@ class TeleopSystem(ControlSystem):
     def __init__(self):
         super().__init__(
             inputs=["teleop_transform", "teleop_buttons", "robot_position"],
-            outputs=["robot_target_position", "gripper_target_grasp"])
+            outputs=["robot_target_position", "gripper_target_grasp", "start_tracking", "stop_tracking"])
 
     @classmethod
     def _parse_position(cls, value: Transform3D) -> Transform3D:
@@ -71,44 +74,79 @@ class TeleopSystem(ControlSystem):
                     if not is_tracking:
                         logging.info('Started tracking')
                         is_tracking = True
+                        await self.outs.start_tracking.write(True)
                 elif untrack_but:
                     if is_tracking:
                         logging.info('Stopped tracking')
                         is_tracking = False
                         offset = None
+                        await self.outs.stop_tracking.write(True)
 
-async def main():
+
+async def main(rerun, dh_gripper):
+    systems = []
     webxr = WebXR(port=5005)
     franka = Franka("172.168.0.2", 0.4, 0.4, reporting_frequency=10)
     # kinova = Kinova('192.168.1.10')
-    # gripper = DHGripper("/dev/ttyUSB0")
     teleop = TeleopSystem()
 
     teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
     teleop.ins.robot_position = franka.outs.position
 
-    # gripper.ins.grip = teleop.outs.gripper_target_grasp
-    franka.ins.target_position = teleop.outs.robot_target_position
+    if dh_gripper:
+        gripper = DHGripper("/dev/ttyUSB0")
+        systems.append(gripper)
+        gripper.ins.grip = teleop.outs.gripper_target_grasp
 
-    rr = rerun.Rerun("teleop",
-                     connect="127.0.0.1:9876",
-                     inputs={"ext_force_ee": rerun.log_array, 'ext_force_base': rerun.log_array, 'image': rerun.log_image})
+    franka.ins.target_position = teleop.outs.robot_target_position
+    systems.extend([webxr, franka, teleop])
 
     cam = sl_camera.SLCamera(fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
-    @utils.map_port
-    def image(record):
-        return record.image.get_data()[:, :, :3]
-    rr.ins.image = image(cam.outs.record)
+    systems.append(cam)
 
-    rr.ins.ext_force_ee = franka.outs.ext_force_ee
-    rr.ins.ext_force_base = franka.outs.ext_force_base
+    # data_dumper = LerobotDatasetDumper('', '')
+    # systems.append(data_dumper)
+    # data_dumper.ins.image = cam.outs.record
+    # data_dumper.ins.robot_joints = franka.outs.joint_positions
+    # data_dumper.ins.robot_position = franka.outs.position
+    # data_dumper.ins.ext_force_ee = franka.outs.ext_force_ee
+    # data_dumper.ins.ext_force_base = franka.outs.ext_force_base
+    # data_dumper.ins.start_episode = teleop.outs.start_tracking
+    # data_dumper.ins.end_episode = teleop.outs.stop_tracking
 
-    await asyncio.gather(teleop.run(), webxr.run(), franka.run(), rr.run(), cam.run())
+    if rerun:
+        rr = rr_tools.Rerun("teleop",
+                         connect="127.0.0.1:9876",
+                         inputs={"ext_force_ee": rr_tools.log_array, 'ext_force_base': rr_tools.log_array, 'image': rr_tools.log_image})
+        systems.append(rr)
+        @utils.map_port
+        def image(record):
+            return record.image.get_data()[:, :, :3]
+        rr.ins.image = image(cam.outs.record)
 
+        rr.ins.ext_force_ee = franka.outs.ext_force_ee
+        rr.ins.ext_force_base = franka.outs.ext_force_base
+
+    await asyncio.gather(*[s.run() for s in systems])
+
+
+@click.command()
+@click.option("--rerun", is_flag=True, default=False, help="Start logging into Rerun")
+@click.option("--dh_gripper", is_flag=True, default=False, help="Use DH gripper")
+def cli(rerun, dh_gripper):
+    yappi.set_clock_type("cpu")
+    yappi.start()
+    try:
+        asyncio.run(main(rerun, dh_gripper))
+    except KeyboardInterrupt:
+        yappi.stop()
+        yappi.get_func_stats().save("func.pstat", type='pstat')
+        yappi.get_func_stats().save("func.ystat")
+        with open("thread.ystat", "w") as f:
+            yappi.get_thread_stats().print_all(out=f)
+        print("Program interrupted by user, exiting...")
+    # finally:
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Program interrupted by user, exiting...")
+    cli()
