@@ -4,17 +4,41 @@
 import queue
 import multiprocessing
 import time
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, WebSocket
 from starlette.responses import FileResponse
 import uvicorn
 import numpy as np
+import json
 
 from control import ControlSystem, World
 from control.utils import FPSCounter
 from geom import Transform3D
 
-def run_server(app, port, ssl_keyfile, ssl_certfile):
+
+def run_server(data_queue, port, ssl_keyfile, ssl_certfile):
+    app = FastAPI()
+
+    @app.get("/")
+    async def root():
+        return FileResponse("quest_tracking/static/index.html")
+
+    @app.get("/webxr-button.js")
+    async def webxr_button():
+        return FileResponse("quest_tracking/static/webxr-button.js")
+
+    @app.websocket("/ws")
+    async def websocket_endpoint(websocket: WebSocket):
+        await websocket.accept()
+        print("WebSocket connection accepted")
+        try:
+            while True:
+                data = await websocket.receive_json()
+                data_queue.put(data)
+        except Exception as e:
+            print(f"WebSocket error: {e}")
+        finally:
+            print("WebSocket connection closed")
+
     config = uvicorn.Config(app, host="0.0.0.0", port=port,
                             ssl_keyfile=ssl_keyfile, ssl_certfile=ssl_certfile,
                             log_config={'version': 1, 'disable_existing_loggers': False,
@@ -26,8 +50,10 @@ def run_server(app, port, ssl_keyfile, ssl_certfile):
                                     'mode': 'w',
                                 },
                                 'console': {
-                                    'class': 'logging.StreamHandler',
+                                    'class': 'logging.FileHandler',
                                     'formatter': 'default',
+                                    'filename': 'webxr.log',
+                                    'mode': 'w',
                                 }},
                             'loggers': {
                                 '': {
@@ -50,50 +76,31 @@ class WebXR(ControlSystem):
         self.port = port
         self.ssl_keyfile = ssl_keyfile
         self.ssl_certfile = ssl_certfile
-        self.app = FastAPI()
-        self.setup_routes()
-
-        self.last_ts = None
 
         self.data_queue = multiprocessing.Queue()
         self.server_process = None
 
-    def setup_routes(self):
-        @self.app.get("/")
-        async def root():
-            return FileResponse("quest_tracking/static/index.html")
-
-        @self.app.get("/webxr-button.js")
-        async def webxr_button():
-            return FileResponse("quest_tracking/static/webxr-button.js")
-
-        @self.app.post('/track')
-        async def track(request: Request):
-            data = await request.json()
-            if self.last_ts is None or data['timestamp'] > self.last_ts:
-                self.last_ts = data['timestamp']
-                self.data_queue.put(data)
-            return JSONResponse(content={"success": True})
-
     def run(self):
         self.server_process = multiprocessing.Process(
             target=run_server,
-            args=(self.app, self.port, self.ssl_keyfile, self.ssl_certfile)
+            args=(self.data_queue, self.port, self.ssl_keyfile, self.ssl_certfile)
         )
         self.server_process.start()
 
         try:
             fps = FPSCounter("WebXR ")
             while not self.should_stop:
-                try:
-                    data = self.data_queue.get(timeout=1)  # Wait for 10ms
+                data = None
+                while not self.data_queue.empty():
+                    data = self.data_queue.get()
+                if data is not None:
                     pos = np.array(data['position'])
                     quat = np.array(data['orientation'])
                     self.outs.buttons.write(data['buttons'])
                     self.outs.transform.write(Transform3D(pos, quat))
                     fps.tick()
-                except queue.Empty:
-                    pass
+                else:
+                    time.sleep(0.1)
         finally:
             print("Cancelling WebXR")
             self.server_process.terminate()

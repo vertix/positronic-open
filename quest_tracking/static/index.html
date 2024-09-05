@@ -23,7 +23,7 @@
         let xrButton = null;
         let xrImmersiveRefSpace = null;
         let gl = null;
-        let lastSentTime = 0;
+        let websocket = null;
 
         function initXR() {
           xrButton = new WebXRButton({
@@ -98,7 +98,6 @@
               if (gripPose) {
                 let pos = gripPose.transform.position;
                 let orient = gripPose.transform.orientation;
-                // let buttons = inputSource.gamepad.buttons.map(button => button.pressed);
                 let buttons = inputSource.gamepad.buttons.map(button => button.value);
                 sendTrackingData(pos, orient, buttons);
               }
@@ -107,30 +106,16 @@
         }
 
         function sendTrackingData(pos, orient, buttons) {
-          const now = Date.now();
-          const hertz = 40;
-          if (now - lastSentTime < 1000 / hertz) {
-            return;
-          }
-          lastSentTime = now;
-
-          let data = {
-            position: [pos.x, pos.y, pos.z],
-            orientation: [orient.w, orient.x, orient.y, orient.z],
-            buttons: buttons,
-            timestamp: Math.floor(Date.now())
-          };
-          fetch('/track', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify(data)
-          }).then(response => {
-            return response.json();
-          }).then(responseData => {
+          if (websocket && websocket.readyState === WebSocket.OPEN) {
+            let data = {
+              position: [pos.x, pos.y, pos.z],
+              orientation: [orient.w, orient.x, orient.y, orient.z],
+              buttons: buttons,
+              timestamp: Date.now()
+            };
+            websocket.send(JSON.stringify(data));
             console.log(JSON.stringify(data));
-          }).catch(error => {
-            console.error("Failed to send tracking data:", error);
-          });
+          }
         }
 
         function onXRFrame(t, frame) {
@@ -141,8 +126,37 @@
           updateInputSources(session, frame, refSpace);
         }
 
-        // Start the XR application.
+        function initWebSocket() {
+          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const wsUrl = `${protocol}//${window.location.host}/ws`;
+          websocket = new WebSocket(wsUrl);
+
+          websocket.onopen = (event) => {
+            console.log("WebSocket connection opened");
+          };
+
+          websocket.onclose = (event) => {
+            console.log("WebSocket connection closed");
+            if (event.code === 1006) {
+              console.error("WebSocket connection failed. Please check if the server is running and the WebSocket endpoint is correct.");
+            }
+          };
+
+          websocket.onerror = (error) => {
+            console.error("WebSocket error:", error);
+          };
+
+          setTimeout(() => {
+            if (websocket.readyState !== WebSocket.OPEN) {
+              console.error("WebSocket connection timed out. Please check your server configuration.");
+            }
+          }, 5000); // 5 seconds timeout
+        }
+
+        // Start the XR application and WebSocket connection.
         initXR();
+        initWebSocket();
       </script>
-  </html>
+  </body>
+</html>
 
