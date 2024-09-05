@@ -95,12 +95,13 @@ def main(rerun, dh_gripper):
     teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
     teleop.ins.robot_position = franka.outs.position
+    franka.ins.target_position = teleop.outs.robot_target_position
 
     if dh_gripper:
         gripper = DHGripper("/dev/ttyUSB0")
         gripper.ins.grip = teleop.outs.gripper_target_grasp
 
-    franka.ins.target_position = teleop.outs.robot_target_position
+
     cam = sl_camera.SLCamera(world, fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
 
     # data_dumper = LerobotDatasetDumper(world, '', '')

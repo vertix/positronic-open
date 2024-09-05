@@ -2,7 +2,7 @@
 # and outputs it further.
 
 import queue
-import threading
+import multiprocessing
 import time
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -14,6 +14,35 @@ from control import ControlSystem, World
 from control.utils import FPSCounter
 from geom import Transform3D
 
+def run_server(app, port, ssl_keyfile, ssl_certfile):
+    config = uvicorn.Config(app, host="0.0.0.0", port=port,
+                            ssl_keyfile=ssl_keyfile, ssl_certfile=ssl_certfile,
+                            log_config={'version': 1, 'disable_existing_loggers': False,
+                            'handlers': {
+                                'file': {
+                                    'class': 'logging.FileHandler',
+                                    'formatter': 'default',
+                                    'filename': 'webxr.log',
+                                    'mode': 'w',
+                                },
+                                'console': {
+                                    'class': 'logging.StreamHandler',
+                                    'formatter': 'default',
+                                }},
+                            'loggers': {
+                                '': {
+                                    'handlers': ['file'],
+                                    'level': 'INFO',
+                                }
+                            },
+                            'formatters': {
+                                'default': {
+                                    'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                                }
+                            }},
+                )
+    server = uvicorn.Server(config)
+    server.run()
 
 class WebXR(ControlSystem):
     def __init__(self, world: World, port: int, ssl_keyfile: str = "key.pem", ssl_certfile: str = "cert.pem"):
@@ -26,36 +55,8 @@ class WebXR(ControlSystem):
 
         self.last_ts = None
 
-        self.data_queue = queue.Queue()
-        self.server_thread = None
-
-        config = uvicorn.Config(self.app, host="0.0.0.0", port=self.port,
-                                ssl_keyfile=self.ssl_keyfile, ssl_certfile=self.ssl_certfile,
-                                log_config={'version': 1, 'disable_existing_loggers': False,
-                                'handlers': {
-                                    'file': {
-                                        'class': 'logging.FileHandler',
-                                        'formatter': 'default',
-                                        'filename': 'webxr.log',
-                                        'mode': 'w',
-                                    },
-                                    'console': {
-                                        'class': 'logging.StreamHandler',
-                                        'formatter': 'default',
-                                    }},
-                                'loggers': {
-                                    '': {
-                                        'handlers': ['file'],
-                                        'level': 'INFO',
-                                    }
-                                },
-                                'formatters': {
-                                    'default': {
-                                        'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                                    }
-                                }},
-                    )
-        self.server = uvicorn.Server(config)
+        self.data_queue = multiprocessing.Queue()
+        self.server_process = None
 
     def setup_routes(self):
         @self.app.get("/")
@@ -75,24 +76,29 @@ class WebXR(ControlSystem):
             return JSONResponse(content={"success": True})
 
     def run(self):
-        self.server_thread = threading.Thread(target=self.server.run)
-        self.server_thread.start()
+        self.server_process = multiprocessing.Process(
+            target=run_server,
+            args=(self.app, self.port, self.ssl_keyfile, self.ssl_certfile)
+        )
+        self.server_process.start()
 
         try:
             fps = FPSCounter("WebXR ")
             while not self.should_stop:
                 try:
-                    data = self.data_queue.get_nowait()
+                    data = self.data_queue.get(timeout=1)  # Wait for 10ms
                     pos = np.array(data['position'])
                     quat = np.array(data['orientation'])
                     self.outs.buttons.write(data['buttons'])
                     self.outs.transform.write(Transform3D(pos, quat))
                     fps.tick()
                 except queue.Empty:
-                    time.sleep(1 / 100)
+                    pass
         finally:
             print("Cancelling WebXR")
-            self.server.should_exit = True
-            self.server.force_exit = True
-            self.server_thread.join()
+            self.server_process.terminate()
+            self.server_process.join(timeout=5)
+            if self.server_process.is_alive():
+                print("WebXR did not terminate in time, terminating forcefully")
+                self.server_process.kill()
             print("WebXR cancelled")
