@@ -14,6 +14,7 @@ from control import ControlSystem, World
 from control.utils import FPSCounter
 from geom import Transform3D
 
+
 class WebXR(ControlSystem):
     def __init__(self, world: World, port: int, ssl_keyfile: str = "key.pem", ssl_certfile: str = "cert.pem"):
         super().__init__(world, outputs=["transform", "buttons"])

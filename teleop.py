@@ -60,11 +60,10 @@ class TeleopSystem(ControlSystem):
                 robot_t = value
             elif input_name == "teleop_transform":
                 teleop_t = self._parse_position(value)
-                if is_tracking:
-                    if offset is not None:
-                        target = Transform3D(teleop_t.translation + offset.translation,
-                                             teleop_t.quaternion * offset.quaternion)
-                        await self.outs.robot_target_position.write(target)
+                if is_tracking and offset is not None:
+                    target = Transform3D(teleop_t.translation + offset.translation,
+                                         teleop_t.quaternion * offset.quaternion)
+                    await self.outs.robot_target_position.write(target)
             elif input_name == "teleop_buttons":
                 track_but, untrack_but, grasp_but = self._parse_buttons(value)
 
@@ -90,10 +89,10 @@ class TeleopSystem(ControlSystem):
 async def main(rerun, dh_gripper):
     world = MainThreadWorld()
     webxr = WebXR(world, port=5005)
-    franka = Franka(world, "172.168.0.2", 0.4, 0.4, reporting_frequency=10)
+    franka = Franka(world, "172.168.0.2", 0.4, 0.4, reporting_frequency=None)
 
-    teleop_world = ThreadWorld()
-    teleop = TeleopSystem(teleop_world)
+    # teleop_world = ThreadWorld()
+    teleop = TeleopSystem(world)
 
     teleop.ins.teleop_transform = webxr.outs.transform
     teleop.ins.teleop_buttons = webxr.outs.buttons
@@ -104,7 +103,8 @@ async def main(rerun, dh_gripper):
         gripper.ins.grip = teleop.outs.gripper_target_grasp
 
     franka.ins.target_position = teleop.outs.robot_target_position
-    cam = sl_camera.SLCamera(world, fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
+    cam_world = ThreadWorld()
+    cam = sl_camera.SLCamera(cam_world, fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
 
     # data_dumper = LerobotDatasetDumper(world, '', '')
     # data_dumper.ins.image = cam.outs.record
@@ -130,7 +130,7 @@ async def main(rerun, dh_gripper):
     yappi.set_clock_type("cpu")
     yappi.start(profile_threads=False)
     try:
-        await asyncio.gather(world.run(), teleop_world.run(), cam_world.run())
+        await asyncio.gather(world.run(), cam_world.run())
     finally:
         print("Program interrupted by user, exiting...")
         yappi.stop()
