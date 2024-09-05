@@ -145,12 +145,6 @@
           websocket.onerror = (error) => {
             console.error("WebSocket error:", error);
           };
-
-          setTimeout(() => {
-            if (websocket.readyState !== WebSocket.OPEN) {
-              console.error("WebSocket connection timed out. Please check your server configuration.");
-            }
-          }, 5000); // 5 seconds timeout
         }
 
         // Start the XR application and WebSocket connection.

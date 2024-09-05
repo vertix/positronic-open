@@ -31,9 +31,11 @@ def run_server(data_queue, port, ssl_keyfile, ssl_certfile):
         await websocket.accept()
         print("WebSocket connection accepted")
         try:
+            fps = FPSCounter("Websocket")
             while True:
                 data = await websocket.receive_json()
                 data_queue.put(data)
+                fps.tick()
         except Exception as e:
             print(f"WebSocket error: {e}")
         finally:
@@ -90,17 +92,15 @@ class WebXR(ControlSystem):
         try:
             fps = FPSCounter("WebXR ")
             while not self.should_stop:
-                data = None
-                while not self.data_queue.empty():
-                    data = self.data_queue.get()
-                if data is not None:
+                try:
+                    data = self.data_queue.get(timeout=1)
                     pos = np.array(data['position'])
                     quat = np.array(data['orientation'])
                     self.outs.buttons.write(data['buttons'])
                     self.outs.transform.write(Transform3D(pos, quat))
                     fps.tick()
-                else:
-                    time.sleep(0.1)
+                except queue.Empty:
+                    continue
         finally:
             print("Cancelling WebXR")
             self.server_process.terminate()
