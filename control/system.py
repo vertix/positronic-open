@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
-import asyncio
 import logging
-from typing import Any, List, Optional
+from typing import Any, List
 
 # Set up logging
 logging.basicConfig(level=logging.WARNING)
@@ -17,7 +16,7 @@ class ControlSystem(ABC):
     def __init__(self, world, *, inputs: List[str] = [], outputs: List[str] = []):
         self._inputs = InputPortContainer(world, inputs)
         self._outputs = OutputPortContainer(world, outputs)
-        self._world = world
+        self.world = world
         world.add_system(self)
 
     @property
@@ -34,10 +33,15 @@ class ControlSystem(ABC):
         """
         return self._outputs
 
+    @property
+    def should_stop(self):
+        return self.world.should_stop
+
     @abstractmethod
-    async def run(self):
+    def run(self):
         """
-        Abstract control loop coroutine.
+        Abstract control loop function, to be run in a separate thread.
+        Must stop when world.should_stop is True.
         """
         pass
 
@@ -68,35 +72,38 @@ class EventSystem(ControlSystem):
             return func
         return decorator
 
-    async def on_start(self):
+    def on_start(self):
         """
         Hook method called when the system starts.
         """
         pass
 
-    async def on_stop(self):
+    def on_stop(self):
         """
         Hook method called when the system stops.
         """
         pass
 
-    async def on_after_input(self):
+    def on_after_input(self):
         """
         Hook method called on any input. It is called after on_event callbacks.
         """
         pass
 
-    async def run(self):
+    def run(self):
         """
         Control loop coroutine that handles events.
         """
-        await self.on_start()
+        self.on_start()
+        read_iter = self.ins.read()
         try:
-            async for name, ts, value in self.ins.read():
-                if name in self._handlers:
-                    await self._handlers[name](ts, value)
-                await self.on_after_input()
-        except asyncio.CancelledError:
-            pass
+            while not self._world.should_stop:
+                try:
+                    name, ts, value = next(read_iter)
+                    if name in self._handlers:
+                        self._handlers[name](ts, value)
+                    self.on_after_input()
+                except StopIteration:
+                    return
         finally:
-            await self.on_stop()
+            self.on_stop()

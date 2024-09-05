@@ -41,18 +41,15 @@ class Rerun(ControlSystem):
 
         return None
 
-    async def _log(self, name: str, ts: int, data: Any):
+    def _log(self, name: str, ts: int, data: Any):
         fn = self._input_fns[name]
         if fn is None:
             fn = self._default_fn(data)
+        fn(name, ts, data)
 
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, fn, name, ts, data)
-
-
-    async def run(self):
+    def run(self):
         try:
-            async for name, ts, data in self.ins.read():
-                await self._log(name, ts, data)
+            for name, ts, data in self.ins.read():
+                self._log(name, ts, data)
         finally:
             rr.disconnect()

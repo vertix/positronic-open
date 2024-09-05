@@ -1,12 +1,12 @@
-import asyncio
+from ctypes import c_uint16
+import time
 
 import pymodbus.client as ModbusClient
-from time import sleep
-from ctypes import c_uint16
 
 import numpy as np
 
 from control import EventSystem, World, MainThreadWorld
+from control.system import ControlSystem
 
 
 class DHGripper(EventSystem):
@@ -26,29 +26,29 @@ class DHGripper(EventSystem):
     def _state_r(self):
         return self.client.read_holding_registers(0x20A, 1, slave=1).registers[0]
 
-    async def on_start(self):
+    def on_start(self):
         if self._state_g() != 1 or self._state_r() != 1:
             self.client.write_register(0x100, 0xa5, slave=1)
             while self._state_g() != 1 and self._state_r() != 1:
-                await asyncio.sleep(0.1)
+                time.sleep(0.1)
 
-        await self.on_force(100)  # Set to maximum force
-        await self.on_speed(100)  # Set to maximum speed
-        await self.on_grip(0)  # Open gripper
-        await asyncio.sleep(0.5)
+        self.on_force(100)  # Set to maximum force
+        self.on_speed(100)  # Set to maximum speed
+        self.on_grip(0)  # Open gripper
+        time.sleep(0.5)
 
     @EventSystem.on_event('grip')
-    async def on_grip(self, _ts, value):
+    def on_grip(self, _ts, value):
         """Accepts value in range [0, 1]. 0 means fully open, 1 means fully closed."""
         width = round((1 - value) * 1000)
         self.client.write_register(0x103, c_uint16(width).value, slave=1)
 
     @EventSystem.on_event('force')
-    async def on_force(self, _ts, value):
+    def on_force(self, _ts, value):
         self.client.write_register(0x101, c_uint16(value).value, slave=1)
 
     @EventSystem.on_event('speed')
-    async def on_speed(self, _ts, value):
+    def on_speed(self, _ts, value):
         self.client.write_register(0x104, c_uint16(value).value, slave=1)
 
 # connection = client.connect()
@@ -164,24 +164,28 @@ class DHGripper(EventSystem):
 #         grip(0)
 
 
-async def _main():
+def _main():
     world = MainThreadWorld()
     gripper = DHGripper(world, "/dev/ttyUSB0")
-    await gripper.ins.speed.write(20)
-    await gripper.ins.force.write(100)
+    gripper.ins.speed.write(20)
+    gripper.ins.force.write(100)
 
-    async def test():
-        while True:
+    # TODO: Write decorator for cases like this
+    class TestSystem(ControlSystem):
+        def __init__(self, world: World):
+            super().__init__(world, inputs=[], outputs=['grip'])
+
+        def run(self):
             for width in (np.sin(np.linspace(0, 2 * np.pi, 15)) + 1):
-                await gripper.ins.grip.write(width)
-                await asyncio.sleep(0.05)
+                self.outs.grip.write(width)
+                time.sleep(0.05)
+                if self.world.should_stop:
+                    break
 
-    await asyncio.gather(test(), world.run())
+    test = TestSystem(world)
+    gripper.ins.grip = test.outs.grip
+
+    world.run()
 
 if __name__ == "__main__":
-    asyncio.run(_main())
-
-    # test()
-    # while True:
-    #     for v in range(0, 1000, 333):
-    #         runner.send(("grip", 0, v))
+    _main()

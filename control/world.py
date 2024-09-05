@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-import asyncio
 import threading
+import time
 from typing import List
 
 from control.system import ControlSystem
@@ -10,12 +10,17 @@ from control.system import ControlSystem
 class World(ABC):
     def __init__(self):
         self._systems: List[ControlSystem] = []
+        self.stop_event = threading.Event()
 
     def add_system(self, system: ControlSystem):
         self._systems.append(system)
 
+    @property
+    def should_stop(self):
+        return self.stop_event.is_set()
+
     @abstractmethod
-    async def run(self):
+    def run(self):
         pass
 
 
@@ -32,40 +37,29 @@ class MainThreadWorld(World):
             super().__init__()
             self._initialized = True
 
-    async def run(self):
-        await asyncio.gather(*[s.run() for s in self._systems])
-
-
-class ThreadWorld(World):
-    async def run(self):
-        stop_event = threading.Event()
-
-        async def _run_systems():
-            try:
-                await asyncio.gather(*[s.run() for s in self._systems])
-            except asyncio.CancelledError:
-                print("Systems cancelled")
-
-        def thread_target():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            task = loop.create_task(_run_systems())
-
-            try:
-                while not stop_event.is_set():
-                    loop.run_until_complete(asyncio.sleep(0.1))
-            finally:
-                task.cancel()
-                loop.run_until_complete(loop.shutdown_asyncgens())
-                loop.close()
-
-        thread = threading.Thread(target=thread_target)
-        try:
+    def run(self):
+        threads = []
+        for system in self._systems:
+            thread = threading.Thread(
+                target=self._run_system,
+                args=(system,),
+                name=f"{system.__class__.__name__}"
+            )
             thread.start()
-            await asyncio.to_thread(thread.join)
+            threads.append(thread)
+
+        try:
+            while not self.stop_event.is_set():
+                time.sleep(1)
         finally:
-            print("Stopping ThreadWorld")
-            stop_event.set()
-            if thread.is_alive():
+            self.stop_event.set()
+            for thread in threads:
                 thread.join()
-            print("ThreadWorld stopped")
+
+    def _run_system(self, system):
+        try:
+            system.run()
+        except Exception as e:
+            print(f"Exception in system {system.__class__.__name__}: {e}")
+            import traceback
+            traceback.print_exc()

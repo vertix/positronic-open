@@ -7,7 +7,6 @@ import numpy as np
 import yappi
 
 from control import ControlSystem, utils, World, MainThreadWorld
-from control.world import ThreadWorld
 from geom import Quaternion, Transform3D
 from hardware import Franka, DHGripper, sl_camera
 from tools import rerun as rr_tools
@@ -46,7 +45,7 @@ class TeleopSystem(ControlSystem):
             but = 0., 0., 0.
         return but
 
-    async def run(self):
+    def run(self):
         track_but, untrack_but, grasp_but = 0., 0., 0.
         robot_t = None
         teleop_t = None
@@ -54,7 +53,7 @@ class TeleopSystem(ControlSystem):
         is_tracking = False
 
         fps = utils.FPSCounter("Teleop")
-        async for input_name, _ts, value in self.ins.read():
+        for input_name, _ts, value in self.ins.read():
             fps.tick()
             if input_name == "robot_position":
                 robot_t = value
@@ -63,11 +62,11 @@ class TeleopSystem(ControlSystem):
                 if is_tracking and offset is not None:
                     target = Transform3D(teleop_t.translation + offset.translation,
                                          teleop_t.quaternion * offset.quaternion)
-                    await self.outs.robot_target_position.write(target)
+                    self.outs.robot_target_position.write(target)
             elif input_name == "teleop_buttons":
                 track_but, untrack_but, grasp_but = self._parse_buttons(value)
 
-                if is_tracking: await self.outs.gripper_target_grasp.write(grasp_but)
+                if is_tracking: self.outs.gripper_target_grasp.write(grasp_but)
 
                 if track_but:
                     # Note that translation and rotation offsets are independent
@@ -77,21 +76,20 @@ class TeleopSystem(ControlSystem):
                     if not is_tracking:
                         logging.info('Started tracking')
                         is_tracking = True
-                        await self.outs.start_tracking.write(True)
+                        self.outs.start_tracking.write(True)
                 elif untrack_but:
                     if is_tracking:
                         logging.info('Stopped tracking')
                         is_tracking = False
                         offset = None
-                        await self.outs.stop_tracking.write(True)
+                        self.outs.stop_tracking.write(True)
 
 
-async def main(rerun, dh_gripper):
+def main(rerun, dh_gripper):
     world = MainThreadWorld()
     webxr = WebXR(world, port=5005)
     franka = Franka(world, "172.168.0.2", 0.4, 0.4, reporting_frequency=None)
 
-    # teleop_world = ThreadWorld()
     teleop = TeleopSystem(world)
 
     teleop.ins.teleop_transform = webxr.outs.transform
@@ -103,8 +101,7 @@ async def main(rerun, dh_gripper):
         gripper.ins.grip = teleop.outs.gripper_target_grasp
 
     franka.ins.target_position = teleop.outs.robot_target_position
-    cam_world = ThreadWorld()
-    cam = sl_camera.SLCamera(cam_world, fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
+    cam = sl_camera.SLCamera(world, fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
 
     # data_dumper = LerobotDatasetDumper(world, '', '')
     # data_dumper.ins.image = cam.outs.record
@@ -130,7 +127,7 @@ async def main(rerun, dh_gripper):
     yappi.set_clock_type("cpu")
     yappi.start(profile_threads=False)
     try:
-        await asyncio.gather(world.run(), cam_world.run())
+        world.run()
     finally:
         print("Program interrupted by user, exiting...")
         yappi.stop()

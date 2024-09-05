@@ -1,9 +1,9 @@
 # System that starts a webserver that collects tracking data from the WebXR page
 # and outputs it further.
 
-import asyncio
 import queue
 import threading
+import time
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import FileResponse
@@ -74,22 +74,22 @@ class WebXR(ControlSystem):
                 self.data_queue.put(data)
             return JSONResponse(content={"success": True})
 
-    async def run(self):
+    def run(self):
         self.server_thread = threading.Thread(target=self.server.run)
         self.server_thread.start()
 
         try:
             fps = FPSCounter("WebXR ")
-            while True:
+            while not self.should_stop:
                 try:
                     data = self.data_queue.get_nowait()
                     pos = np.array(data['position'])
                     quat = np.array(data['orientation'])
-                    await self.outs.buttons.write(data['buttons'])
-                    await self.outs.transform.write(Transform3D(pos, quat))
+                    self.outs.buttons.write(data['buttons'])
+                    self.outs.transform.write(Transform3D(pos, quat))
                     fps.tick()
                 except queue.Empty:
-                    await asyncio.sleep(1 / 100)
+                    time.sleep(1 / 100)
         finally:
             print("Cancelling WebXR")
             self.server.should_exit = True

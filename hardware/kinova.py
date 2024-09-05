@@ -13,12 +13,12 @@
 # the respective inverse kinematics returned very unstable results, and the arm
 # was moving like crazy.
 
-import asyncio
 import logging
 import threading
 import time
 
 import numpy as np
+from control.world import MainThreadWorld
 import ruckig
 from scipy.optimize import least_squares
 
@@ -290,7 +290,8 @@ class Kinova(ControlSystem):
         super().__init__(world, inputs=["target_position",], outputs=["position", "joint_positions"])
         self.ip = ip
 
-    async def run(self):
+    def run(self):
+        # TODO: If we ever return to working with Kinova, merge the controller into this class
         controller = KinovaController(self.ip)
 
         pos, joints = None, None
@@ -298,7 +299,7 @@ class Kinova(ControlSystem):
         control_thread.start()
 
         try:
-            async for input_name, _ts, value in self.ins.read(1 / 40):
+            for input_name, _ts, value in self.ins.read(1 / 40):
                 if input_name == "target_position":
                     target_joints = controller.inverse_kinematics(value)
                     if target_joints is not None:
@@ -315,25 +316,27 @@ class Kinova(ControlSystem):
                 if joints is not None:
                     pos = controller.forward_kinematics(joints)
                     # print(f"Joints: {np.array2string(joints, precision=3, suppress_small=True)} - Position: {pos}")
-                    await self.outs.position.write(pos)
-                    await self.outs.joint_positions.write(degrees_to_radians(joints))
+                    self.outs.position.write(pos)
+                    self.outs.joint_positions.write(degrees_to_radians(joints))
                     joints = None
         finally:
             controller.stop_event.set()
             control_thread.join()
 
 
-async def _main():
-    kinova = Kinova('192.168.1.10')
-    class Manager(ControlSystem):
-        def __init__(self):
-            super().__init__(inputs=["robot_pos", "joints"], outputs=["target_pos"])
+def _main():
+    world = MainThreadWorld()
 
-        async def run(self):
-            _, robot_pos = await self.ins.robot_pos.read()
+    kinova = Kinova(world, '192.168.1.10')
+    class Manager(ControlSystem):
+        def __init__(self, world: World):
+            super().__init__(world, inputs=["robot_pos", "joints"], outputs=["target_pos"])
+
+        def run(self):
+            _, robot_pos = self.ins.robot_pos.read()
             start_time = time.time()
             last_command_time = None
-            async for input_name, _ts, value in self.ins.read(1 / 50):
+            for input_name, _ts, value in self.ins.read(1 / 50):
                 # if input_name == "robot_pos":
                 #     print(robot_pos)
 
@@ -342,18 +345,18 @@ async def _main():
                     delta = np.array([0., np.cos(t), np.sin(t)]) * 0.20  # Radius of 20 cm
                     target = Transform3D(robot_pos.translation + delta, robot_pos.quaternion)
                     last_command_time = time.time()
-                    await self.outs.target_pos.write(target)
+                    self.outs.target_pos.write(target)
 
                 if time.time() - start_time > 30:
                     break
 
-    manager = Manager()
+    manager = Manager(world)
     manager.ins.robot_pos = kinova.outs.position
     manager.ins.joints = kinova.outs.joint_positions
     kinova.ins.target_position = manager.outs.target_pos
 
-    await asyncio.gather(kinova.run(), manager.run())
+    world.run()
 
 
 if __name__ == "__main__":
-    asyncio.run(_main())
+    _main()

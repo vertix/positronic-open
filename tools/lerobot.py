@@ -10,14 +10,14 @@ class LerobotDatasetDumper(ControlSystem):
         self.filename = filename
         self.video_filename = video_filename
 
-    async def run(self):
+    def run(self):
         # ep_dict = defaultdict(list)
         # last = {}
         start_time = time.time()
         frame_count = 0
         tracked = False
 
-        async for name, ts, data in self.ins.read():
+        for name, ts, data in self.ins.read():
             if name == 'start_episode':
                 start_time = time.time()
                 frame_count = 0

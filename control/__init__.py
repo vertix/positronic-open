@@ -1,3 +1,3 @@
-from .world import World, MainThreadWorld, ThreadWorld
-from .ports import AsyncioInputPort, OutputPort
+from .world import World, MainThreadWorld
+from .ports import OutputPort
 from .system import ControlSystem, EventSystem

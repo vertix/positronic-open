@@ -15,8 +15,8 @@ def map_port(fn: Callable[[Any], Any]):
             self.original = original
             self.original._bind(self.write)
 
-        async def write(self, value: Any, timestamp: Optional[int] = None):
-            await super().write(fn(value), timestamp)
+        def write(self, value: Any, timestamp: Optional[int] = None):
+            super().write(fn(value), timestamp)
 
     return _MapPort
 
@@ -44,8 +44,8 @@ class Logger(ControlSystem):
         super().__init__(world, inputs=inputs)
         self.level = level
 
-    async def run(self):
-        async for name, _ts, value in self._inputs.read():
+    def run(self):
+        for name, _ts, value in self._inputs.read():
             logging.log(self.level, f"{name}: {value}")
 
 
@@ -72,10 +72,10 @@ class MapSystem(ControlSystem):
         if not self.default_map_fn and not all(input_name in self.map_fns for input_name in inputs):
             raise ValueError("Either default_map_fn must be defined, or all mappings for all inputs must be defined")
 
-    async def run(self):
+    def run(self):
         """
         Control loop coroutine.
         """
-        async for name, _ts, value in self._inputs.read():
+        for name, _ts, value in self._inputs.read():
             map_fn = self.map_fns.get(name, self.default_map_fn)
-            await self.outs[name].write(map_fn(name, value))
+            self.outs[name].write(map_fn(name, value))

@@ -48,21 +48,21 @@ class Franka(ControlSystem):
             self.gripper_speed = 0.0
             self.gripper_grasped = None
 
-    async def _write_outputs(self):
+    def _write_outputs(self):
         pos, joints, state = self.robot.current_pose.end_effector_pose, self.robot.current_joint_state, self.robot.state
         ts = int(time.time() * 1000)
 
-        await self.outs.position.write(Transform3D(pos.translation, pos.quaternion), ts)
-        await self.outs.joint_positions.write(joints.position, ts)
+        self.outs.position.write(Transform3D(pos.translation, pos.quaternion), ts)
+        self.outs.joint_positions.write(joints.position, ts)
         if self.gripper:
-            await self.outs.gripper_grasped.write(self.gripper_grasped, ts)
+            self.outs.gripper_grasped.write(self.gripper_grasped, ts)
 
         if self.outs.ext_force_base.subscribed:
-            await self.outs.ext_force_base.write(state.O_F_ext_hat_K, ts)
+            self.outs.ext_force_base.write(state.O_F_ext_hat_K, ts)
         if self.outs.ext_force_ee.subscribed:
-            await self.outs.ext_force_ee.write(state.K_F_ext_hat_K, ts)
+            self.outs.ext_force_ee.write(state.K_F_ext_hat_K, ts)
 
-    async def on_start(self):
+    def on_start(self):
         self.robot.recover_from_errors()
         self.robot.move(franky.JointWaypointMotion([
             franky.JointWaypoint([0.0,  -0.31, 0.0, -1.53, 0.0, 1.522,  0.785])]))
@@ -71,32 +71,32 @@ class Franka(ControlSystem):
             self.gripper.homing()
             self.gripper_grasped = False
 
-        await self._write_outputs()
+        self._write_outputs()
 
-    async def on_stop(self):
+    def on_stop(self):
         print("Franka stopping")
         self.robot.stop()
         if self.gripper:
             self.gripper.open(self.gripper_speed)
         print("Franka stopped")
 
-    async def run(self):
-        await self.on_start()
+    def run(self):
+        self.on_start()
         try:
             to = 1.0 / self.reporting_frequency if self.reporting_frequency is not None else None
             fps = FPSCounter("Franka")
-            async for name, _ts, value in self.ins.read(timeout=to):
+            for name, _ts, value in self.ins.read(timeout=to):
                 if name == "target_position":
-                    await self.on_target_position(value)
+                    self.on_target_position(value)
                 elif name == "gripper_grasped":
-                    await self.on_gripper_grasped(value)
+                    self.on_gripper_grasped(value)
 
-                await self._write_outputs()
+                self._write_outputs()
                 fps.tick()
         finally:
-            await self.on_stop()
+            self.on_stop()
 
-    async def on_target_position(self, value):
+    def on_target_position(self, value):
         try:
             pos = franky.Affine(translation=value.translation, quaternion=value.quaternion)
             self.robot.move(franky.CartesianMotion(pos, franky.ReferenceType.Absolute), asynchronous=True)
@@ -104,7 +104,7 @@ class Franka(ControlSystem):
             self.robot.recover_from_errors()
             logger.warning(f"IK failed for {value}: {e}")
 
-    async def on_gripper_grasped(self, value):
+    def on_gripper_grasped(self, value):
         if self.gripper_grasped:
             if value < 0.33:
                 self.gripper.open(self.gripper_speed)

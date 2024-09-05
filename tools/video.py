@@ -1,7 +1,3 @@
-import queue
-import time
-import threading
-
 import av
 
 from control import ControlSystem, World
@@ -16,10 +12,8 @@ class VideoDumper(ControlSystem):
         self.width = width
         self.height = height
         self.codec = codec
-        self.queue = queue.Queue(maxsize=fps * 5)
-        self.stop_event = threading.Event()
 
-    def encode_video(self):
+    def run(self):
         container = av.open(self.filename, mode='w', format='mp4')
         stream = container.add_stream(self.codec, rate=self.fps)
         stream.pix_fmt = 'yuv420p'
@@ -28,8 +22,7 @@ class VideoDumper(ControlSystem):
 
         try:
             fps = None
-            while not self.stop_event.is_set():
-                image = self.queue.get()
+            for _, image in self.ins.image.read_until_stop():
                 if image is None:
                     continue
 
@@ -48,17 +41,3 @@ class VideoDumper(ControlSystem):
             packet = stream.encode(None)
             container.mux(packet)
             container.close()
-
-    async def run(self):
-        thread = threading.Thread(target=self.encode_video)
-        thread.start()
-        try:
-            while True:
-                _, image = await self.ins.image.read()
-                try:
-                    self.queue.put_nowait(image)
-                except queue.Full:
-                    continue
-        finally:
-            self.stop_event.set()
-            thread.join()

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-import asyncio
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import queue
 from typing import Any, List, Optional
 
@@ -11,12 +11,12 @@ class OutputPort:
         self._bound_to = []
         self._world = world
 
-    async def write(self, value: Any, timestamp: Optional[int] = None):
+    def write(self, value: Any, timestamp: Optional[int] = None):
         """
         Write a value to all bound input ports.
         """
         for port in self._bound_to:
-            await port(value, timestamp)
+            port(value, timestamp)
 
     def _bind(self, callback):
         self._bound_to.append(callback)
@@ -35,58 +35,52 @@ class OutputPort:
 
 class InputPort(ABC):
     @abstractmethod
-    async def read(self, timeout: Optional[float] = None):
-        "Returns (timestamp, value) or None if timeout is reached"
+    def read(self, block: bool = True, timeout: Optional[float] = None):
+        """
+        Returns (timestamp, value) or None if timeout is reached.
+        Blocking if no timeout. Implementations must respect world.should_stop.
+        """
         pass
 
+    def read_nowait(self, timeout: Optional[float] = None):
+        return self.read(block=False, timeout=timeout)
 
-class AsyncioInputPort(InputPort):
-    """
-    Represents an input port that can bind to an output port and send values to the system's control loop.
-    """
-    def __init__(self, binded_to: OutputPort):
-        self.queue = asyncio.Queue(maxsize=5)
-        binded_to._bind(self._write)
-
-    async def _write(self, value: Any, timestamp: Optional[int] = None):
-        # if self.queue.full():
-        #     await self.queue.get()
-        #     self.queue.task_done()
-        await self.queue.put((timestamp, value))
-        await asyncio.sleep(0)  # Yield control to let readers to catch up
-
-    async def read(self, timeout: Optional[float] = None):
+    def read_until_stop(self):
         """
-        Read a value from the input port. Returns None if timeout is reached.
+        Generator that continuously reads from the input port until the world should stop.
+
+        This method blocks and yields (timestamp, value) tuples from the input port.
+        It stops when the world's should_stop flag is set.
         """
-        try:
-            if timeout is None:
-                res = await self.queue.get()
-            else:
-                res = await asyncio.wait_for(self.queue.get(), timeout)
-        except asyncio.TimeoutError:
-            return None
-        self.queue.task_done()
-        return res
+        while not self.world.should_stop:
+            res = self.read(block=True, timeout=None)
+            if res is None:
+                break
+            yield res
 
 
 class ThreadedInputPort(InputPort):
-    def __init__(self, binded_to: OutputPort):
+    def __init__(self, world, binded_to: OutputPort):
         self.queue = queue.Queue(maxsize=5)
         binded_to._bind(self._write)
+        self.world = world
 
-    async def _write(self, value: Any, timestamp: Optional[int] = None):
-        await asyncio.get_running_loop().run_in_executor(
-            None, self.queue.put, (timestamp, value)
-        )
+    def _write(self, value: Any, timestamp: Optional[int] = None):
+        self.queue.put((timestamp, value))
 
-    async def read(self, timeout: Optional[float] = None):
-        try:
-            return await asyncio.get_running_loop().run_in_executor(
-                None, self.queue.get, True, timeout
-            )
-        except queue.Empty:
-            return None
+    def read(self, block: bool = True, timeout: Optional[float] = None):
+        TICK = 1
+        while not self.world.stop_event.is_set():
+            try:
+                t_o = min(TICK, timeout) if timeout is not None else TICK
+                timeout = max(timeout - TICK, 0) if timeout is not None else None
+                result = self.queue.get(block=block, timeout=t_o)
+                self.queue.task_done()
+                return result
+            except queue.Empty:
+                if not block or (timeout is not None and timeout <= 0):
+                    return None
+        return None  # Stop is requested
 
 
 class OutputPortContainer:
@@ -105,11 +99,8 @@ class InputPortContainer(OutputPortContainer):
         self.world = world
         self._ports = {name: None for name in ports}
 
-    def _create_port(self, name: str, output_port: OutputPort):
-        if self.world == output_port.world:
-            return AsyncioInputPort(output_port)
-        else:
-            return ThreadedInputPort(output_port)
+    def _create_port(self, output_port: OutputPort):
+        return ThreadedInputPort(self.world, output_port)
 
     def __setattr__(self, name: str, output_port: Any):
         """
@@ -124,26 +115,38 @@ class InputPortContainer(OutputPortContainer):
         if not isinstance(output_port, OutputPort):
             raise TypeError(f"Expected OutputPort, got {type(output_port).__name__}")
         if self._ports[name] is None:
-            self._ports[name] = self._create_port(name, output_port)
+            self._ports[name] = self._create_port(output_port)
         else:
             raise ValueError(f"Port {name} already assigned")
 
-    async def read(self, timeout: Optional[float] = None):
+    def read(self, timeout: Optional[float] = None):
         """
-        Async generator to yield values from any of the input ports as they arrive,
+        Generator to yield values from any of the input ports as they arrive,
         or yield None if the timeout is reached.
         """
-        tasks = {asyncio.create_task(port.queue.get()): name
-                 for name, port in self._ports.items() if port is not None}
+        with ThreadPoolExecutor(max_workers=len(self._ports)) as executor:
+            futures = {executor.submit(port.read): name
+                    for name, port in self._ports.items() if port is not None}
+            TICK = 1
+            timeout_left = timeout
 
-        while tasks:
-            done, _ = await asyncio.wait(tasks.keys(), timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
-            if not done:
-                yield None, None, None
-                continue
+            while futures and not self.world.stop_event.is_set():
+                t_o = min(TICK, timeout_left) if timeout_left is not None else TICK
+                timeout_left = max(timeout_left - TICK, 0) if timeout_left is not None else None
+                done, _ = wait(futures, timeout=t_o, return_when=FIRST_COMPLETED)
 
-            for task in done:
-                name = tasks.pop(task)
-                value = task.result()
-                yield name, value[0], value[1]
-                tasks[asyncio.create_task(self._ports[name].queue.get())] = name
+                if not done and (timeout_left is not None and timeout_left <= 0):
+                    yield None, None, None
+                    timeout_left = timeout
+                    continue
+
+                for future in done:
+                    name = futures.pop(future)
+                    result = future.result()
+                    if result is None: return  # Stop is requested
+                    timestamp, value = result
+                    yield name, timestamp, value
+
+                    futures[executor.submit(self._ports[name].read)] = name
+                    timeout_left = timeout
+
