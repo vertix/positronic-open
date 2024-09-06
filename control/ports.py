@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import queue
 from typing import Any, List, Optional
+import threading
 
 class OutputPort:
     """
@@ -65,6 +66,9 @@ class ThreadedInputPort(InputPort):
         binded_to._bind(self._write)
         self.world = world
 
+        self._last_value = None
+        self._last_value_lock = threading.Lock()
+
     def _write(self, value: Any, timestamp: Optional[int] = None):
         self.queue.put((timestamp, value))
 
@@ -76,11 +80,20 @@ class ThreadedInputPort(InputPort):
                 timeout = max(timeout - TICK, 0) if timeout is not None else None
                 result = self.queue.get(block=block, timeout=t_o)
                 self.queue.task_done()
+                with self._last_value_lock:
+                    self._last_value = result
                 return result
             except queue.Empty:
                 if not block or (timeout is not None and timeout <= 0):
                     return None
         return None  # Stop is requested
+
+    @property
+    def last(self):
+        while self.read_nowait() is not None:
+            pass
+        with self._last_value_lock:
+            return self._last_value
 
 
 class OutputPortContainer:
