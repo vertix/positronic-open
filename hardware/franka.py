@@ -88,11 +88,11 @@ class Franka(ControlSystem):
             for name, _ts, value in self.ins.read(timeout=to):
                 if name == "target_position":
                     self.on_target_position(value)
+                    fps.tick()
                 elif name == "gripper_grasped":
                     self.on_gripper_grasped(value)
 
                 self._write_outputs()
-                fps.tick()
         finally:
             self.on_stop()
 

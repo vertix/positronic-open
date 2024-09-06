@@ -1,9 +1,13 @@
 # Control systems for StereoLabs cameras
 
 from dataclasses import dataclass
+import queue
 from typing import Optional
 
 import pyzed.sl as sl
+import multiprocessing as mp
+from multiprocessing import Queue
+import numpy as np
 
 from control import ControlSystem, utils, World, MainThreadWorld
 from tools.video import VideoDumper
@@ -19,15 +23,33 @@ class Record:
 class SLCamera(ControlSystem):
     def __init__(self, world: World, fps=30, view=sl.VIEW.LEFT, resolution=sl.RESOLUTION.AUTO):
         super().__init__(world, inputs=[], outputs=['record'])
-
         self.init_params = sl.InitParameters()
         self.init_params.camera_resolution = resolution
         self.init_params.camera_fps = fps
         self.init_params.depth_mode = sl.DEPTH_MODE.NONE
         self.init_params.sdk_verbose = 1
+        self.init_params.enable_image_enhancement = False
+        self.init_params.async_grab_camera_recovery = False
         self.view = view
+        self.frame_queue = Queue(maxsize=5)  # Limit queue size to prevent memory issues
+        self.process = None
 
     def run(self):
+        self.process = mp.Process(target=self._camera_process, args=(self.frame_queue,))
+        self.process.start()
+
+        while not self.should_stop:
+            try:
+                record = self.frame_queue.get(timeout=1)
+                self.outs.record.write(record)
+            except queue.Empty:
+                continue
+
+        if self.process.is_alive():
+            self.process.terminate()
+            self.process.join()
+
+    def _camera_process(self, queue: Queue):
         zed = sl.Camera()
         zed.open(self.init_params)
         SUCCESS = sl.ERROR_CODE.SUCCESS
@@ -35,22 +57,24 @@ class SLCamera(ControlSystem):
 
         try:
             fps = utils.FPSCounter("Camera")
-            while not self.should_stop:
+            while True:
                 result = zed.grab()
                 fps.tick()
                 if result != SUCCESS:
-                    # TODO: Should we be more specific about the error?
-                    # See(https://www.stereolabs.com/docs/api/python/classpyzed_1_1sl_1_1ERROR__CODE.html)
-                    self.outs.record.write(Record(success=False))
+                    queue.put(Record(success=False))
                     continue
 
                 image = sl.Mat()
                 if zed.retrieve_image(image, self.view) != SUCCESS:
-                    self.outs.record.write(Record(success=False))
+                    queue.put(Record(success=False))
                     continue
 
                 ts_ms = zed.get_timestamp(TIME_REF_IMAGE).get_milliseconds()
-                self.outs.record.write(Record(success=True, image=image), timestamp=ts_ms)
+                # Convert image to numpy array to make it picklable
+                np_image = image.get_data()
+                queue.put(Record(success=True, image=np_image), block=True)
+        except Queue.Full:
+            pass  # Skip frame if queue is full
         finally:
             zed.close()
 
@@ -65,7 +89,7 @@ def main():
     def extract_np_image(record):
         if record is None or not record.success:
             return None
-        return record.image.get_data()[:, :, :3]
+        return record.image[:, :, :3]
 
     video_dumper.ins.image = extract_np_image(camera.outs.record)
 

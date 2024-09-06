@@ -79,7 +79,7 @@ class WebXR(ControlSystem):
         self.ssl_keyfile = ssl_keyfile
         self.ssl_certfile = ssl_certfile
 
-        self.data_queue = multiprocessing.Queue()
+        self.data_queue = multiprocessing.Queue(maxsize=10)
         self.server_process = None
 
     def run(self):
@@ -92,15 +92,17 @@ class WebXR(ControlSystem):
         try:
             fps = FPSCounter("WebXR ")
             while not self.should_stop:
-                try:
-                    data = self.data_queue.get(timeout=1)
-                    pos = np.array(data['position'])
-                    quat = np.array(data['orientation'])
-                    self.outs.buttons.write(data['buttons'])
-                    self.outs.transform.write(Transform3D(pos, quat))
-                    fps.tick()
-                except queue.Empty:
+                data = None
+                while not self.data_queue.empty():
+                    data = self.data_queue.get()
+                if data is None:
+                    time.sleep(0.1)
                     continue
+                pos = np.array(data['position'])
+                quat = np.array(data['orientation'])
+                self.outs.buttons.write(data['buttons'])
+                self.outs.transform.write(Transform3D(pos, quat))
+                fps.tick()
         finally:
             print("Cancelling WebXR")
             self.server_process.terminate()

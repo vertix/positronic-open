@@ -54,11 +54,11 @@ class TeleopSystem(ControlSystem):
 
         fps = utils.FPSCounter("Teleop")
         for input_name, _ts, value in self.ins.read():
-            fps.tick()
             if input_name == "robot_position":
                 robot_t = value
             elif input_name == "teleop_transform":
                 teleop_t = self._parse_position(value)
+                fps.tick()
                 if is_tracking and offset is not None:
                     target = Transform3D(teleop_t.translation + offset.translation,
                                          teleop_t.quaternion * offset.quaternion)
@@ -100,7 +100,6 @@ def main(rerun, dh_gripper):
     if dh_gripper:
         gripper = DHGripper("/dev/ttyUSB0")
         gripper.ins.grip = teleop.outs.gripper_target_grasp
-
 
     cam = sl_camera.SLCamera(world, fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
 
