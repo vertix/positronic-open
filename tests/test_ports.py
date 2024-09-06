@@ -2,7 +2,8 @@ import pytest
 import time
 import threading
 from threading import Event
-from control.ports import OutputPort, ThreadedInputPort, InputPortContainer, OutputPortContainer
+from control.ports import OutputPort, ThreadedInputPort, InputPortContainer, OutputPortContainer, DirectWriteInputPort
+from control.world import MainThreadWorld
 
 class MockWorld:
     def __init__(self):
@@ -111,6 +112,40 @@ def test_input_port_container_read_with_timeout(world):
     assert len(results) == 2
     assert results[0] == ("port1", None, "value1")
     assert results[1] == (None, None, None)
+
+def test_direct_write_input_port():
+    world = MainThreadWorld()
+    port = DirectWriteInputPort(world)
+
+    # Test writing and reading
+    port.write(42, timestamp=100)
+    result = port.read()
+    assert result == (100, 42)
+
+    # Test reading when empty
+    assert port.read_nowait() is None
+
+    # Test reading with timeout
+    start_time = time.time()
+    assert port.read(block=True, timeout=0.1) is None
+    assert time.time() - start_time >= 0.1
+
+    # Test reading until stop
+    port.write(1, timestamp=200)
+    port.write(2, timestamp=300)
+
+    def stop_world_after_delay():
+        time.sleep(0.1)
+        world.stop_event.set()
+
+    stop_thread = threading.Thread(target=stop_world_after_delay)
+    stop_thread.start()
+
+    results = list(port.read_until_stop())
+    assert results == [(200, 1), (300, 2)]
+
+    stop_thread.join()
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

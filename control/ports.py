@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
+from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import queue
+import time
 from typing import Any, List, Optional
 import threading
 
@@ -60,6 +62,27 @@ class InputPort(ABC):
             yield res
 
 
+class DirectWriteInputPort(InputPort):
+    def __init__(self, world):
+        self.world = world
+        self.queue = deque()
+
+    def write(self, value: Any, timestamp: Optional[int] = None):
+        self.queue.append((timestamp, value))
+
+    def read(self, block: bool = True, timeout: Optional[float] = None):
+        start_time = time.time()
+        while not self.world.should_stop:
+            if self.queue:
+                return self.queue.popleft()
+            if not block:
+                return None
+            if timeout is not None and (time.time() - start_time) >= timeout:
+                return None
+            time.sleep(0.01)
+        return None
+
+
 class ThreadedInputPort(InputPort):
     def __init__(self, world, binded_to: OutputPort):
         self.queue = queue.Queue(maxsize=5)
@@ -117,19 +140,26 @@ class OutputPortContainer:
 
 
 class InputPortContainer(OutputPortContainer):
+    __slots__ = ["_world", "_ports"]
+
     def __init__(self, world, ports: List[str]):
-        self.world = world
+        self._world = world
         self._ports = {name: None for name in ports}
 
     def _create_port(self, output_port: OutputPort):
-        return ThreadedInputPort(self.world, output_port)
+        return ThreadedInputPort(self._world, output_port)
+
+    def __getattr__(self, name: str):
+        if self._ports[name] is None:
+            self._ports[name] = DirectWriteInputPort(self._world)
+        return self._ports[name]
 
     def __setattr__(self, name: str, output_port: Any):
         """
         Set an attribute and bind input ports if applicable.
         """
-        if name in {"world", "_ports"}:
-            self.__dict__[name] = output_port
+        if name in self.__slots__:
+            super().__setattr__(name, output_port)
             return
 
         if name not in self._ports:
@@ -152,7 +182,7 @@ class InputPortContainer(OutputPortContainer):
             TICK = 1
             timeout_left = timeout
 
-            while futures and not self.world.stop_event.is_set():
+            while futures and not self._world.stop_event.is_set():
                 t_o = min(TICK, timeout_left) if timeout_left is not None else TICK
                 timeout_left = max(timeout_left - TICK, 0) if timeout_left is not None else None
                 done, _ = wait(futures, timeout=t_o, return_when=FIRST_COMPLETED)

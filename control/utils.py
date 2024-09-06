@@ -20,6 +20,18 @@ def map_port(fn: Callable[[Any], Any]):
 
     return _MapPort
 
+def control_system(*, inputs: List[str], outputs: List[str]):
+    def decorator(fn):
+        class _ControlSystem(ControlSystem):
+            def __init__(self, world: World):
+                super().__init__(world, inputs=inputs, outputs=outputs)
+
+            def run(self):
+                fn(self.ins, self.outs)
+
+        return _ControlSystem
+
+    return decorator
 
 class FPSCounter:
     def __init__(self, prefix: str, report_every_sec: float = 10.0):
