@@ -40,8 +40,8 @@ class SLCamera(ControlSystem):
 
         while not self.should_stop:
             try:
-                record = self.frame_queue.get(timeout=1)
-                self.outs.record.write(record)
+                record, ts_ms = self.frame_queue.get(timeout=1)
+                self.outs.record.write(record, ts_ms)
             except queue.Empty:
                 continue
 
@@ -61,18 +61,18 @@ class SLCamera(ControlSystem):
                 result = zed.grab()
                 fps.tick()
                 if result != SUCCESS:
-                    queue.put(Record(success=False))
+                    queue.put((Record(success=False), None))
                     continue
 
                 image = sl.Mat()
                 if zed.retrieve_image(image, self.view) != SUCCESS:
-                    queue.put(Record(success=False))
+                    queue.put((Record(success=False), None))
                     continue
 
                 ts_ms = zed.get_timestamp(TIME_REF_IMAGE).get_milliseconds()
                 # Convert image to numpy array to make it picklable
                 np_image = image.get_data()
-                queue.put(Record(success=True, image=np_image), block=True)
+                queue.put((Record(success=True, image=np_image), ts_ms), block=True)
         except Queue.Full:
             pass  # Skip frame if queue is full
         finally:

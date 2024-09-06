@@ -90,6 +90,15 @@ class ThreadedInputPort(InputPort):
 
     @property
     def last(self):
+        """
+        Returns the last value read from the input port.
+
+        This method will consume all available values in the queue to ensure that the most recent value is returned. It will return
+        a tuple of (timestamp, value) or None if no values have been read.
+
+        Returns:
+            Optional[Tuple[int, Any]]: The last (timestamp, value) tuple read from the input port, or None if no values have been read.
+        """
         while self.read_nowait() is not None:
             pass
         with self._last_value_lock:

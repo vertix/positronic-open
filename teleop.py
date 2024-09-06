@@ -103,14 +103,15 @@ def main(rerun, dh_gripper):
 
     cam = sl_camera.SLCamera(world, fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
 
-    # data_dumper = LerobotDatasetDumper(world, '', '')
-    # data_dumper.ins.image = cam.outs.record
-    # data_dumper.ins.robot_joints = franka.outs.joint_positions
-    # data_dumper.ins.robot_position = franka.outs.position
-    # data_dumper.ins.ext_force_ee = franka.outs.ext_force_ee
-    # data_dumper.ins.ext_force_base = franka.outs.ext_force_base
-    # data_dumper.ins.start_episode = teleop.outs.start_tracking
-    # data_dumper.ins.end_episode = teleop.outs.stop_tracking
+    # TODO: Move it under command line flags
+    data_dumper = LerobotDatasetDumper(world, '_dataset')
+    data_dumper.ins.image = cam.outs.record
+    data_dumper.ins.robot_joints = franka.outs.joint_positions
+    data_dumper.ins.robot_position = franka.outs.position
+    data_dumper.ins.ext_force_ee = franka.outs.ext_force_ee
+    data_dumper.ins.ext_force_base = franka.outs.ext_force_base
+    data_dumper.ins.start_episode = teleop.outs.start_tracking
+    data_dumper.ins.end_episode = teleop.outs.stop_tracking
 
     if rerun:
         rr = rr_tools.Rerun(world, "teleop",
