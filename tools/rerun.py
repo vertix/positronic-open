@@ -7,6 +7,7 @@ import numpy as np
 import rerun as rr
 
 from control import ControlSystem, World
+import geom
 
 
 def log_array(name: str, ts: int, data: np.ndarray):
@@ -23,6 +24,10 @@ def log_image(name: str, ts: int, data: np.ndarray):
     rr.log(name, rr.Image(data))
 
 
+def log_transform(name: str, ts: int, data: geom.Transform3D):
+    rr.set_time_seconds('time', ts / 1000)
+    rr.log(name, rr.Arrows3D(origins=data.translation, vectors=data.quaternion(np.array([0.1, 0, 0]))))
+
 class Rerun(ControlSystem):
     def __init__(self, world: World, recording_id: str, spawn=False, save_path=None, connect=None, inputs: Dict[str, Optional[Callable[[Any], Any]]] = None):
         rr.init(recording_id, spawn=spawn)
@@ -33,18 +38,20 @@ class Rerun(ControlSystem):
         super().__init__(world, inputs=inputs.keys(), outputs=[])
         self._input_fns = inputs
 
-    def _default_fn(self, data: Any) -> Any:
+    def _default_fn(self, data: Any, name: str) -> Any:
         if isinstance(data, (list, np.ndarray)):
             return log_array
         elif isinstance(data, (int, float)):
             return log_scalar
+        elif isinstance(data, geom.Transform3D):
+            return log_transform
 
-        return None
+        raise ValueError(f"Unsupported data type: {type(data)} for port {name}")
 
     def _log(self, name: str, ts: int, data: Any):
         fn = self._input_fns[name]
         if fn is None:
-            fn = self._default_fn(data)
+            fn = self._default_fn(data, name)
         fn(name, ts, data)
 
     def run(self):

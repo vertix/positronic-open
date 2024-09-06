@@ -37,8 +37,6 @@ class LerobotDatasetDumper(ControlSystem):
 
         for name, ts, data in self.ins.read():
             if name == 'start_episode':
-                start_time = time.time()
-                frame_count = 0
                 tracked = True
                 print(f"Episode {self.episode_count} started")
             elif name == 'end_episode':
@@ -51,7 +49,6 @@ class LerobotDatasetDumper(ControlSystem):
                             self.ins.robot_position.last, self.ins.robot_joints.last):
                     continue
 
-                frame_count += 1
                 ep_dict['image'].append(data.image[:, :, :3])
                 if episode_start is None:
                     episode_start = ts

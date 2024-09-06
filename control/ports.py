@@ -133,10 +133,13 @@ class OutputPortContainer:
         self._ports = {name: OutputPort(world) for name in ports}
 
     def __getattr__(self, name: str):
-        return self._ports[name]
+        return self.__getitem__(name)
 
     def __getitem__(self, name: str):
         return self._ports[name]
+
+    def available_ports(self):
+        return set(self._ports.keys())
 
 
 class InputPortContainer(OutputPortContainer):
@@ -154,7 +157,7 @@ class InputPortContainer(OutputPortContainer):
             self._ports[name] = DirectWriteInputPort(self._world)
         return self._ports[name]
 
-    def __setattr__(self, name: str, output_port: Any):
+    def __setitem__(self, name: str, output_port: Any):
         """
         Set an attribute and bind input ports if applicable.
         """
@@ -170,6 +173,9 @@ class InputPortContainer(OutputPortContainer):
             self._ports[name] = self._create_port(output_port)
         else:
             raise ValueError(f"Port {name} already assigned")
+
+    def __setattr__(self, name: str, output_port: Any):
+        self.__setitem__(name, output_port)
 
     def read(self, timeout: Optional[float] = None):
         """
