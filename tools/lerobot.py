@@ -39,6 +39,7 @@ class LerobotDatasetDumper(ControlSystem):
             if name == 'start_episode':
                 tracked = True
                 print(f"Episode {self.episode_count} started")
+                episode_start = self.world.now_ts
             elif name == 'end_episode':
                 self.dump_episode(ep_dict)
                 ep_dict = defaultdict(list)
@@ -49,14 +50,22 @@ class LerobotDatasetDumper(ControlSystem):
                             self.ins.robot_position.last, self.ins.robot_joints.last):
                     continue
 
-                ep_dict['image'].append(data.image[:, :, :3])
-                if episode_start is None:
-                    episode_start = ts
-                ep_dict['time'].append((ts - episode_start) / 1000)
-                ep_dict['ee_force'].append(self.ins.ext_force_ee.last[1])
-                ep_dict['ee_force'].append(self.ins.ext_force_base.last[1])
-                ep_dict['robot_joints'].append(self.ins.robot_joints.last[1])
+                ext_force_ee = self.ins.ext_force_ee.last[1]
+                ext_force_base = self.ins.ext_force_base.last[1]
+                robot_position = self.ins.robot_position.last[1]
+                robot_joints = self.ins.robot_joints.last[1]
+                robot_ts, robot_position = self.ins.robot_position.last
+                now_ts = self.world.now_ts
 
-                _, robot_position = self.ins.robot_position.last
+                ep_dict['image'].append(data.image)
+
+                ep_dict['time'].append((now_ts - episode_start) / 1000)
+                ep_dict['delay/image'].append((now_ts - ts) / 1000)
+                ep_dict['delay/robot'].append((now_ts - robot_ts) / 1000)
+
+                ep_dict['ee_force'].append(ext_force_ee)
+                ep_dict['base_force'].append(ext_force_base)
+                ep_dict['robot_joints'].append(robot_joints)
+
                 ep_dict['robot_position_trans'].append(robot_position.translation)
                 ep_dict['robot_position_quat'].append(robot_position.quaternion)

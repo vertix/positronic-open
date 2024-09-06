@@ -50,7 +50,7 @@ class Franka(ControlSystem):
 
     def _write_outputs(self):
         pos, joints, state = self.robot.current_pose.end_effector_pose, self.robot.current_joint_state, self.robot.state
-        ts = int(time.time() * 1000)
+        ts = self.world.now_ts
 
         self.outs.position.write(Transform3D(pos.translation, pos.quaternion), ts)
         self.outs.joint_positions.write(joints.position, ts)

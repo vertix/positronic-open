@@ -19,6 +19,11 @@ class World(ABC):
     def should_stop(self):
         return self.stop_event.is_set()
 
+    @property
+    @abstractmethod
+    def now_ts(self) -> int:
+        pass
+
     @abstractmethod
     def run(self):
         pass
@@ -36,6 +41,11 @@ class MainThreadWorld(World):
         if not hasattr(self, '_initialized'):
             super().__init__()
             self._initialized = True
+            self._mono_delta = time.time() - time.monotonic()
+
+    @property
+    def now_ts(self) -> int:
+        return int((time.monotonic() + self._mono_delta) * 1000)
 
     def run(self):
         threads = []

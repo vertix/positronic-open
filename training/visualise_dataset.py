@@ -8,11 +8,12 @@ from tools.rerun import Rerun, log_image
 
 def source_control_system(dataset_path: str):
     dataset = torch.load(dataset_path)
-    output_keys = set(dataset.keys()) - {"time"}
+    output_keys = set(dataset.keys()) - {"time", 'time/now', 'time/robot', 'time/image'}
     output_keys.add('robot_position')
+    output_keys.update({'robot_position',})
 
     @utils.control_system(inputs=[], outputs=output_keys)
-    def _generator_system(ins, outs):
+    def _generator_system(_ins, outs):
         for i in range(len(dataset['time'])):
             ts = dataset['time'][i] * 1000
             for key in output_keys:
@@ -36,8 +37,6 @@ def visualise_dataset(dataset_path: str, rerun: str):
     feeder = source_control_system(dataset_path)(world)
 
     inputs = {o: None for o in feeder.outs.available_ports()}
-    inputs['image'] = log_image
-    print(inputs.keys())
 
     if ":" in rerun:
         rr = Rerun(world, "dataset", connect=rerun, inputs=inputs)
