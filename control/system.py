@@ -97,7 +97,7 @@ class EventSystem(ControlSystem):
         self.on_start()
         read_iter = self.ins.read()
         try:
-            while not self._world.should_stop:
+            while not self.should_stop:
                 try:
                     name, ts, value = next(read_iter)
                     if name in self._handlers:

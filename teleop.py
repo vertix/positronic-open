@@ -88,7 +88,7 @@ class TeleopSystem(ControlSystem):
 def main(rerun, dh_gripper):
     world = MainThreadWorld()
     webxr = WebXR(world, port=5005)
-    franka = Franka(world, "172.168.0.2", 0.4, 0.4, reporting_frequency=None)
+    franka = Franka(world, "172.168.0.2", 0.2, 0.4, reporting_frequency=None)
 
     teleop = TeleopSystem(world)
 
@@ -101,7 +101,8 @@ def main(rerun, dh_gripper):
         gripper = DHGripper("/dev/ttyUSB0")
         gripper.ins.grip = teleop.outs.gripper_target_grasp
 
-    cam = sl_camera.SLCamera(world, fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
+    cam = sl_camera.SLCamera(world, view=sl_camera.sl.VIEW.SIDE_BY_SIDE,
+                             fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
 
     # TODO: Move it under command line flags
     data_dumper = LerobotDatasetDumper(world, '_dataset')
@@ -116,7 +117,9 @@ def main(rerun, dh_gripper):
     if rerun:
         rr = rr_tools.Rerun(world, "teleop",
                          connect="127.0.0.1:9876",
-                         inputs={"ext_force_ee": rr_tools.log_array, 'ext_force_base': rr_tools.log_array, 'image': rr_tools.log_image})
+                         inputs={"ext_force_ee": rr_tools.log_array,
+                                 'ext_force_base': rr_tools.log_array,
+                                 'image': rr_tools.log_image})
         @utils.map_port
         def image(record):
             return record.image.get_data()[:, :, :3]

@@ -32,9 +32,9 @@ class DHGripper(EventSystem):
             while self._state_g() != 1 and self._state_r() != 1:
                 time.sleep(0.1)
 
-        self.on_force(100)  # Set to maximum force
-        self.on_speed(100)  # Set to maximum speed
-        self.on_grip(0)  # Open gripper
+        self.on_force(None, 100)  # Set to maximum force
+        self.on_speed(None, 100)  # Set to maximum speed
+        self.on_grip(None, 0)  # Open gripper
         time.sleep(0.5)
 
     @EventSystem.on_event('grip')
@@ -176,10 +176,10 @@ def _main():
             super().__init__(world, inputs=[], outputs=['grip'])
 
         def run(self):
-            for width in (np.sin(np.linspace(0, 2 * np.pi, 15)) + 1):
+            for width in (np.sin(np.linspace(0, 10 * np.pi, 60)) + 1):
                 self.outs.grip.write(width)
-                time.sleep(0.05)
-                if self.world.should_stop:
+                time.sleep(0.25)
+                if self.should_stop:
                     break
 
     test = TestSystem(world)
