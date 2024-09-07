@@ -9,6 +9,7 @@ from control import EventSystem, World, MainThreadWorld
 from control.system import ControlSystem
 
 
+# TODO: Make robot report actual gripper position
 class DHGripper(EventSystem):
     def __init__(self, world: World, port: str):
         super().__init__(world, inputs=['grip', 'force', 'speed'])
@@ -51,6 +52,7 @@ class DHGripper(EventSystem):
     def on_speed(self, _ts, value):
         self.client.write_register(0x104, c_uint16(value).value, slave=1)
 
+# region Old test code
 # connection = client.connect()
 
 # slave = 1
@@ -162,7 +164,7 @@ class DHGripper(EventSystem):
 #             grip(v)
 #             wait_stop_g()
 #         grip(0)
-
+# endregion
 
 def _main():
     world = MainThreadWorld()

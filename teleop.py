@@ -10,7 +10,7 @@ from control import ControlSystem, utils, World, MainThreadWorld
 from geom import Quaternion, Transform3D
 from hardware import Franka, DHGripper, sl_camera
 from tools import rerun as rr_tools
-from tools.lerobot import LerobotDatasetDumper
+from tools.dataset_dumper import DatasetDumper
 from webxr import WebXR
 
 logging.basicConfig(level=logging.INFO,
@@ -98,14 +98,14 @@ def main(rerun, dh_gripper):
     franka.ins.target_position = teleop.outs.robot_target_position
 
     if dh_gripper:
-        gripper = DHGripper("/dev/ttyUSB0")
+        gripper = DHGripper(world, "/dev/ttyUSB0")
         gripper.ins.grip = teleop.outs.gripper_target_grasp
 
     cam = sl_camera.SLCamera(world, view=sl_camera.sl.VIEW.SIDE_BY_SIDE,
                              fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
 
     # TODO: Move it under command line flags
-    data_dumper = LerobotDatasetDumper(world, '_dataset')
+    data_dumper = DatasetDumper(world, '_dataset')
     data_dumper.ins.image = cam.outs.record
     data_dumper.ins.robot_joints = franka.outs.joint_positions
     data_dumper.ins.robot_position = franka.outs.position
@@ -113,6 +113,7 @@ def main(rerun, dh_gripper):
     data_dumper.ins.ext_force_base = franka.outs.ext_force_base
     data_dumper.ins.start_episode = teleop.outs.start_tracking
     data_dumper.ins.end_episode = teleop.outs.stop_tracking
+    data_dumper.ins.grip = teleop.outs.gripper_target_grasp
 
     if rerun:
         rr = rr_tools.Rerun(world, "teleop",
