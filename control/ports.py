@@ -71,7 +71,6 @@ class InputPort(ABC):
                 break
             yield res
 
-    @abstractmethod
     @property
     def last(self):
         """
@@ -81,7 +80,7 @@ class InputPort(ABC):
         It will return a tuple of (timestamp, value), raise Empty if the queue is empty, and PortClosed
         if the port is closed.
         """
-        pass
+        return None
 
 
 class DirectWriteInputPort(InputPort):

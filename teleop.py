@@ -85,7 +85,7 @@ class TeleopSystem(ControlSystem):
                         self.outs.stop_tracking.write(True)
 
 
-def main(rerun, dh_gripper):
+def main(rerun, dh_gripper, profile):
     world = MainThreadWorld()
     webxr = WebXR(world, port=5005)
     franka = Franka(world, "172.168.0.2", 0.2, 0.4, reporting_frequency=None)
@@ -129,25 +129,31 @@ def main(rerun, dh_gripper):
         rr.ins.ext_force_ee = franka.outs.ext_force_ee
         rr.ins.ext_force_base = franka.outs.ext_force_base
 
-    yappi.set_clock_type("cpu")
-    yappi.start(profile_threads=False)
+    if profile:
+        yappi.set_clock_type("cpu")
+        yappi.start(profile_threads=False)
+
     try:
         world.run()
     finally:
         print("Program interrupted by user, exiting...")
-        yappi.stop()
-        yappi.get_func_stats().save("func.pstat", type='pstat')
-        yappi.get_func_stats().save("func.ystat")
-        with open("thread.ystat", "w") as f:
-            yappi.get_thread_stats().print_all(out=f)
-        print("Program exited, stats saved")
+        if profile:
+            yappi.stop()
+            yappi.get_func_stats().save("func.pstat", type='pstat')
+            yappi.get_func_stats().save("func.ystat")
+            with open("thread.ystat", "w") as f:
+                yappi.get_thread_stats().print_all(out=f)
+            print("Program exited, stats saved")
+        else:
+            print("Program exited")
 
 
 @click.command()
 @click.option("--rerun", is_flag=True, default=False, help="Start logging into Rerun")
 @click.option("--dh_gripper", is_flag=True, default=False, help="Use DH gripper")
-def cli(rerun, dh_gripper):
-    asyncio.run(main(rerun, dh_gripper))
+@click.option("--profile", is_flag=True, default=False, help="Enable profiling")
+def cli(rerun, dh_gripper, profile):
+    asyncio.run(main(rerun, dh_gripper, profile))
 
 
 if __name__ == "__main__":
