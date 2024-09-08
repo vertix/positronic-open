@@ -62,11 +62,11 @@ class TeleopSystem(ControlSystem):
                 if is_tracking and offset is not None:
                     target = Transform3D(teleop_t.translation + offset.translation,
                                          teleop_t.quaternion * offset.quaternion)
-                    self.outs.robot_target_position.write(target)
+                    self.outs.robot_target_position.write(target, self.world.now_ts)
             elif input_name == "teleop_buttons":
                 track_but, untrack_but, grasp_but = self._parse_buttons(value)
 
-                if is_tracking: self.outs.gripper_target_grasp.write(grasp_but)
+                if is_tracking: self.outs.gripper_target_grasp.write(grasp_but, self.world.now_ts)
 
                 if track_but:
                     # Note that translation and rotation offsets are independent
@@ -76,13 +76,13 @@ class TeleopSystem(ControlSystem):
                     if not is_tracking:
                         logging.info('Started tracking')
                         is_tracking = True
-                        self.outs.start_tracking.write(True)
+                        self.outs.start_tracking.write(True, self.world.now_ts)
                 elif untrack_but:
                     if is_tracking:
                         logging.info('Stopped tracking')
                         is_tracking = False
                         offset = None
-                        self.outs.stop_tracking.write(True)
+                        self.outs.stop_tracking.write(True, self.world.now_ts)
 
 
 def main(rerun, dh_gripper, profile):
@@ -113,7 +113,8 @@ def main(rerun, dh_gripper, profile):
     data_dumper.ins.ext_force_base = franka.outs.ext_force_base
     data_dumper.ins.start_episode = teleop.outs.start_tracking
     data_dumper.ins.end_episode = teleop.outs.stop_tracking
-    data_dumper.ins.grip = teleop.outs.gripper_target_grasp
+    data_dumper.ins.target_grip = teleop.outs.gripper_target_grasp
+    data_dumper.ins.target_robot_position = teleop.outs.robot_target_position
 
     if rerun:
         rr = rr_tools.Rerun(world, "teleop",

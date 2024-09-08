@@ -8,8 +8,10 @@ from control import ControlSystem, World
 
 class DatasetDumper(ControlSystem):
     def __init__(self, world: World, directory: str):
-        super().__init__(world, inputs=['image', 'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints',
-                                        'start_episode', 'end_episode', 'grip'], outputs=[])
+        super().__init__(world, inputs=['image',
+                                        'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints',
+                                        'start_episode', 'end_episode',
+                                        'target_grip', 'target_robot_position'], outputs=[])
         self.directory = directory
         import os
 
@@ -45,7 +47,7 @@ class DatasetDumper(ControlSystem):
                 ep_dict = defaultdict(list)
                 episode_start = None
                 tracked = False
-            elif tracked and name == 'image':
+            elif tracked and name == 'image' and self.ins.target_robot_position.last is not None:
                 if None in (self.ins.ext_force_ee.last, self.ins.ext_force_base.last,
                             self.ins.robot_position.last, self.ins.robot_joints.last):
                     continue
@@ -55,18 +57,23 @@ class DatasetDumper(ControlSystem):
                 robot_position = self.ins.robot_position.last[1]
                 robot_joints = self.ins.robot_joints.last[1]
                 robot_ts, robot_position = self.ins.robot_position.last
-                grip = self.ins.grip.last[1]
+                grip = self.ins.target_grip.last[1] if self.ins.target_grip.last else 0.
+                target_ts, target_robot_position = self.ins.target_robot_position.last
                 now_ts = self.world.now_ts
 
                 ep_dict['image'].append(data.image)
 
+                ep_dict['target_robot_position_trans'].append(target_robot_position.translation)
+                ep_dict['target_robot_position_quat'].append(target_robot_position.quaternion)
+                ep_dict['target_grip'].append(grip)
+
                 ep_dict['time'].append((now_ts - episode_start) / 1000)
                 ep_dict['delay/image'].append((now_ts - ts) / 1000)
                 ep_dict['delay/robot'].append((now_ts - robot_ts) / 1000)
+                ep_dict['delay/target'].append((now_ts - target_ts) / 1000)
 
                 ep_dict['ee_force'].append(ext_force_ee)
                 ep_dict['base_force'].append(ext_force_base)
                 ep_dict['robot_joints'].append(robot_joints)
-                ep_dict['grip'].append(grip)
                 ep_dict['robot_position_trans'].append(robot_position.translation)
                 ep_dict['robot_position_quat'].append(robot_position.quaternion)
