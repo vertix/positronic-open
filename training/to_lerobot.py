@@ -48,14 +48,13 @@ def convert_to_lerobot_dataset(input_dir, output_dir, fps=30, video=True, run_co
         temp_dir.mkdir(parents=True, exist_ok=True)
         for i, img in enumerate(tqdm.tqdm(images, desc="Saving frames")):
             img_path = temp_dir / f"frame_{i:06d}.png"
-            img = (img * 255).astype(np.uint8)
             if img.shape[0] == 3:  # If image is in CHW format
                 img = np.transpose(img, (1, 2, 0))  # CHW to HWC
             elif img.shape[2] != 3:  # If image is not in RGB format
                 raise ValueError(f"Unexpected image shape: {img.shape}")
-            cv2.imwrite(str(img_path), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+            cv2.imwrite(str(img_path), img)
 
-        encode_video_frames(temp_dir, video_path, fps)  # Encode video using ffmpeg
+        encode_video_frames(temp_dir, video_path, fps, overwrite=True)  # Encode video using ffmpeg
 
         for file in temp_dir.glob("*.png"):
             file.unlink()
