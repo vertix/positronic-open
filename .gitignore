@@ -5,3 +5,5 @@
 .vscode/
 .idea/
 .DS_Store
+_dataset/
+_lerobot_ds/
