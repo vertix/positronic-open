@@ -52,7 +52,7 @@ def convert_to_lerobot_dataset(input_dir, output_dir, fps=30, video=True, run_co
                 img = np.transpose(img, (1, 2, 0))  # CHW to HWC
             elif img.shape[2] != 3:  # If image is not in RGB format
                 raise ValueError(f"Unexpected image shape: {img.shape}")
-            cv2.imwrite(str(img_path), img)
+            cv2.imwrite(str(img_path), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
         encode_video_frames(temp_dir, video_path, fps, overwrite=True)  # Encode video using ffmpeg
 
@@ -65,12 +65,13 @@ def convert_to_lerobot_dataset(input_dir, output_dir, fps=30, video=True, run_co
 
         # Process state
         # TODO: Should we normalise it?
-        state = torch.zeros((num_frames, 3 + 4 + 7 + 6 + 6))  # position, rotation, joint angles, ee force, base force
+        state = torch.zeros((num_frames, 3 + 4 + 7 + 6 + 6 + 1))  # position, rotation, joint angles, ee force, base force, gripper
         state[:, :3] = episode_data['robot_position_trans']
         state[:, 3:7] = episode_data['robot_position_quat']
         state[:, 7:14] = episode_data['robot_joints']
         state[:, 14:20] = episode_data['ee_force']
         state[:, 20:26] = episode_data['base_force']
+        state[:, 26] = episode_data['grip']
         ep_dict['observation.state'] = state
 
         # Process action

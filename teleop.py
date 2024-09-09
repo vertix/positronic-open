@@ -115,6 +115,8 @@ def main(rerun, dh_gripper, profile):
     data_dumper.ins.end_episode = teleop.outs.stop_tracking
     data_dumper.ins.target_grip = teleop.outs.gripper_target_grasp
     data_dumper.ins.target_robot_position = teleop.outs.robot_target_position
+    if dh_gripper:
+        data_dumper.ins.grip = gripper.outs.grip
 
     if rerun:
         rr = rr_tools.Rerun(world, "teleop",

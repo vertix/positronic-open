@@ -9,7 +9,7 @@ from control import ControlSystem, World
 class DatasetDumper(ControlSystem):
     def __init__(self, world: World, directory: str):
         super().__init__(world, inputs=['image',
-                                        'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints',
+                                        'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints', 'grip',
                                         'start_episode', 'end_episode',
                                         'target_grip', 'target_robot_position'], outputs=[])
         self.directory = directory
@@ -57,7 +57,9 @@ class DatasetDumper(ControlSystem):
                 robot_position = self.ins.robot_position.last[1]
                 robot_joints = self.ins.robot_joints.last[1]
                 robot_ts, robot_position = self.ins.robot_position.last
-                grip = self.ins.target_grip.last[1] if self.ins.target_grip.last else 0.
+
+                grip = self.ins.grip.last[1] if self.ins.grip.last else 0.
+                target_grip = self.ins.target_grip.last[1] if self.ins.target_grip.last else 0.
                 target_ts, target_robot_position = self.ins.target_robot_position.last
                 now_ts = self.world.now_ts
 
@@ -65,13 +67,14 @@ class DatasetDumper(ControlSystem):
 
                 ep_dict['target_robot_position_trans'].append(target_robot_position.translation)
                 ep_dict['target_robot_position_quat'].append(target_robot_position.quaternion)
-                ep_dict['target_grip'].append(grip)
+                ep_dict['target_grip'].append(target_grip)
 
                 ep_dict['time'].append((now_ts - episode_start) / 1000)
                 ep_dict['delay/image'].append((now_ts - ts) / 1000)
                 ep_dict['delay/robot'].append((now_ts - robot_ts) / 1000)
                 ep_dict['delay/target'].append((now_ts - target_ts) / 1000)
 
+                ep_dict['grip'].append(grip)
                 ep_dict['ee_force'].append(ext_force_ee)
                 ep_dict['base_force'].append(ext_force_base)
                 ep_dict['robot_joints'].append(robot_joints)
