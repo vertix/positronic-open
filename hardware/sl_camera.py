@@ -1,7 +1,7 @@
 # Control systems for StereoLabs cameras
 
 from dataclasses import dataclass
-import queue
+from queue import Full, Empty
 from typing import Optional
 
 import pyzed.sl as sl
@@ -42,7 +42,7 @@ class SLCamera(ControlSystem):
             try:
                 record, ts_ms = self.frame_queue.get(timeout=1)
                 self.outs.record.write(record, ts_ms)
-            except queue.Empty:
+            except Empty:
                 continue
 
         if self.process.is_alive():
@@ -73,7 +73,7 @@ class SLCamera(ControlSystem):
                 # Convert image to numpy array to make it picklable
                 np_image = image.get_data()[:, :, [2, 1, 0]]
                 queue.put((Record(success=True, image=np_image), ts_ms), block=True)
-        except Queue.Full:
+        except Full:
             pass  # Skip frame if queue is full
         finally:
             zed.close()
