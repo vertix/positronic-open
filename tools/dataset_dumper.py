@@ -1,5 +1,4 @@
 from collections import defaultdict
-import time
 
 import numpy as np
 import torch
@@ -26,7 +25,7 @@ class DatasetDumper(ControlSystem):
         # Transform everything to torch tensors
         for k, v in ep_dict.items():
             ep_dict[k] = torch.tensor(np.array(v))
-        fname = f"{self.directory}/{self.episode_count}.pt"
+        fname = f"{self.directory}/{str(self.episode_count).zfill(3)}.pt"
         torch.save(ep_dict, fname)
         print(f"Episode {self.episode_count} saved to {fname} with {ep_dict['image'].shape[0]} frames")
         self.episode_count += 1

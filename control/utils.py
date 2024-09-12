@@ -20,6 +20,7 @@ def map_port(fn: Callable[[Any], Any]):
 
     return _MapPort
 
+# TODO: Add world as an argument to the internal function.
 def control_system(*, inputs: List[str], outputs: List[str]):
     def decorator(fn):
         class _ControlSystem(ControlSystem):

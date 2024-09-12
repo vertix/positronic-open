@@ -39,27 +39,33 @@ def convert_to_lerobot_dataset(input_dir, output_dir, fps=30, video=True, run_co
         ep_dict = {}
 
         # Process images
-        images = episode_data['image'].numpy()
-        video_filename = f"episode_{episode_idx:04d}.mp4"
-        video_path = output_dir / "videos" / video_filename
+        for side in ['left', 'right']:
+            w = episode_data['image'].shape[2]
+            if side == 'left':
+                images = episode_data['image'][:, :, :w //2, :].numpy()
+            else:
+                images = episode_data['image'][:, :, w //2:, :].numpy()
 
-        # Save frames as temporary PNG files
-        temp_dir = output_dir / "temp_frames" / f"episode_{episode_idx:04d}"
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        for i, img in enumerate(tqdm.tqdm(images, desc="Saving frames")):
-            img_path = temp_dir / f"frame_{i:06d}.png"
-            if img.shape[0] == 3:  # If image is in CHW format
-                img = np.transpose(img, (1, 2, 0))  # CHW to HWC
-            elif img.shape[2] != 3:  # If image is not in RGB format
-                raise ValueError(f"Unexpected image shape: {img.shape}")
-            cv2.imwrite(str(img_path), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+            video_filename = f"episode_{episode_idx:04d}_{side}.mp4"
+            video_path = output_dir / "videos" / video_filename
 
-        encode_video_frames(temp_dir, video_path, fps, overwrite=True)  # Encode video using ffmpeg
+            # Save frames as temporary PNG files
+            temp_dir = output_dir / "temp_frames" / f"episode_{episode_idx:04d}_{side}"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            for i, img in enumerate(tqdm.tqdm(images, desc=f"Saving frames for {side}")):
+                img_path = temp_dir / f"frame_{i:06d}.png"
+                if img.shape[0] == 3:  # If image is in CHW format
+                    img = np.transpose(img, (1, 2, 0))  # CHW to HWC
+                elif img.shape[2] != 3:  # If image is not in RGB format
+                    raise ValueError(f"Unexpected image shape: {img.shape}")
+                cv2.imwrite(str(img_path), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
-        for file in temp_dir.glob("*.png"):
-            file.unlink()
-        temp_dir.rmdir()
-        ep_dict["observation.images.arm"] = [{"path": f"videos/{video_filename}", "timestamp": i / fps} for i in range(len(images))]
+            encode_video_frames(temp_dir, video_path, fps, overwrite=True)  # Encode video using ffmpeg
+
+            for file in temp_dir.glob("*.png"):
+                file.unlink()
+            temp_dir.rmdir()
+            ep_dict[f"observation.images.{side}"] = [{"path": f"videos/{video_filename}", "timestamp": i / fps} for i in range(len(images))]
 
         num_frames = len(episode_data['time'])  # TODO: Check if we really need a timestamp and not seconds
 
