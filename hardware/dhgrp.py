@@ -41,7 +41,7 @@ class DHGripper(EventSystem):
     @EventSystem.on_event('grip')
     def on_grip(self, _ts, value):
         """Accepts value in range [0, 1]. 0 means fully open, 1 means fully closed."""
-        width = round((1 - value) * 1000)
+        width = round((1 - max(0, min(value, 1))) * 1000)
         self.client.write_register(0x103, c_uint16(width).value, slave=1)
 
     @EventSystem.on_event('force')
