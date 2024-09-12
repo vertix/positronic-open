@@ -42,7 +42,7 @@ class PolicyRunnerSystem(ControlSystem):
                     self.outs.stop_policy.write(True, self.world.now_ts)
 
 
-def main(checkpoint_path):
+def main(checkpoint_path, rerun):
     world = MainThreadWorld()
     franka = Franka(world, "172.168.0.2", 0.2, 0.4, reporting_frequency=None)
 
@@ -69,12 +69,41 @@ def main(checkpoint_path):
     gripper.ins.grip = inference.outs.target_grip
     inference.ins.grip = gripper.outs.grip
 
+    if rerun:
+        connect = rerun if ':' in rerun else None
+        save_path = None if ':' in rerun else rerun
+        rr = rr_tools.Rerun(world, "policy_runner",
+                            connect=connect,
+                            save_path=save_path,
+                            inputs={
+                                "image": rr_tools.log_image,
+                                "input/ext_force_ee": rr_tools.log_array,
+                                "input/ext_force_base": rr_tools.log_array,
+                                "input/robot_position": rr_tools.log_transform,
+                                "input/robot_joints": rr_tools.log_array,
+                                "input/grip": rr_tools.log_scalar,
+                                "output/target_robot_position": rr_tools.log_transform,
+                                "output/target_grip": rr_tools.log_scalar,
+                            })
+        @utils.map_port
+        def image(record):
+            return record.image
+        rr.ins.image = image(cam.outs.record)
+        rr.ins['input/ext_force_ee'] = franka.outs.ext_force_ee
+        rr.ins['input/ext_force_base'] = franka.outs.ext_force_base
+        rr.ins['input/robot_position'] = franka.outs.position
+        rr.ins['input/robot_joints'] = franka.outs.joint_positions
+        rr.ins['input/grip'] = gripper.outs.grip
+        rr.ins['output/target_robot_position'] = inference.outs.target_robot_position
+        rr.ins['output/target_grip'] = inference.outs.target_grip
+
     world.run()
 
 @click.command()
 @click.option("--checkpoint_path", type=str, required=True, help="Path to the policy checkpoint")
-def cli(checkpoint_path):
-    asyncio.run(main(checkpoint_path))
+@click.option("--rerun", type=str, default=None, help="Rerun logging: 'host:port' to connect, or path to save")
+def cli(checkpoint_path, rerun):
+    asyncio.run(main(checkpoint_path, rerun))
 
 if __name__ == "__main__":
     cli()

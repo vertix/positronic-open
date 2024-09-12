@@ -26,11 +26,16 @@ def log_image(name: str, ts: int, data: np.ndarray):
 
 def log_transform(name: str, ts: int, data: geom.Transform3D):
     rr.set_time_seconds('time', ts / 1000)
-    vectors = np.array([[0.05, 0, 0], [0, 0.05, 0], [0, 0, 0.1]])
-    for i, v in enumerate(vectors):
-        vectors[i] = data.quaternion(v)
-    rr.log(name, rr.Arrows3D(origins=np.repeat(data.translation, 3), vectors=vectors,
-                             colors=np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])))
+    for i, v in enumerate(data.translation):
+        rr.log(f"{name}/trans/{i}", rr.Scalar(v))
+    for i, v in enumerate(data.quaternion):
+        rr.log(f"{name}/quat/{i}", rr.Scalar(v))
+
+    # vectors = np.array([[0.05, 0, 0], [0, 0.05, 0], [0, 0, 0.1]])
+    # for i, v in enumerate(vectors):
+    #     vectors[i] = data.quaternion(v)
+    # rr.log(name, rr.Arrows3D(origins=np.repeat(data.translation, 3), vectors=vectors,
+    #                          colors=np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])))
 
 
 class Rerun(ControlSystem):
@@ -76,3 +81,4 @@ class Rerun(ControlSystem):
                 self._log(name, ts, data)
         finally:
             rr.disconnect()
+            print("Disconnected from rerun")
