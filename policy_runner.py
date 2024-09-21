@@ -22,10 +22,7 @@ logging.basicConfig(level=logging.INFO,
 
 class PolicyRunnerSystem(ControlSystem):
     def __init__(self, world: World):
-        super().__init__(
-            world,
-            inputs=["robot_position", "robot_joints", "ext_force_ee", "ext_force_base", "image", "grip"],
-            outputs=["start_policy", "stop_policy"])
+        super().__init__(world, inputs=[], outputs=["start_policy", "stop_policy"])
 
     def run(self):
         policy_running = False

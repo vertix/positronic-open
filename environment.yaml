@@ -26,8 +26,6 @@ dependencies:
     - lerobot
     - click
     - yappi
-    # - uvloop
-    # - httptools
     - websockets
 
 # python /usr/local/zed/get_python_api.py
