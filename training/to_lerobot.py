@@ -6,22 +6,18 @@ import cv2
 import torch
 import tqdm
 import numpy as np
-from safetensors.torch import save_file
+import hydra
+from omegaconf import DictConfig
 
 from lerobot.common.datasets.lerobot_dataset import CODEBASE_VERSION, LeRobotDataset
 from lerobot.common.datasets.push_dataset_to_hub.aloha_hdf5_format import to_hf_dataset
 from lerobot.common.datasets.push_dataset_to_hub.utils import concatenate_episodes, get_default_encoding
-from lerobot.common.datasets.utils import calculate_episode_data_index, create_branch
+from lerobot.common.datasets.utils import calculate_episode_data_index
 from lerobot.common.datasets.video_utils import encode_video_frames
-from lerobot.scripts.push_dataset_to_hub import (
-    push_dataset_card_to_hub,
-    push_meta_data_to_hub,
-    push_videos_to_hub,
-    save_meta_data,
-)
+from lerobot.scripts.push_dataset_to_hub import save_meta_data
 from lerobot.common.datasets.compute_stats import compute_stats
 
-def convert_to_lerobot_dataset(input_dir, output_dir, fps=30, video=True, run_compute_stats=True, push_to_hub=False, tags=None):
+def convert_to_lerobot_dataset(input_dir, output_dir, fps=30, video=True, run_compute_stats=True):
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -80,7 +76,6 @@ def convert_to_lerobot_dataset(input_dir, output_dir, fps=30, video=True, run_co
         state[:, 26] = episode_data['grip']
         ep_dict['observation.state'] = state
 
-        # Process action
         action = torch.zeros((num_frames, 3 + 4 + 1))  # position, rotation, gripper
         action[:, :3] = episode_data['target_robot_position_trans']
         action[:, 3:7] = episode_data['target_robot_position_quat']
@@ -142,35 +137,18 @@ def convert_to_lerobot_dataset(input_dir, output_dir, fps=30, video=True, run_co
     meta_data_dir = output_dir / "meta_data"
     save_meta_data(info, stats, episode_data_index, meta_data_dir)
 
-    if push_to_hub:
-        repo_id = f"local/{output_dir.name}"
-        hf_dataset.push_to_hub(repo_id, revision="main")
-        push_meta_data_to_hub(repo_id, meta_data_dir, revision="main")
-        push_dataset_card_to_hub(repo_id, revision="main", tags=tags)
-        if video:
-            push_videos_to_hub(repo_id, output_dir / "videos", revision="main")
-        create_branch(repo_id, repo_type="dataset", branch=CODEBASE_VERSION)
-
     print(f"Dataset converted and saved to {output_dir}")
     return lerobot_dataset
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Convert dataset to LeRobotDataset format")
-    parser.add_argument("input_dir", type=str, help="Input directory containing .pt files")
-    parser.add_argument("output_dir", type=str, help="Output directory for LeRobotDataset")
-    parser.add_argument("--fps", type=int, default=15, help="Frames per second")
-    parser.add_argument("--video", type=int, default=1, help="Convert to video format")
-    parser.add_argument("--run-compute-stats", type=int, default=1, help="Compute dataset statistics")
-    parser.add_argument("--push-to-hub", type=int, default=0, help="Push dataset to HuggingFace Hub")
-    parser.add_argument("--tags", type=str, nargs="*", help="Tags for the dataset on HuggingFace Hub")
-    args = parser.parse_args()
 
+@hydra.main(version_base=None, config_path="../configs", config_name="to_lerobot")
+def main(cfg: DictConfig) -> None:
     convert_to_lerobot_dataset(
-        args.input_dir,
-        args.output_dir,
-        fps=args.fps,
-        video=bool(args.video),
-        run_compute_stats=bool(args.run_compute_stats),
-        push_to_hub=bool(args.push_to_hub),
-        tags=args.tags
-    )
+        cfg.input_dir,
+        cfg.output_dir,
+        fps=cfg.dataset.fps,
+        video=cfg.dataset.video,
+        run_compute_stats=cfg.dataset.run_compute_stats)
+
+if __name__ == "__main__":
+    main()

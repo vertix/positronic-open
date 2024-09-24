@@ -27,5 +27,7 @@ dependencies:
     - click
     - yappi
     - websockets
+    - hydra-core
+    - hydra-colorlog
 
 # python /usr/local/zed/get_python_api.py

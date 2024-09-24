@@ -1,0 +1,7 @@
+input_dir: _dataset/
+output_dir: ???
+
+dataset:
+  fps: 12
+  video: true
+  run_compute_stats: true
