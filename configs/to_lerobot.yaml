@@ -1,6 +1,19 @@
 input_dir: _dataset/
 output_dir: ???
 
+state:
+  - robot_position_trans
+  - robot_position_quat
+  - robot_joints
+  - ee_force
+  - base_force
+  - grip
+
+action:
+  - target_robot_position_trans
+  - target_robot_position_quat
+  - target_grip
+
 dataset:
   fps: 12
   video: true

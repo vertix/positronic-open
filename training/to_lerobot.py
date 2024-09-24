@@ -17,9 +17,14 @@ from lerobot.common.datasets.video_utils import encode_video_frames
 from lerobot.scripts.push_dataset_to_hub import save_meta_data
 from lerobot.common.datasets.compute_stats import compute_stats
 
-def convert_to_lerobot_dataset(input_dir, output_dir, fps=30, video=True, run_compute_stats=True):
-    input_dir = Path(input_dir)
-    output_dir = Path(output_dir)
+@hydra.main(version_base=None, config_path="../configs", config_name="to_lerobot")
+def convert_to_lerobot_dataset(cfg: DictConfig):
+    input_dir = Path(cfg.input_dir)
+    output_dir = Path(cfg.output_dir)
+    fps = cfg.dataset.fps
+    video = cfg.dataset.video
+    run_compute_stats = cfg.dataset.run_compute_stats
+
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "videos").mkdir(exist_ok=True)
     (output_dir / "episodes").mkdir(exist_ok=True)
@@ -65,22 +70,9 @@ def convert_to_lerobot_dataset(input_dir, output_dir, fps=30, video=True, run_co
 
         num_frames = len(episode_data['time'])  # TODO: Check if we really need a timestamp and not seconds
 
-        # Process state
-        # TODO: Should we normalise it?
-        state = torch.zeros((num_frames, 3 + 4 + 7 + 6 + 6 + 1))  # position, rotation, joint angles, ee force, base force, gripper
-        state[:, :3] = episode_data['robot_position_trans']
-        state[:, 3:7] = episode_data['robot_position_quat']
-        state[:, 7:14] = episode_data['robot_joints']
-        state[:, 14:20] = episode_data['ee_force']
-        state[:, 20:26] = episode_data['base_force']
-        state[:, 26] = episode_data['grip']
-        ep_dict['observation.state'] = state
-
-        action = torch.zeros((num_frames, 3 + 4 + 1))  # position, rotation, gripper
-        action[:, :3] = episode_data['target_robot_position_trans']
-        action[:, 3:7] = episode_data['target_robot_position_quat']
-        action[:, 7] = episode_data['target_grip']
-        ep_dict['action'] = action
+        # Concatenate all the data as specified in the config
+        ep_dict['observation.state'] = torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k] for k in cfg.state], dim=1)
+        ep_dict['action'] = torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k] for k in cfg.action], dim=1)
 
         ep_dict["episode_index"] = torch.tensor([episode_idx] * num_frames)
         ep_dict["frame_index"] = torch.arange(0, num_frames, 1)
@@ -141,14 +133,5 @@ def convert_to_lerobot_dataset(input_dir, output_dir, fps=30, video=True, run_co
     return lerobot_dataset
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="to_lerobot")
-def main(cfg: DictConfig) -> None:
-    convert_to_lerobot_dataset(
-        cfg.input_dir,
-        cfg.output_dir,
-        fps=cfg.dataset.fps,
-        video=cfg.dataset.video,
-        run_compute_stats=cfg.dataset.run_compute_stats)
-
 if __name__ == "__main__":
-    main()
+    convert_to_lerobot_dataset()
