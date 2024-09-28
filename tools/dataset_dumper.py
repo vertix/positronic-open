@@ -64,8 +64,8 @@ class DatasetDumper(ControlSystem):
 
                 ep_dict['image'].append(data.image)
 
-                ep_dict['target_robot_position_trans'].append(target_robot_position.translation)
-                ep_dict['target_robot_position_quat'].append(target_robot_position.quaternion)
+                ep_dict['target_robot_position.translation'].append(target_robot_position.translation)
+                ep_dict['target_robot_position.quaternion'].append(target_robot_position.quaternion)
                 ep_dict['target_grip'].append(target_grip)
 
                 ep_dict['time'].append((now_ts - episode_start) / 1000)
@@ -77,5 +77,5 @@ class DatasetDumper(ControlSystem):
                 ep_dict['ee_force'].append(ext_force_ee)
                 ep_dict['base_force'].append(ext_force_base)
                 ep_dict['robot_joints'].append(robot_joints)
-                ep_dict['robot_position_trans'].append(robot_position.translation)
-                ep_dict['robot_position_quat'].append(robot_position.quaternion)
+                ep_dict['robot_position.translation'].append(robot_position.translation)
+                ep_dict['robot_position.quaternion'].append(robot_position.quaternion)

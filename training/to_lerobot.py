@@ -18,6 +18,7 @@ from lerobot.common.datasets.compute_stats import compute_stats
 
 from tools.inference import StateEncoder
 
+
 @hydra.main(version_base=None, config_path="../configs", config_name="to_lerobot")
 def convert_to_lerobot_dataset(cfg: DictConfig):
     input_dir = Path(cfg.input_dir)
@@ -35,18 +36,17 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
 
     all_episodes_data = []
 
+    state_enc = StateEncoder(cfg.state)
+
     for episode_idx, episode_file in enumerate(tqdm.tqdm(episode_files, desc="Processing episodes")):
         episode_data = torch.load(episode_file)
 
         ep_dict = {}
+        obs = state_enc.encode_episode(episode_data)
 
         # Process images
         for side in ['left', 'right']:
-            w = episode_data['image'].shape[2]
-            if side == 'left':
-                images = episode_data['image'][:, :, :w //2, :].numpy()
-            else:
-                images = episode_data['image'][:, :, w //2:, :].numpy()
+            images = obs[f"observation.images.{side}"].cpu().numpy()
 
             video_filename = f"episode_{episode_idx:04d}_{side}.mp4"
             video_path = output_dir / "videos" / video_filename
@@ -71,8 +71,7 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
 
         num_frames = len(episode_data['time'])  # TODO: Check if we really need a timestamp and not seconds
 
-        state_enc = StateEncoder(cfg.state)
-        ep_dict['observation.state'] = state_enc.encode_episode(episode_data)
+        ep_dict['observation.state'] = obs['observation.state']
 
         # Concatenate all the data as specified in the config
         ep_dict['action'] = torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k] for k in cfg.action], dim=1)
