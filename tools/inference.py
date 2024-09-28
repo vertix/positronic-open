@@ -36,7 +36,19 @@ class StateEncoder:
         self.cfg = cfg
 
     def encode_episode(self, episode_data):
-        return torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k] for k in self.cfg.state], dim=1)
+        obs = {}
+        image = episode_data['image']
+        left = image[:, :, :image.shape[2] // 2, :]
+        right = image[:, :, image.shape[2] // 2:, :]
+        if self.cfg.left.resize is not None:
+            left = F.interpolate(left, size=tuple(self.cfg.left.resize), mode='bilinear')
+        if self.cfg.right.resize is not None:
+            right = F.interpolate(right, size=tuple(self.cfg.right.resize), mode='bilinear')
+        obs['observation.images.left'] = left
+        obs['observation.images.right'] = right
+        obs['observation.state'] = torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k]
+                                              for k in self.cfg.state], dim=1)
+        return obs
 
     def encode(self, image, inputs):
         obs = {}
@@ -44,9 +56,9 @@ class StateEncoder:
         left = image[:, :, :image.shape[2] // 2, :]
         right = image[:, :, image.shape[2] // 2:, :]
         if self.cfg.left.resize is not None:
-            left = F.interpolate(left, size=tuple(self.cfg.left.resize))
+            left = F.interpolate(left, size=tuple(self.cfg.left.resize), mode='bilinear')
         if self.cfg.right.resize is not None:
-            right = F.interpolate(right, size=tuple(self.cfg.right.resize))
+            right = F.interpolate(right, size=tuple(self.cfg.right.resize), mode='bilinear')
         obs['observation.images.left'] = left
         obs['observation.images.right'] = right
 
