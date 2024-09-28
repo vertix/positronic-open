@@ -11,12 +11,23 @@ inference:
   device: cuda
 
   state:
-    - robot_position.translation
-    - robot_position.quaternion
-    - robot_joints
-    - ext_force_ee
-    - ext_force_base
-    - grip
+    _target_: tools.inference.StateEncodingConfig
+    left:
+      resize:
+        - 352
+        - 192
+    right:
+      resize:
+        - 352
+        - 192
+
+    state:
+      - robot_position.translation
+      - robot_position.quaternion
+      # - robot_joints
+      # - ext_force_ee
+      # - ext_force_base
+      - grip
 
   action:
     - target_robot_position_trans

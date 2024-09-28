@@ -1,7 +1,12 @@
-from lerobot.common.policies.act.modeling_act import ACTPolicy
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
 
+import hydra
+from hydra.core.config_store import ConfigStore
+from lerobot.common.policies.act.modeling_act import ACTPolicy
 from omegaconf import DictConfig
 import torch
+import torch.nn.functional as F
 import numpy as np
 
 from control import ControlSystem, World
@@ -9,22 +14,42 @@ from control.utils import FPSCounter
 import geom
 
 
+@dataclass
+class ImageEncodingConfig:
+    key: str = "image"
+    resize: Optional[List[int]] = None
+
+@dataclass
+class StateEncodingConfig:
+    left: ImageEncodingConfig = field(default_factory=ImageEncodingConfig)
+    right: ImageEncodingConfig = field(default_factory=ImageEncodingConfig)
+    state: List[str] = field(default_factory=list)
+
+ConfigStore.instance().store(name="state", node=StateEncodingConfig)
+
 def _wrap_image(data):
-    data = torch.tensor(data)
-    data = data.type(torch.float32) / 255
-    data = data.permute(2, 0, 1).contiguous()
-    data = data.unsqueeze(0)
     return data
 
 
 class StateEncoder:
-    def __init__(self, cfg: DictConfig):
+    def __init__(self, cfg: StateEncodingConfig):
         self.cfg = cfg
 
     def encode_episode(self, episode_data):
         return torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k] for k in self.cfg.state], dim=1)
 
-    def encode(self, inputs):
+    def encode(self, image, inputs):
+        obs = {}
+        image = torch.tensor(image, dtype=torch.float32).permute(2, 0, 1).contiguous().unsqueeze(0) / 255
+        left = image[:, :, :image.shape[2] // 2, :]
+        right = image[:, :, image.shape[2] // 2:, :]
+        if self.cfg.left.resize is not None:
+            left = F.interpolate(left, size=tuple(self.cfg.left.resize))
+        if self.cfg.right.resize is not None:
+            right = F.interpolate(right, size=tuple(self.cfg.right.resize))
+        obs['observation.images.left'] = left
+        obs['observation.images.right'] = right
+
         data = {}
         for k in self.cfg.state:
             k_parts = k.split('.')
@@ -38,7 +63,8 @@ class StateEncoder:
                 tensor = tensor.unsqueeze(0)
             data[k] = tensor
 
-        return torch.cat([data[k] for k in self.cfg.state], dim=0).unsqueeze(0).type(torch.float32)
+        obs['observation.state'] = torch.cat([data[k] for k in self.cfg.state], dim=0).unsqueeze(0).type(torch.float32)
+        return obs
 
 
 class Inference(ControlSystem):
@@ -51,12 +77,7 @@ class Inference(ControlSystem):
                                 outputs=['target_robot_position', 'target_grip'])
         self.policy_factory = lambda: ACTPolicy.from_pretrained(cfg.checkpoint_path)
         self.cfg = cfg
-
-    def _state_tensor(self):
-        state = StateEncoder(self.cfg).encode(self.ins)
-        if state is None:
-            return None
-        return state.to(self.cfg.device)
+        self.state_encoder = StateEncoder(hydra.utils.instantiate(cfg.state))
 
     def run(self):
         policy = self.policy_factory()
@@ -70,13 +91,9 @@ class Inference(ControlSystem):
             elif name == 'stop':
                 running = False
             elif running and name == 'image':
-                data = _wrap_image(data.image).to(self.cfg.device)
-
-                state = self._state_tensor()
-
-                obs = {'observation.images.left': data[:, :, :data.shape[2] // 2, :],
-                       'observation.images.right': data[:, :, data.shape[2] // 2:, :],
-                       'observation.state': state}
+                obs = self.state_encoder.encode(data.image, self.ins)
+                for key in obs:
+                    obs[key] = obs[key].to(self.cfg.device)
 
                 action = policy.select_action(obs)
                 action = action.squeeze(0).cpu().numpy()
