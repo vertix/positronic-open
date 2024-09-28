@@ -1,4 +1,3 @@
-import argparse
 import logging
 from pathlib import Path
 
@@ -16,6 +15,8 @@ from lerobot.common.datasets.utils import calculate_episode_data_index
 from lerobot.common.datasets.video_utils import encode_video_frames
 from lerobot.scripts.push_dataset_to_hub import save_meta_data
 from lerobot.common.datasets.compute_stats import compute_stats
+
+from tools.inference import StateEncoder
 
 @hydra.main(version_base=None, config_path="../configs", config_name="to_lerobot")
 def convert_to_lerobot_dataset(cfg: DictConfig):
@@ -70,8 +71,10 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
 
         num_frames = len(episode_data['time'])  # TODO: Check if we really need a timestamp and not seconds
 
+        state_enc = StateEncoder(cfg.state)
+        ep_dict['observation.state'] = state_enc.encode_episode(episode_data)
+
         # Concatenate all the data as specified in the config
-        ep_dict['observation.state'] = torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k] for k in cfg.state], dim=1)
         ep_dict['action'] = torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k] for k in cfg.action], dim=1)
 
         ep_dict["episode_index"] = torch.tensor([episode_idx] * num_frames)

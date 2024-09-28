@@ -1,5 +1,6 @@
 from lerobot.common.policies.act.modeling_act import ACTPolicy
 
+from omegaconf import DictConfig
 import torch
 import numpy as np
 
@@ -15,40 +16,51 @@ def _wrap_image(data):
     data = data.unsqueeze(0)
     return data
 
+
+class StateEncoder:
+    def __init__(self, cfg: DictConfig):
+        self.cfg = cfg
+
+    def encode_episode(self, episode_data):
+        return torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k] for k in self.cfg.state], dim=1)
+
+    def encode(self, inputs):
+        data = {}
+        for k in self.cfg.state:
+            k_parts = k.split('.')
+            record = inputs[k_parts[0]].last
+            if k_parts[0] == 'grip':   # HACK: Get rid of this
+                record = None, 0.
+            if record is None:
+                return None
+            tensor = torch.tensor(getattr(record[1], k_parts[1]), dtype=torch.float32) if len(k_parts) > 1 else torch.tensor(record[1], dtype=torch.float32)
+            if tensor.ndim == 0:
+                tensor = tensor.unsqueeze(0)
+            data[k] = tensor
+
+        return torch.cat([data[k] for k in self.cfg.state], dim=0).unsqueeze(0).type(torch.float32)
+
+
 class Inference(ControlSystem):
-    def __init__(self, world: World, ckpt_path: str, device: str = 'cuda', fps: int = 15):
+    def __init__(self, world: World, cfg: DictConfig):
+        # TODO: This list of inputs must be generated from the state config,
+        # and the outputs from the action config.
         super().__init__(world, inputs=['image', 'ext_force_ee', 'ext_force_base',
                                         'robot_position', 'robot_joints', 'grip',
                                         'start', 'stop'],
                                 outputs=['target_robot_position', 'target_grip'])
-        self.policy_factory = lambda: ACTPolicy.from_pretrained(ckpt_path)
-        self.fps = fps
-        self.ckpt_path = ckpt_path
-        self.device = device
+        self.policy_factory = lambda: ACTPolicy.from_pretrained(cfg.checkpoint_path)
+        self.cfg = cfg
 
     def _state_tensor(self):
-        if self.ins.robot_position.last is None:
+        state = StateEncoder(self.cfg).encode(self.ins)
+        if state is None:
             return None
-
-        state = torch.zeros(3 + 4 + 7 + 6 + 6 + 1)  # position, rotation, joint angles, ee force, base force, gripper
-        ext_force_ee = self.ins.ext_force_ee.last[1]
-        ext_force_base = self.ins.ext_force_base.last[1]
-        robot_position = self.ins.robot_position.last[1]
-        robot_joints = self.ins.robot_joints.last[1]
-        robot_position = self.ins.robot_position.last[1]
-        grip = self.ins.grip.last[1] if self.ins.grip.last else 0.
-
-        state[:3] = torch.tensor(robot_position.translation)
-        state[3:7] = torch.tensor(robot_position.quaternion)
-        state[7:14] = torch.tensor(robot_joints)
-        state[14:20] = torch.tensor(ext_force_ee)
-        state[20:26] = torch.tensor(ext_force_base)
-        state[26] = grip
-        return state.unsqueeze(0)
+        return state.to(self.cfg.device)
 
     def run(self):
         policy = self.policy_factory()
-        policy.to(self.device)
+        policy.to(self.cfg.device)
         running = False
         fps = FPSCounter("Inference")
         for name, ts, data in self.ins.read():
@@ -58,11 +70,13 @@ class Inference(ControlSystem):
             elif name == 'stop':
                 running = False
             elif running and name == 'image':
-                data = _wrap_image(data.image).to(self.device)
+                data = _wrap_image(data.image).to(self.cfg.device)
+
+                state = self._state_tensor()
 
                 obs = {'observation.images.left': data[:, :, :data.shape[2] // 2, :],
-                      'observation.images.right': data[:, :, data.shape[2] // 2:, :],
-                      'observation.state': self._state_tensor().to(self.device)}
+                       'observation.images.right': data[:, :, data.shape[2] // 2:, :],
+                       'observation.state': state}
 
                 action = policy.select_action(obs)
                 action = action.squeeze(0).cpu().numpy()

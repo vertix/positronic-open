@@ -1,0 +1,25 @@
+rerun: None
+
+franka:
+    ip: 172.168.0.2
+    relative_dynamics_factor: 0.2
+    gripper_force: 0.4
+    reporting_frequency: 30
+
+inference:
+  checkpoint_path: ???
+  device: cuda
+
+  state:
+    - robot_position.translation
+    - robot_position.quaternion
+    - robot_joints
+    - ext_force_ee
+    - ext_force_base
+    - grip
+
+  action:
+    - target_robot_position_trans
+    - target_robot_position_quat
+    - target_grip
+
