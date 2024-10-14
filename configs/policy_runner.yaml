@@ -1,13 +1,15 @@
 defaults:
   - state: tqg_352x192
+  - action: baseline
+  - _self_
 
 rerun: None
 
 franka:
-    ip: 172.168.0.2
-    relative_dynamics_factor: 0.2
-    gripper_force: 0.4
-    reporting_frequency: 30
+  ip: 172.168.0.2
+  relative_dynamics_factor: 0.2
+  gripper_force: 0.4
+  reporting_frequency: 30
 
 inference:
   checkpoint_path: ???
@@ -15,8 +17,6 @@ inference:
 
   state: ${state}
 
-  action:
-    - target_robot_position_trans
-    - target_robot_position_quat
-    - target_grip
+  action: ${action}
+
 

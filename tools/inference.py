@@ -1,10 +1,11 @@
+from collections import namedtuple
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 import hydra
 from hydra.core.config_store import ConfigStore
 from lerobot.common.policies.act.modeling_act import ACTPolicy
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -79,6 +80,42 @@ class StateEncoder:
         return obs
 
 
+Field = namedtuple('Field', ['name'])
+OmegaConf.register_new_resolver('field', lambda x: Field(x))
+
+class ActionDecoder:
+    def __init__(self, cfg: DictConfig):
+        self.cfg = cfg
+
+    def encode_episode(self, episode_data):
+        return torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k] for k in self.cfg], dim=1)
+
+    # decoder is the closure that takes a numpy array and returns a dict of actions
+    # Episode encoder takes
+    def decode(self, action_vector):
+        start = 0
+        fields = {}
+        for name, length in self.cfg.fields.items():
+            fields[name] = action_vector[start:start + length]
+            start += length
+
+        def replace_fields(cfg):
+            if OmegaConf.is_dict(cfg):
+                return {k: replace_fields(v) for k, v in cfg.items()}
+            elif OmegaConf.is_list(cfg):
+                return [replace_fields(item) for item in cfg]
+            elif isinstance(cfg, Field):
+                return fields[cfg.name]
+            else:
+                return cfg
+
+        cfg_copy = OmegaConf.to_container(self.cfg, resolve=False)
+        cfg_copy = OmegaConf.create(cfg_copy)
+        cfg = replace_fields(cfg_copy.outputs)
+        outputs = hydra.utils.instantiate(cfg)
+        return outputs
+
+
 class Inference(ControlSystem):
     def __init__(self, world: World, cfg: DictConfig):
         # TODO: This list of inputs must be generated from the state config,
@@ -90,6 +127,7 @@ class Inference(ControlSystem):
         self.policy_factory = lambda: ACTPolicy.from_pretrained(cfg.checkpoint_path)
         self.cfg = cfg
         self.state_encoder = StateEncoder(hydra.utils.instantiate(cfg.state))
+        self.action_decoder = ActionDecoder(cfg.action)
 
     def run(self):
         policy = self.policy_factory()
@@ -108,11 +146,7 @@ class Inference(ControlSystem):
                     obs[key] = obs[key].to(self.cfg.device)
 
                 action = policy.select_action(obs)
-                action = action.squeeze(0).cpu().numpy()
-
-                q = action[3:7]
-                q = q / np.linalg.norm(q)
-                pos = geom.Transform3D(translation=action[:3], quaternion=q)
-                self.outs.target_robot_position.write(pos, ts)
-                self.outs.target_grip.write(action[7], ts)
+                action_dict = self.action_decoder.decode(action.squeeze(0).cpu().numpy())
+                for key in action_dict:
+                    self.outs[key].write(action_dict[key], ts)
                 fps.tick()

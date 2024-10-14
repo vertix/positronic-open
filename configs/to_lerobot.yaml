@@ -1,14 +1,10 @@
 defaults:
   - state: tqg_352x192
+  - action: baseline
   - _self_
 
 input_dir: _dataset/
 output_dir: ???
-
-action:
-  - target_robot_position.translation
-  - target_robot_position.quaternion
-  - target_grip
 
 dataset:
   fps: 12

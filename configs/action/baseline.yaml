@@ -1,0 +1,11 @@
+  fields:
+    translation: 3
+    quaternion: 4
+    gripper_width: 1
+
+  outputs:
+    target_robot_position:
+      _target_: geom.Transform3D
+      translation: '${field:translation}'
+      quaternion: '${field:quaternion}'
+    target_grip: '${field:gripper_width}'
