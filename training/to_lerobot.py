@@ -46,7 +46,7 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
 
         # Process images
         for side in ['left', 'right']:
-            images = obs[f"observation.images.{side}"].cpu().numpy()
+            images = obs[f"observation.images.{side}"].numpy()
 
             video_filename = f"episode_{episode_idx:04d}_{side}.mp4"
             video_path = output_dir / "videos" / video_filename

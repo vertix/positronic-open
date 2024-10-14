@@ -27,9 +27,6 @@ class StateEncodingConfig:
 
 ConfigStore.instance().store(name="state", node=StateEncodingConfig)
 
-def _wrap_image(data):
-    return data
-
 
 class StateEncoder:
     def __init__(self, cfg: StateEncodingConfig):
@@ -66,8 +63,10 @@ class StateEncoder:
         data = {}
         for k in self.cfg.state:
             k_parts = k.split('.')
+            # Record is a tuple of (timestamp, data) or None if no data is available
             record = inputs[k_parts[0]].last
-            if k_parts[0] == 'grip':   # HACK: Get rid of this
+            # We consider grip to be zero in case we did not receive any grip data yet
+            if k_parts[0] == 'grip' and record is None:   # HACK: Get rid of this
                 record = None, 0.
             if record is None:
                 return None
