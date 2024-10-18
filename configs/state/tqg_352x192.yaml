@@ -1,0 +1,14 @@
+    _target_: tools.inference.StateEncodingConfig
+    left:
+      resize:
+        - 352
+        - 192
+    right:
+      resize:
+        - 352
+        - 192
+
+    state:
+      - robot_position.translation
+      - robot_position.quaternion
+      - grip

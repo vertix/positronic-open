@@ -5,7 +5,9 @@ import time
 from typing import List, Tuple
 
 import click
-import numpy as np
+import hydra
+from omegaconf import DictConfig
+
 
 from control import ControlSystem, utils, World, MainThreadWorld
 from geom import Quaternion, Transform3D
@@ -39,16 +41,21 @@ class PolicyRunnerSystem(ControlSystem):
                     self.outs.stop_policy.write(True, self.world.now_ts)
 
 
-def main(checkpoint_path, rerun):
+@hydra.main(version_base=None, config_path="configs", config_name="policy_runner")
+def main(cfg: DictConfig):
     world = MainThreadWorld()
-    franka = Franka(world, "172.168.0.2", 0.2, 0.4, reporting_frequency=None)
+    franka = Franka(world,
+                    cfg.franka.ip,
+                    cfg.franka.relative_dynamics_factor,
+                    cfg.franka.gripper_force,
+                    reporting_frequency=cfg.franka.reporting_frequency)
 
     policy_runner = PolicyRunnerSystem(world)
 
     cam = sl_camera.SLCamera(world, view=sl_camera.sl.VIEW.SIDE_BY_SIDE,
                              fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
 
-    inference = Inference(world, checkpoint_path)
+    inference = Inference(world, cfg.inference)
 
     # Connect inputs
     inference.ins.image = cam.outs.record
@@ -66,9 +73,9 @@ def main(checkpoint_path, rerun):
     gripper.ins.grip = inference.outs.target_grip
     inference.ins.grip = gripper.outs.grip
 
-    if rerun:
-        connect = rerun if ':' in rerun else None
-        save_path = None if ':' in rerun else rerun
+    if cfg.rerun:
+        connect = cfg.rerun if ':' in cfg.rerun else None
+        save_path = None if ':' in cfg.rerun else cfg.rerun
         rr = rr_tools.Rerun(world, "policy_runner",
                             connect=connect,
                             save_path=save_path,
@@ -96,11 +103,6 @@ def main(checkpoint_path, rerun):
 
     world.run()
 
-@click.command()
-@click.option("--checkpoint_path", type=str, required=True, help="Path to the policy checkpoint")
-@click.option("--rerun", type=str, default=None, help="Rerun logging: 'host:port' to connect, or path to save")
-def cli(checkpoint_path, rerun):
-    asyncio.run(main(checkpoint_path, rerun))
 
 if __name__ == "__main__":
-    cli()
+    main()

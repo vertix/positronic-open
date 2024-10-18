@@ -1,0 +1,12 @@
+    _target_: tools.inference.StateEncodingConfig
+    left:
+      resize: null
+    right:
+      resize: null
+    state:
+      - robot_position.translation
+      - robot_position.quaternion
+      - robot_joints
+      - ext_force_ee
+      - ext_force_base
+      - grip
