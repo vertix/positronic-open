@@ -88,16 +88,20 @@ class ActionDecoder:
         self.cfg = cfg
 
     def encode_episode(self, episode_data):
-        return torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k] for k in self.cfg], dim=1)
+        records = []
+        for field in self.cfg.fields.values():
+            if episode_data[field.input_key].dim() == 1:
+                records.append(episode_data[field.input_key].unsqueeze(1))
+            else:
+                records.append(episode_data[field.input_key])
+        return torch.cat(records, dim=1)
 
-    # decoder is the closure that takes a numpy array and returns a dict of actions
-    # Episode encoder takes
     def decode(self, action_vector):
         start = 0
         fields = {}
-        for name, length in self.cfg.fields.items():
-            fields[name] = action_vector[start:start + length]
-            start += length
+        for name in self.cfg.fields:
+            fields[name] = action_vector[start:start + self.cfg.fields[name].length]
+            start += self.cfg.fields[name].length
 
         def replace_fields(cfg):
             if OmegaConf.is_dict(cfg):

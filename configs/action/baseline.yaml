@@ -1,11 +1,20 @@
   fields:
-    translation: 3
-    quaternion: 4
-    gripper_width: 1
+    translation:
+      input_key: target_robot_position.translation
+      length: 3
+    quaternion:
+      input_key: target_robot_position.quaternion
+      length: 4
+    gripper_width:
+      input_key: target_grip
+      length: 1
 
   outputs:
     target_robot_position:
       _target_: geom.Transform3D
       translation: '${field:translation}'
       quaternion: '${field:quaternion}'
-    target_grip: '${field:gripper_width}'
+    target_grip:
+      _target_: numpy.ndarray.item
+      _args_:
+        - '${field:gripper_width}'
