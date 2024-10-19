@@ -2,8 +2,9 @@ import asyncio
 import logging
 from typing import List, Tuple
 
-import click
 import numpy as np
+import hydra
+from omegaconf import DictConfig
 import yappi
 
 from control import ControlSystem, utils, World, MainThreadWorld
@@ -85,10 +86,11 @@ class TeleopSystem(ControlSystem):
                         self.outs.stop_tracking.write(True, self.world.now_ts)
 
 
-def main(rerun, dh_gripper, profile):
+@hydra.main(version_base=None, config_path="configs", config_name="teleop")
+def main(cfg: DictConfig):
     world = MainThreadWorld()
-    webxr = WebXR(world, port=5005)
-    franka = Franka(world, "172.168.0.2", 0.2, 0.4, reporting_frequency=None)
+    webxr = WebXR(world, port=cfg.webxr.port)
+    franka = Franka(world, cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force, reporting_frequency=cfg.franka.reporting_frequency)
 
     teleop = TeleopSystem(world)
 
@@ -97,33 +99,36 @@ def main(rerun, dh_gripper, profile):
     teleop.ins.robot_position = franka.outs.position
     franka.ins.target_position = teleop.outs.robot_target_position
 
-    if dh_gripper:
-        gripper = DHGripper(world, "/dev/ttyUSB0")
+    if 'dh_gripper' in cfg:
+        gripper = DHGripper(world, cfg.dh_gripper)
         gripper.ins.grip = teleop.outs.gripper_target_grasp
 
     cam = sl_camera.SLCamera(world, view=sl_camera.sl.VIEW.SIDE_BY_SIDE,
-                             fps=15, resolution=sl_camera.sl.RESOLUTION.VGA)
+                             fps=cfg.camera.fps, resolution=sl_camera.sl.RESOLUTION.VGA)
 
-    # TODO: Move it under command line flags
-    data_dumper = DatasetDumper(world, '_dataset')
-    data_dumper.ins.image = cam.outs.record
-    data_dumper.ins.robot_joints = franka.outs.joint_positions
-    data_dumper.ins.robot_position = franka.outs.position
-    data_dumper.ins.ext_force_ee = franka.outs.ext_force_ee
-    data_dumper.ins.ext_force_base = franka.outs.ext_force_base
-    data_dumper.ins.start_episode = teleop.outs.start_tracking
-    data_dumper.ins.end_episode = teleop.outs.stop_tracking
-    data_dumper.ins.target_grip = teleop.outs.gripper_target_grasp
-    data_dumper.ins.target_robot_position = teleop.outs.robot_target_position
-    if dh_gripper:
-        data_dumper.ins.grip = gripper.outs.grip
+    if cfg.data_output_dir:
+        data_dumper = DatasetDumper(world, cfg.data_output_dir)
+        data_dumper.ins.image = cam.outs.record
+        data_dumper.ins.robot_joints = franka.outs.joint_positions
+        data_dumper.ins.robot_position = franka.outs.position
+        data_dumper.ins.ext_force_ee = franka.outs.ext_force_ee
+        data_dumper.ins.ext_force_base = franka.outs.ext_force_base
+        data_dumper.ins.start_episode = teleop.outs.start_tracking
+        data_dumper.ins.end_episode = teleop.outs.stop_tracking
+        data_dumper.ins.target_grip = teleop.outs.gripper_target_grasp
+        data_dumper.ins.target_robot_position = teleop.outs.robot_target_position
+        if 'dh_gripper' in cfg:
+            data_dumper.ins.grip = gripper.outs.grip
 
-    if rerun:
+    if cfg.rerun:
+        connect = cfg.rerun if ':' in cfg.rerun else None
+        save_path = None if ':' in cfg.rerun else cfg.rerun
         rr = rr_tools.Rerun(world, "teleop",
-                         connect="127.0.0.1:9876",
-                         inputs={"ext_force_ee": rr_tools.log_array,
-                                 'ext_force_base': rr_tools.log_array,
-                                 'image': rr_tools.log_image})
+                            connect=connect,
+                            save_path=save_path,
+                            inputs={"ext_force_ee": rr_tools.log_array,
+                                    'ext_force_base': rr_tools.log_array,
+                                    'image': rr_tools.log_image})
         @utils.map_port
         def image(record):
             return record.image.get_data()[:, :, :3]
@@ -132,7 +137,7 @@ def main(rerun, dh_gripper, profile):
         rr.ins.ext_force_ee = franka.outs.ext_force_ee
         rr.ins.ext_force_base = franka.outs.ext_force_base
 
-    if profile:
+    if cfg.profile:
         yappi.set_clock_type("cpu")
         yappi.start(profile_threads=False)
 
@@ -140,7 +145,7 @@ def main(rerun, dh_gripper, profile):
         world.run()
     finally:
         print("Program interrupted by user, exiting...")
-        if profile:
+        if cfg.profile:
             yappi.stop()
             yappi.get_func_stats().save("func.pstat", type='pstat')
             yappi.get_func_stats().save("func.ystat")
@@ -150,14 +155,5 @@ def main(rerun, dh_gripper, profile):
         else:
             print("Program exited")
 
-
-@click.command()
-@click.option("--rerun", is_flag=True, default=False, help="Start logging into Rerun")
-@click.option("--dh_gripper", is_flag=True, default=False, help="Use DH gripper")
-@click.option("--profile", is_flag=True, default=False, help="Enable profiling")
-def cli(rerun, dh_gripper, profile):
-    asyncio.run(main(rerun, dh_gripper, profile))
-
-
 if __name__ == "__main__":
-    cli()
+    main()

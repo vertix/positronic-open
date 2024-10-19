@@ -1,4 +1,5 @@
 from collections import defaultdict
+import os
 
 import numpy as np
 import torch
@@ -12,7 +13,7 @@ class DatasetDumper(ControlSystem):
                                         'start_episode', 'end_episode',
                                         'target_grip', 'target_robot_position'], outputs=[])
         self.directory = directory
-        import os
+        os.makedirs(self.directory, exist_ok=True)
 
         episode_files = [f for f in os.listdir(directory) if f.endswith('.pt')]
         if episode_files:
