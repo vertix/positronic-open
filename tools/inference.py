@@ -81,22 +81,34 @@ class StateEncoder:
 
 
 Field = namedtuple('Field', ['name'])
+InputField = namedtuple('InputField', ['name'])
 OmegaConf.register_new_resolver('field', lambda x: Field(x))
+OmegaConf.register_new_resolver('input', lambda x: InputField(x))
 
 class ActionDecoder:
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
 
     def encode_episode(self, episode_data):
-        records = []
-        for field in self.cfg.fields.values():
-            if episode_data[field.input_key].dim() == 1:
-                records.append(episode_data[field.input_key].unsqueeze(1))
+        def replace_inputs(cfg):
+            if OmegaConf.is_dict(cfg):
+                return {k: replace_inputs(v) for k, v in cfg.items()}
+            elif OmegaConf.is_list(cfg):
+                return [replace_inputs(item) for item in cfg]
+            elif isinstance(cfg, InputField):
+                return episode_data[cfg.name]
             else:
-                records.append(episode_data[field.input_key])
+                return cfg
+
+        cfg_copy = OmegaConf.to_container(self.cfg, resolve=False)
+        cfg_copy = OmegaConf.create(cfg_copy)
+        cfg = replace_inputs(cfg_copy.fields)
+        cfg = hydra.utils.instantiate(cfg)
+
+        records = [record.value.unsqueeze(1) if record.value.dim() == 1 else record.value for record in cfg.values()]
         return torch.cat(records, dim=1)
 
-    def decode(self, action_vector):
+    def decode(self, action_vector, input_ports):
         start = 0
         fields = {}
         for name in self.cfg.fields:
@@ -110,6 +122,12 @@ class ActionDecoder:
                 return [replace_fields(item) for item in cfg]
             elif isinstance(cfg, Field):
                 return fields[cfg.name]
+            elif isinstance(cfg, InputField):
+                key, field = (cfg.name.split('.') + [None])[:2]
+                record = input_ports[key].last
+                if record is None:
+                    raise ValueError(f"Input field {cfg.name} does not have a value")
+                return getattr(record[1], field) if field else record[1]
             else:
                 return cfg
 
@@ -150,7 +168,7 @@ class Inference(ControlSystem):
                     obs[key] = obs[key].to(self.cfg.device)
 
                 action = policy.select_action(obs)
-                action_dict = self.action_decoder.decode(action.squeeze(0).cpu().numpy())
+                action_dict = self.action_decoder.decode(action.squeeze(0).cpu().numpy(), self.ins)
                 for key in action_dict:
                     self.outs[key].write(action_dict[key], ts)
                 fps.tick()
