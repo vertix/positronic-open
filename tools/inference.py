@@ -1,18 +1,18 @@
 from collections import namedtuple
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import hydra
 from hydra.core.config_store import ConfigStore
 from lerobot.common.policies.act.modeling_act import ACTPolicy
+import numpy as np
 from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.nn.functional as F
-import numpy as np
+import rerun as rr
 
 from control import ControlSystem, World
 from control.utils import FPSCounter
-import geom
 
 
 @dataclass
@@ -51,15 +51,15 @@ class StateEncoder:
 
     def encode(self, image, inputs):
         obs = {}
-        image = torch.tensor(image, dtype=torch.float32).permute(2, 0, 1).contiguous().unsqueeze(0) / 255
+        image = torch.tensor(image, dtype=torch.float32).permute(2, 1, 0).contiguous().unsqueeze(0) / 255
         left = image[:, :, :image.shape[2] // 2, :]
         right = image[:, :, image.shape[2] // 2:, :]
         if self.cfg.left.resize is not None:
             left = F.interpolate(left, size=tuple(self.cfg.left.resize), mode='bilinear')
         if self.cfg.right.resize is not None:
             right = F.interpolate(right, size=tuple(self.cfg.right.resize), mode='bilinear')
-        obs['observation.images.left'] = left
-        obs['observation.images.right'] = right
+        obs['observation.images.left'] = left.permute(0, 1, 3, 2)
+        obs['observation.images.right'] = right.permute(0, 1, 3, 2)
 
         data = {}
         for k in self.cfg.state:
@@ -151,6 +151,25 @@ class Inference(ControlSystem):
         self.state_encoder = StateEncoder(hydra.utils.instantiate(cfg.state))
         self.action_decoder = ActionDecoder(cfg.action)
 
+    def _log_observation(self, ts, obs):
+        rr.set_time_seconds('time', ts / 1000)
+
+        def log_image(name, tensor):
+            tensor = tensor.squeeze(0)
+            tensor = (tensor * 255).type(torch.uint8)
+            tensor = tensor.permute(1, 2, 0).cpu().numpy()
+            rr.log(name, rr.Image(tensor))
+
+        log_image("observation.images.left", obs['observation.images.left'])
+        log_image("observation.images.right", obs['observation.images.right'])
+        for i, state in enumerate(obs['observation.state'].squeeze(0)):
+            rr.log(f"observation/state/{i}", rr.Scalar(state.item()))
+
+    def _log_action(self, ts, action):
+        rr.set_time_seconds('time', ts / 1000)
+        for i, action in enumerate(action):
+            rr.log(f"action/{i}", rr.Scalar(action))
+
     def run(self):
         policy = self.policy_factory()
         policy.to(self.cfg.device)
@@ -167,8 +186,16 @@ class Inference(ControlSystem):
                 for key in obs:
                     obs[key] = obs[key].to(self.cfg.device)
 
-                action = policy.select_action(obs)
-                action_dict = self.action_decoder.decode(action.squeeze(0).cpu().numpy(), self.ins)
+                action = policy.select_action(obs).squeeze(0).cpu().numpy()
+                action_dict = self.action_decoder.decode(action, self.ins)
+
+                if self.cfg.rerun:
+                    self._log_observation(ts, obs)
+                    self._log_action(ts, action)
+                    # for key, value in action_dict.items():
+                    #     for i, v in enumerate(value):
+                    #         rr.log(f"action/{key}/{i}", rr.Scalar(v))
+
                 for key in action_dict:
                     self.outs[key].write(action_dict[key], ts)
                 fps.tick()

@@ -8,12 +8,6 @@
       length: 3
     quaternion_diff:
       value:
-        # _target_: pytorch3d.transforms.quaternion_multiply
-        # _args_:
-        #   - '${input:robot_position.quaternion}'
-        #   - _target_: pytorch3d.transforms.quaternion_invert
-        #     _args_:
-        #       - '${input:target_robot_position.quaternion}'
         _target_: pytorch3d.transforms.quaternion_multiply
         _args_:
           - _target_: pytorch3d.transforms.quaternion_invert

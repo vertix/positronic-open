@@ -3,7 +3,7 @@ defaults:
   - action: baseline
   - _self_
 
-rerun: None
+rerun: null
 
 franka:
   ip: 172.168.0.2
@@ -16,7 +16,7 @@ inference:
   device: cuda
 
   state: ${state}
-
   action: ${action}
 
+  rerun: true
 

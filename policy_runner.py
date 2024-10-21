@@ -1,13 +1,9 @@
-import asyncio
 import logging
-import signal
-import time
-from typing import List, Tuple
+from typing import List
 
-import click
 import hydra
 from omegaconf import DictConfig
-
+import rerun as rr
 
 from control import ControlSystem, utils, World, MainThreadWorld
 from geom import Quaternion, Transform3D
@@ -74,34 +70,15 @@ def main(cfg: DictConfig):
     inference.ins.grip = gripper.outs.grip
 
     if cfg.rerun:
-        connect = cfg.rerun if ':' in cfg.rerun else None
-        save_path = None if ':' in cfg.rerun else cfg.rerun
-        rr = rr_tools.Rerun(world, "policy_runner",
-                            connect=connect,
-                            save_path=save_path,
-                            inputs={
-                                "image": rr_tools.log_image,
-                                "input/ext_force_ee": rr_tools.log_array,
-                                "input/ext_force_base": rr_tools.log_array,
-                                "input/robot_position": rr_tools.log_transform,
-                                "input/robot_joints": rr_tools.log_array,
-                                "input/grip": rr_tools.log_scalar,
-                                "output/target_robot_position": rr_tools.log_transform,
-                                "output/target_grip": rr_tools.log_scalar,
-                            })
-        @utils.map_port
-        def image(record):
-            return record.image
-        rr.ins.image = image(cam.outs.record)
-        rr.ins['input/ext_force_ee'] = franka.outs.ext_force_ee
-        rr.ins['input/ext_force_base'] = franka.outs.ext_force_base
-        rr.ins['input/robot_position'] = franka.outs.position
-        rr.ins['input/robot_joints'] = franka.outs.joint_positions
-        rr.ins['input/grip'] = gripper.outs.grip
-        rr.ins['output/target_robot_position'] = inference.outs.target_robot_position
-        rr.ins['output/target_grip'] = inference.outs.target_grip
+        rr.init("inference", spawn=False)
+        if ':' in cfg.rerun:
+            rr.connect(cfg.rerun)
+        elif cfg.rerun is not None:
+            rr.save(cfg.rerun)
 
     world.run()
+    rr.disconnect()
+    print('Finished')
 
 
 if __name__ == "__main__":
