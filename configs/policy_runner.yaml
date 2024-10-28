@@ -9,6 +9,8 @@ franka:
   gripper_force: 0.4
   reporting_frequency: 30
 
+rerun: null
+
 inference:
   checkpoint_path: ???
   device: cuda

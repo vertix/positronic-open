@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import rerun as rr
 
 from control import ControlSystem, World
+from control.system import control_system
 from control.utils import FPSCounter
 
 
@@ -137,11 +138,6 @@ class ActionDecoder:
         outputs = hydra.utils.instantiate(cfg)
         return outputs
 
-
-Field = namedtuple('Field', ['name'])
-InputField = namedtuple('InputField', ['name'])
-OmegaConf.register_new_resolver('field', lambda x: Field(x))
-OmegaConf.register_new_resolver('input', lambda x: InputField(x))
 
 class ActionDecoder:
     def __init__(self, cfg: DictConfig):

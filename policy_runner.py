@@ -1,17 +1,13 @@
 import logging
-from typing import List
 
 import hydra
 from omegaconf import DictConfig
+import rerun as rr
 
-from control import ControlSystem, utils, World, MainThreadWorld, control_system
-from geom import Quaternion, Transform3D
+from control import MainThreadWorld
+from control.utils import control_system_fn
 from hardware import Franka, DHGripper, sl_camera
-from tools import rerun as rr_tools
-from tools.dataset_dumper import DatasetDumper
 from tools.inference import Inference
-
-import curses
 
 logging.basicConfig(level=logging.INFO,
                     handlers=[logging.StreamHandler(),
@@ -35,6 +31,13 @@ def PolicyRunnerSystem(ins, outs):
 
 @hydra.main(version_base=None, config_path="configs", config_name="policy_runner")
 def main(cfg: DictConfig):
+    if cfg.rerun:
+        rr.init("inference", spawn=False)
+        if ':' in cfg.rerun:
+            rr.connect(cfg.rerun)
+        elif cfg.rerun is not None:
+            rr.save(cfg.rerun)
+
     world = MainThreadWorld()
     franka = Franka(world,
                     cfg.franka.ip,
@@ -66,6 +69,8 @@ def main(cfg: DictConfig):
     inference.ins.grip = gripper.outs.grip
 
     world.run()
+    if cfg.rerun:
+        rr.disconnect()
     print('Finished')
 
 
