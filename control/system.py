@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import logging
-from typing import Any, List
+from typing import List
 
 # Set up logging
 logging.basicConfig(level=logging.WARNING)
@@ -9,29 +9,49 @@ logger = logging.getLogger(__name__)
 
 from control.ports import InputPortContainer, OutputPortContainer
 
+
+def control_system(*, inputs: List[str] = None, outputs: List[str] = None):
+    """
+    Class decorator for defining ports on a control system.
+    """
+    if inputs is None:
+        inputs = []
+    if outputs is None:
+        outputs = []
+
+    def decorator(cls):
+        # Store port definitions on class
+        cls._input_ports = inputs
+        cls._output_ports = outputs
+
+        # Add lazy properties for port containers
+        def _get_inputs(self):
+            if not hasattr(self, '_inputs'):
+                self._inputs = InputPortContainer(self.world, self._input_ports)
+            return self._inputs
+
+        def _get_outputs(self):
+            if not hasattr(self, '_outputs'):
+                self._outputs = OutputPortContainer(self.world, self._output_ports)
+            return self._outputs
+
+        # Replace properties with lazy versions
+        cls.ins = property(_get_inputs)
+        cls.outs = property(_get_outputs)
+
+        return cls
+    return decorator
+
+
 class ControlSystem(ABC):
     """
-    Abstract base class for a system with input and output ports.
+    Abstract base class for a system with input and output ports. All control systems
+    must be decorated with @control_system.
     """
-    def __init__(self, world, *, inputs: List[str] = [], outputs: List[str] = []):
-        self._inputs = InputPortContainer(world, inputs)
-        self._outputs = OutputPortContainer(world, outputs)
+    __slots__ = ["_inputs", "_outputs", "world", "_input_ports", "_output_ports"]
+    def __init__(self, world):
         self.world = world
         world.add_system(self)
-
-    @property
-    def ins(self) -> InputPortContainer:
-        """
-        Get the input ports.
-        """
-        return self._inputs
-
-    @property
-    def outs(self) -> OutputPortContainer:
-        """
-        Get the output ports.
-        """
-        return self._outputs
 
     @property
     def should_stop(self):
@@ -48,10 +68,11 @@ class ControlSystem(ABC):
 
 class EventSystem(ControlSystem):
     """
-    System that handles events with registered handlers.
+    System that handles events with registered handlers. All event systems must be
+    decorated with @event_system.
     """
-    def __init__(self, world, *, inputs: List[str] = [], outputs: List[str] = []):
-        super().__init__(world, inputs=inputs, outputs=outputs)
+    def __init__(self, world):
+        super().__init__(world)
         self._handlers = {}
         for attr_name in dir(self):
             attr = getattr(self, attr_name)

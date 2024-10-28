@@ -5,14 +5,14 @@ import pymodbus.client as ModbusClient
 
 import numpy as np
 
-from control import EventSystem, World, MainThreadWorld, utils
-from control.system import ControlSystem
+from control import EventSystem, World, MainThreadWorld, utils, control_system
 
 
 # TODO: Make robot report actual gripper position
+@control_system(inputs=['grip', 'force', 'speed'], outputs=['grip'])
 class DHGripper(EventSystem):
     def __init__(self, world: World, port: str):
-        super().__init__(world, inputs=['grip', 'force', 'speed'], outputs=['grip'])
+        super().__init__(world)
         self.client = ModbusClient.ModbusSerialClient(
             port=port,
             baudrate=115200,
@@ -178,7 +178,7 @@ def _main():
     gripper.ins.speed.write(20)
     gripper.ins.force.write(100)
 
-    @utils.control_system(inputs=['real_grip'], outputs=['grip'])
+    @utils.control_system_fn(inputs=['real_grip'], outputs=['grip'])
     def gripper_controller(ins, outs):
         for width in (np.sin(np.linspace(0, 10 * np.pi, 60)) + 1):
             outs.grip.write(width)

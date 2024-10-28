@@ -7,7 +7,7 @@ import hydra
 from omegaconf import DictConfig
 import yappi
 
-from control import ControlSystem, utils, World, MainThreadWorld
+from control import ControlSystem, utils, MainThreadWorld, control_system
 from geom import Quaternion, Transform3D
 from hardware import Franka, DHGripper, sl_camera
 from tools import rerun as rr_tools
@@ -18,13 +18,10 @@ logging.basicConfig(level=logging.INFO,
                      handlers=[logging.StreamHandler(),
                                logging.FileHandler("teleop.log", mode="w")])
 
-class TeleopSystem(ControlSystem):
-    def __init__(self, world: World):
-        super().__init__(
-            world,
-            inputs=["teleop_transform", "teleop_buttons", "robot_position"],
-            outputs=["robot_target_position", "gripper_target_grasp", "start_tracking", "stop_tracking"])
 
+@control_system(inputs=["teleop_transform", "teleop_buttons", "robot_position"],
+                outputs=["robot_target_position", "gripper_target_grasp", "start_tracking", "stop_tracking"])
+class TeleopSystem(ControlSystem):
     @classmethod
     def _parse_position(cls, value: Transform3D) -> Transform3D:
         pos = np.array([value.translation[2], value.translation[0], value.translation[1]])
@@ -120,23 +117,6 @@ def main(cfg: DictConfig):
         if 'dh_gripper' in cfg:
             data_dumper.ins.grip = gripper.outs.grip
 
-    if cfg.rerun:
-        connect = cfg.rerun if ':' in cfg.rerun else None
-        save_path = None if ':' in cfg.rerun else cfg.rerun
-        rr = rr_tools.Rerun(world, "teleop",
-                            connect=connect,
-                            save_path=save_path,
-                            inputs={"ext_force_ee": rr_tools.log_array,
-                                    'ext_force_base': rr_tools.log_array,
-                                    'image': rr_tools.log_image})
-        @utils.map_port
-        def image(record):
-            return record.image.get_data()[:, :, :3]
-        rr.ins.image = image(cam.outs.record)
-
-        rr.ins.ext_force_ee = franka.outs.ext_force_ee
-        rr.ins.ext_force_base = franka.outs.ext_force_base
-
     if cfg.profile:
         yappi.set_clock_type("cpu")
         yappi.start(profile_threads=False)
@@ -154,6 +134,7 @@ def main(cfg: DictConfig):
             print("Program exited, stats saved")
         else:
             print("Program exited")
+
 
 if __name__ == "__main__":
     main()

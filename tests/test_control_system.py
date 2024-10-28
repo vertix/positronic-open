@@ -1,10 +1,10 @@
 import pytest
-from control.utils import control_system
+from control.utils import control_system_fn
 from control.world import MainThreadWorld
 from control.ports import DirectWriteInputPort, InputPort, OutputPort
 
 def test_control_system_decorator():
-    @control_system(inputs=["input1", "input2"], outputs=["output1"])
+    @control_system_fn(inputs=["input1", "input2"], outputs=["output1"])
     def my_system(ins, outs):
         _, value1 = ins.input1.read()
         _, value2 = ins.input2.read()

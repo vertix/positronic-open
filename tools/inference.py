@@ -138,14 +138,71 @@ class ActionDecoder:
         return outputs
 
 
+Field = namedtuple('Field', ['name'])
+InputField = namedtuple('InputField', ['name'])
+OmegaConf.register_new_resolver('field', lambda x: Field(x))
+OmegaConf.register_new_resolver('input', lambda x: InputField(x))
+
+class ActionDecoder:
+    def __init__(self, cfg: DictConfig):
+        self.cfg = cfg
+
+    def encode_episode(self, episode_data):
+        def replace_inputs(cfg):
+            if OmegaConf.is_dict(cfg):
+                return {k: replace_inputs(v) for k, v in cfg.items()}
+            elif OmegaConf.is_list(cfg):
+                return [replace_inputs(item) for item in cfg]
+            elif isinstance(cfg, InputField):
+                return episode_data[cfg.name]
+            else:
+                return cfg
+
+        cfg_copy = OmegaConf.to_container(self.cfg, resolve=False)
+        cfg_copy = OmegaConf.create(cfg_copy)
+        cfg = replace_inputs(cfg_copy.fields)
+        cfg = hydra.utils.instantiate(cfg)
+
+        records = [record.value.unsqueeze(1) if record.value.dim() == 1 else record.value for record in cfg.values()]
+        return torch.cat(records, dim=1)
+
+    def decode(self, action_vector, input_ports):
+        start = 0
+        fields = {}
+        for name in self.cfg.fields:
+            fields[name] = action_vector[start:start + self.cfg.fields[name].length]
+            start += self.cfg.fields[name].length
+
+        def replace_fields(cfg):
+            if OmegaConf.is_dict(cfg):
+                return {k: replace_fields(v) for k, v in cfg.items()}
+            elif OmegaConf.is_list(cfg):
+                return [replace_fields(item) for item in cfg]
+            elif isinstance(cfg, Field):
+                return fields[cfg.name]
+            elif isinstance(cfg, InputField):
+                key, field = (cfg.name.split('.') + [None])[:2]
+                record = input_ports[key].last
+                if record is None:
+                    raise ValueError(f"Input field {cfg.name} does not have a value")
+                return getattr(record[1], field) if field else record[1]
+            else:
+                return cfg
+
+        cfg_copy = OmegaConf.to_container(self.cfg, resolve=False)
+        cfg_copy = OmegaConf.create(cfg_copy)
+        cfg = replace_fields(cfg_copy.outputs)
+        outputs = hydra.utils.instantiate(cfg)
+        return outputs
+
+
+@control_system(inputs=['image', 'ext_force_ee', 'ext_force_base',
+                       'robot_position', 'robot_joints', 'grip',
+                       'start', 'stop'],
+                outputs=['target_robot_position', 'target_grip'])
 class Inference(ControlSystem):
     def __init__(self, world: World, cfg: DictConfig):
-        # TODO: This list of inputs must be generated from the state config,
-        # and the outputs from the action config.
-        super().__init__(world, inputs=['image', 'ext_force_ee', 'ext_force_base',
-                                        'robot_position', 'robot_joints', 'grip',
-                                        'start', 'stop'],
-                                outputs=['target_robot_position', 'target_grip'])
+        super().__init__(world)
         self.policy_factory = lambda: ACTPolicy.from_pretrained(cfg.checkpoint_path)
         self.cfg = cfg
         self.state_encoder = StateEncoder(hydra.utils.instantiate(cfg.state))

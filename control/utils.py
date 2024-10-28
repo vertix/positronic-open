@@ -3,7 +3,7 @@ import time
 from typing import Any, Callable, List, Optional
 
 from control.world import World
-from .system import ControlSystem
+from .system import ControlSystem, control_system
 from .ports import OutputPort
 from .ports import InputPort
 
@@ -21,12 +21,10 @@ def map_port(fn: Callable[[Any], Any]):
     return _MapPort
 
 # TODO: Add world as an argument to the internal function.
-def control_system(*, inputs: List[str], outputs: List[str]):
+def control_system_fn(*, inputs: List[str], outputs: List[str]):
     def decorator(fn):
+        @control_system(inputs=inputs, outputs=outputs)
         class _ControlSystem(ControlSystem):
-            def __init__(self, world: World):
-                super().__init__(world, inputs=inputs, outputs=outputs)
-
             def run(self):
                 fn(self.ins, self.outs)
 
@@ -48,47 +46,3 @@ class FPSCounter:
             print(f"{self.prefix}: {fps:.2f} fps")
             self.last_report_time = time.monotonic()
             self.frame_count = 0
-
-class Logger(ControlSystem):
-    """
-    Logger is a System that logs the values of its input ports.
-    """
-    def __init__(self, world: World, level: int = logging.INFO, inputs: List[str] = []):
-        super().__init__(world, inputs=inputs)
-        self.level = level
-
-    def run(self):
-        for name, _ts, value in self._inputs.read():
-            logging.log(self.level, f"{name}: {value}")
-
-
-class MapSystem(ControlSystem):
-    """
-    Map is a System that applies a mapping function to its input ports and writes the result to
-    the corresponding output ports. The mapping function can be specified for each input port
-    individually via keyword arguments, or a default mapping function can be provided. Either a
-    default mapping function must be defined, or all mappings for all inputs must be defined.
-
-    Example usage:
-    map = Map(inputs=['joints', 'pos'],
-              default_map_fn=lambda n, v: v * 2,
-              joints=lambda n, v: set_joints(v))
-    """
-    def __init__(self, world: World, inputs: List[str], default: Callable[[str, Any], Any] = None, **kwargs):
-        """
-        Initialize the Map system. The outputs have the same names as the inputs.
-        """
-        super().__init__(world, inputs=inputs, outputs=inputs)
-        self.default_map_fn = default
-        self.map_fns = kwargs
-
-        if not self.default_map_fn and not all(input_name in self.map_fns for input_name in inputs):
-            raise ValueError("Either default_map_fn must be defined, or all mappings for all inputs must be defined")
-
-    def run(self):
-        """
-        Control loop coroutine.
-        """
-        for name, _ts, value in self._inputs.read():
-            map_fn = self.map_fns.get(name, self.default_map_fn)
-            self.outs[name].write(map_fn(name, value))

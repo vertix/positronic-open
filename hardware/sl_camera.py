@@ -9,7 +9,7 @@ import multiprocessing as mp
 from multiprocessing import Queue
 import numpy as np
 
-from control import ControlSystem, utils, World, MainThreadWorld
+from control import ControlSystem, utils, World, MainThreadWorld, control_system
 from tools.video import VideoDumper
 
 SlImage = sl.Mat
@@ -20,9 +20,10 @@ class Record:
     image: Optional[SlImage] = None
 
 
+@control_system(outputs=['record'])
 class SLCamera(ControlSystem):
     def __init__(self, world: World, fps=30, view=sl.VIEW.LEFT, resolution=sl.RESOLUTION.AUTO):
-        super().__init__(world, inputs=[], outputs=['record'])
+        super().__init__(world)
         self.init_params = sl.InitParameters()
         self.init_params.camera_resolution = resolution
         self.init_params.camera_fps = fps

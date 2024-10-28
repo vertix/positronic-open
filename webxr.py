@@ -10,7 +10,7 @@ import uvicorn
 import numpy as np
 import json
 
-from control import ControlSystem, World
+from control import ControlSystem, World, control_system
 from control.utils import FPSCounter
 from geom import Transform3D
 
@@ -72,9 +72,10 @@ def run_server(data_queue, port, ssl_keyfile, ssl_certfile):
     server = uvicorn.Server(config)
     server.run()
 
+@control_system(outputs=["transform", "buttons"])
 class WebXR(ControlSystem):
     def __init__(self, world: World, port: int, ssl_keyfile: str = "key.pem", ssl_certfile: str = "cert.pem"):
-        super().__init__(world, outputs=["transform", "buttons"])
+        super().__init__(world)
         self.port = port
         self.ssl_keyfile = ssl_keyfile
         self.ssl_certfile = ssl_certfile
