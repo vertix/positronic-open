@@ -1,0 +1,19 @@
+webxr:
+  port: 5005
+
+franka:
+  ip: "172.168.0.2"
+  relative_dynamics_factor: 0.2
+  gripper_force: 0.4
+  reporting_frequency: null
+
+dh_gripper: "/dev/ttyUSB0"
+
+camera:
+  fps: 15
+
+data_output_dir: null
+
+rerun: false
+profile: false
+

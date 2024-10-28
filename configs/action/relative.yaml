@@ -1,0 +1,40 @@
+  fields:
+    translation_diff:
+      value:
+        _target_: torch.sub
+        _args_:
+          - '${input:target_robot_position.translation}'
+          - '${input:robot_position.translation}'
+      length: 3
+    quaternion_diff:
+      value:
+        _target_: pytorch3d.transforms.quaternion_multiply
+        _args_:
+          - _target_: pytorch3d.transforms.quaternion_invert
+            _args_:
+              - '${input:robot_position.quaternion}'
+          - '${input:target_robot_position.quaternion}'
+      length: 4
+    gripper_width:
+      value: '${input:target_grip}'
+      length: 1
+
+  outputs:
+    target_robot_position:
+      _target_: geom.Transform3D
+      translation:
+        _target_: numpy.add
+        _args_:
+          - '${field:translation_diff}'
+          - '${input:robot_position.translation}'
+      quaternion:
+        _target_: geom.quat_mul
+        _args_:
+          - '${input:robot_position.quaternion}'
+          - _target_: geom.normalise_quat
+            _args_:
+              - '${field:quaternion_diff}'
+    target_grip:
+      _target_: numpy.ndarray.item
+      _args_:
+        - '${field:gripper_width}'

@@ -16,7 +16,7 @@ from lerobot.common.datasets.video_utils import encode_video_frames
 from lerobot.scripts.push_dataset_to_hub import save_meta_data
 from lerobot.common.datasets.compute_stats import compute_stats
 
-from tools.inference import StateEncoder
+from tools.inference import StateEncoder, ActionDecoder
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="to_lerobot")
@@ -37,6 +37,7 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
     all_episodes_data = []
 
     state_enc = StateEncoder(cfg.state)
+    action_dec = ActionDecoder(cfg.action)
 
     for episode_idx, episode_file in enumerate(tqdm.tqdm(episode_files, desc="Processing episodes")):
         episode_data = torch.load(episode_file)
@@ -74,7 +75,7 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
         ep_dict['observation.state'] = obs['observation.state']
 
         # Concatenate all the data as specified in the config
-        ep_dict['action'] = torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k] for k in cfg.action], dim=1)
+        ep_dict['action'] = action_dec.encode_episode(episode_data)
 
         ep_dict["episode_index"] = torch.tensor([episode_idx] * num_frames)
         ep_dict["frame_index"] = torch.arange(0, num_frames, 1)

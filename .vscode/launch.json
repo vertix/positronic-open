@@ -5,13 +5,84 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "hardware.sl_camera module",
+            "type": "python",
+            "request": "launch",
+            "module": "hardware.sl_camera",
+            "justMyCode": true
+        },
+        {
+            "name": "teleop module",
+            "type": "python",
+            "request": "launch",
+            "module": "teleop",
+            "justMyCode": true
+        },
+        {
+            "name": "dhgrp module",
+            "type": "python",
+            "request": "launch",
+            "module": "hardware.dhgrp",
+            "justMyCode": true
+        },
+        {
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true
+        },
+        {
+            "name": "Python: Test Ports",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "tests/test_ports.py",
+                "-v"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Python: Visualise Dataset",
+            "type": "python",
+            "request": "launch",
+            "module": "training.visualise_dataset",
+            "args": [
+                "--rerun=127.0.0.1:9876",
+                "_dataset/4.pt"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Python: Convert to LeRobot Dataset",
+            "type": "python",
+            "request": "launch",
+            "module": "training.to_lerobot",
+            "args": [
+                "input_dir=_dataset1/",
+                "output_dir=_lerobot_ds/"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Python: Run Policy Runner",
+            "type": "python",
+            "request": "launch",
+            "module": "policy_runner",
+            "args": [
+                "inference.checkpoint_path=../lerobot/outputs/train/act_minmax/checkpoints/last/pretrained_model/",
+                "state=baseline",
+                // "inference.checkpoint_path=/home/timofey/robots/lerobot/outputs/train/positronic_with_eval_v0/checkpoints/last/pretrained_model/"
+                // "--inference.checkpoint_path=../`lerobot/outputs/train/act_minmax/checkpoints/last/pretrained_model/"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
         }
     ]
 }
-
