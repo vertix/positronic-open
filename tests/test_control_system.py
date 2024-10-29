@@ -1,34 +1,96 @@
 import pytest
-from control.utils import control_system_fn
+from control.system import ControlSystem, control_system
 from control.world import MainThreadWorld
-from control.ports import DirectWriteInputPort, InputPort, OutputPort
+from control.ports import InputPort, OutputPort
 
-def test_control_system_decorator():
-    @control_system_fn(inputs=["input1", "input2"], outputs=["output1"])
-    def my_system(ins, outs):
-        _, value1 = ins.input1.read()
-        _, value2 = ins.input2.read()
-        value = value1 + value2
-        outs.output1.write(value)
+# Test basic decorator configurations
+def test_empty_control_system():
+    @control_system(inputs=[], outputs=[])
+    class EmptySystem(ControlSystem):
+        def run(self):
+            pass
 
     world = MainThreadWorld()
-    system = my_system(world)
+    system = EmptySystem(world)
 
-    out_port = DirectWriteInputPort(world)
-    system.outs.output1._bind(out_port.write)
+    assert hasattr(system, 'ins')
+    assert hasattr(system, 'outs')
+    assert len(system.ins.available_ports()) == 0
+    assert len(system.outs.available_ports()) == 0
 
-    # Check if the system has the correct inputs and outputs
+def test_inputs_only_system():
+    @control_system(inputs=["input1", "input2"])
+    class InputsSystem(ControlSystem):
+        def run(self):
+            pass
+
+    world = MainThreadWorld()
+    system = InputsSystem(world)
+
+    assert len(system.ins.available_ports()) == 2
+    assert "input1" in system.ins.available_ports()
+    assert "input2" in system.ins.available_ports()
+    assert len(system.outs.available_ports()) == 0
+
+def test_outputs_only_system():
+    @control_system(outputs=["output1", "output2"])
+    class OutputsSystem(ControlSystem):
+        def run(self):
+            pass
+
+    world = MainThreadWorld()
+    system = OutputsSystem(world)
+
+    assert len(system.ins.available_ports()) == 0
+    assert len(system.outs.available_ports()) == 2
+    assert "output1" in system.outs.available_ports()
+    assert "output2" in system.outs.available_ports()
+
+def test_lazy_port_initialization():
+    @control_system(inputs=["input1"], outputs=["output1"])
+    class LazySystem(ControlSystem):
+        def run(self):
+            pass
+
+    world = MainThreadWorld()
+    system = LazySystem(world)
+
+    # Check that _inputs and _outputs don't exist before access
+    assert not hasattr(system, '_inputs')
+    assert not hasattr(system, '_outputs')
+
+    # Access ports to trigger initialization
+    _ = system.ins.input1
+    _ = system.outs.output1
+
+    # Now they should exist
+    assert hasattr(system, '_inputs')
+    assert hasattr(system, '_outputs')
+
+def test_port_types():
+    @control_system(inputs=["input1"], outputs=["output1"])
+    class TypeSystem(ControlSystem):
+        def run(self):
+            pass
+
+    world = MainThreadWorld()
+    system = TypeSystem(world)
+
     assert isinstance(system.ins.input1, InputPort)
-    assert isinstance(system.ins.input2, InputPort)
     assert isinstance(system.outs.output1, OutputPort)
 
-    # Test the system's functionality
-    system.ins.input1.write(5)
-    system.ins.input2.write(3)
-    system.run()
+def test_system_world_registration():
+    @control_system(inputs=["input1"])
+    class WorldSystem(ControlSystem):
+        def run(self):
+            pass
 
-    result = out_port.read()
-    assert result == (None, 8)
+    world = MainThreadWorld()
+    system = WorldSystem(world)
+
+    # Verify that the system is properly initialized with the world
+    assert system.world == world
+    assert not world.should_stop  # Verify initial state
 
 
 if __name__ == "__main__":
