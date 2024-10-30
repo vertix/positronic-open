@@ -40,7 +40,8 @@ from kortex_api.RouterClient import RouterClient, RouterClientSendOptions
 from kortex_api.SessionManager import SessionManager
 from kortex_api.autogen.messages import Session_pb2
 
-from control import ControlSystem, World
+from control import ControlSystem, World, control_system
+from control.utils import control_system_fn
 from geom import Quaternion, Transform3D, degrees_to_radians, radians_to_degrees
 
 logger = logging.getLogger(__name__)
@@ -285,9 +286,10 @@ class KinovaController:
             self.base.Stop()
 
 
+@control_system(inputs=["target_position"], outputs=["position", "joint_positions"])
 class Kinova(ControlSystem):
     def __init__(self, world: World, ip: str):
-        super().__init__(world, inputs=["target_position",], outputs=["position", "joint_positions"])
+        super().__init__(world)
         self.ip = ip
 
     def run(self):
@@ -328,29 +330,27 @@ def _main():
     world = MainThreadWorld()
 
     kinova = Kinova(world, '192.168.1.10')
-    class Manager(ControlSystem):
-        def __init__(self, world: World):
-            super().__init__(world, inputs=["robot_pos", "joints"], outputs=["target_pos"])
 
-        def run(self):
-            _, robot_pos = self.ins.robot_pos.read()
-            start_time = time.time()
-            last_command_time = None
-            for input_name, _ts, value in self.ins.read(1 / 50):
-                # if input_name == "robot_pos":
-                #     print(robot_pos)
+    @control_system_fn(inputs=["robot_pos", "joints"], outputs=["target_pos"])
+    def controller(ins, outs):
+        _, robot_pos = ins.robot_pos.read()
+        start_time = time.time()
+        last_command_time = None
+        for input_name, _ts, value in ins.joints.read(1 / 50):
+            # if input_name == "robot_pos":
+            #     print(robot_pos)
 
-                if last_command_time is None or time.time() - last_command_time > 0.2:
-                    t = (time.time() - start_time) / 8 * 2 * np.pi      # One period every 10 seconds
-                    delta = np.array([0., np.cos(t), np.sin(t)]) * 0.20  # Radius of 20 cm
-                    target = Transform3D(robot_pos.translation + delta, robot_pos.quaternion)
-                    last_command_time = time.time()
-                    self.outs.target_pos.write(target)
+            if last_command_time is None or time.time() - last_command_time > 0.2:
+                t = (time.time() - start_time) / 8 * 2 * np.pi      # One period every 10 seconds
+                delta = np.array([0., np.cos(t), np.sin(t)]) * 0.20  # Radius of 20 cm
+                target = Transform3D(robot_pos.translation + delta, robot_pos.quaternion)
+                last_command_time = time.time()
+                outs.target_pos.write(target)
 
-                if time.time() - start_time > 30:
-                    break
+            if time.time() - start_time > 30:
+                break
 
-    manager = Manager(world)
+    manager = controller(world)
     manager.ins.robot_pos = kinova.outs.position
     manager.ins.joints = kinova.outs.joint_positions
     kinova.ins.target_position = manager.outs.target_pos

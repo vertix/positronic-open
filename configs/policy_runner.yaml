@@ -3,13 +3,13 @@ defaults:
   - action: baseline
   - _self_
 
-rerun: null
-
 franka:
   ip: 172.168.0.2
   relative_dynamics_factor: 0.2
   gripper_force: 0.4
   reporting_frequency: 30
+
+rerun: null
 
 inference:
   checkpoint_path: ???

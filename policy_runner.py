@@ -1,44 +1,43 @@
 import logging
-from typing import List
 
 import hydra
 from omegaconf import DictConfig
 import rerun as rr
 
-from control import ControlSystem, utils, World, MainThreadWorld
-from geom import Quaternion, Transform3D
+from control import MainThreadWorld
+from control.utils import control_system_fn
 from hardware import Franka, DHGripper, sl_camera
-from tools import rerun as rr_tools
-from tools.dataset_dumper import DatasetDumper
 from tools.inference import Inference
-
-import curses
 
 logging.basicConfig(level=logging.INFO,
                     handlers=[logging.StreamHandler(),
                               logging.FileHandler("policy_runner.log", mode="w")])
 
-class PolicyRunnerSystem(ControlSystem):
-    def __init__(self, world: World):
-        super().__init__(world, inputs=[], outputs=["start_policy", "stop_policy"])
-
-    def run(self):
-        policy_running = False
-        while not self.should_stop:
-            user_input = input()
-            if user_input == 's':
-                if not policy_running:
-                    print('Started policy execution')
-                    policy_running = True
-                    self.outs.start_policy.write(True, self.world.now_ts)
-                else:
-                    print('Stopped policy execution')
-                    policy_running = False
-                    self.outs.stop_policy.write(True, self.world.now_ts)
+@control_system_fn(outputs=["start_policy", "stop_policy"])
+def PolicyRunnerSystem(ins, outs):
+    policy_running = False
+    while not ins.should_stop:
+        user_input = input()
+        if user_input == 's':
+            if not policy_running:
+                print('Started policy execution')
+                policy_running = True
+                outs.start_policy.write(True, ins.now_ts)
+            else:
+                print('Stopped policy execution')
+                policy_running = False
+                outs.stop_policy.write(True, ins.now_ts)
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="policy_runner")
 def main(cfg: DictConfig):
+    if cfg.rerun:
+        rr.init("inference", spawn=False)
+        if ':' in cfg.rerun:
+            rr.connect(cfg.rerun)
+        elif cfg.rerun is not None:
+            rr.save(cfg.rerun)
+
     world = MainThreadWorld()
     franka = Franka(world,
                     cfg.franka.ip,
@@ -69,15 +68,9 @@ def main(cfg: DictConfig):
     gripper.ins.grip = inference.outs.target_grip
     inference.ins.grip = gripper.outs.grip
 
-    if cfg.rerun:
-        rr.init("inference", spawn=False)
-        if ':' in cfg.rerun:
-            rr.connect(cfg.rerun)
-        elif cfg.rerun is not None:
-            rr.save(cfg.rerun)
-
     world.run()
-    rr.disconnect()
+    if cfg.rerun:
+        rr.disconnect()
     print('Finished')
 
 

@@ -5,14 +5,14 @@ import pymodbus.client as ModbusClient
 
 import numpy as np
 
-from control import EventSystem, World, MainThreadWorld, utils
-from control.system import ControlSystem
+from control import World, MainThreadWorld, ControlSystem, control_system
 
 
 # TODO: Make robot report actual gripper position
-class DHGripper(EventSystem):
+@control_system(inputs=['grip', 'force', 'speed'], outputs=['grip'])
+class DHGripper(ControlSystem):
     def __init__(self, world: World, port: str):
-        super().__init__(world, inputs=['grip', 'force', 'speed'], outputs=['grip'])
+        super().__init__(world)
         self.client = ModbusClient.ModbusSerialClient(
             port=port,
             baudrate=115200,
@@ -27,6 +27,24 @@ class DHGripper(EventSystem):
     def _state_r(self):
         return self.client.read_holding_registers(0x20A, 1, slave=1).registers[0]
 
+    def run(self):
+        self.on_start()
+        read_iter = self.ins.read()
+        while not self.should_stop:
+            try:
+                name, ts, value = next(read_iter)
+                if name == 'grip':
+                    self.on_grip(ts, value)
+                elif name == 'force':
+                    self.on_force(ts, value)
+                elif name == 'speed':
+                    self.on_speed(ts, value)
+                else:
+                    raise ValueError(f"Unknown input: {name}")
+                self.on_after_input()
+            except StopIteration:
+                return
+
     def on_start(self):
         if self._state_g() != 1 or self._state_r() != 1:
             self.client.write_register(0x100, 0xa5, slave=1)
@@ -38,17 +56,14 @@ class DHGripper(EventSystem):
         self.on_grip(None, 0)  # Open gripper
         time.sleep(0.5)
 
-    @EventSystem.on_event('grip')
     def on_grip(self, _ts, value):
         """Accepts value in range [0, 1]. 0 means fully open, 1 means fully closed."""
         width = round((1 - max(0, min(value, 1))) * 1000)
         self.client.write_register(0x103, c_uint16(width).value, slave=1)
 
-    @EventSystem.on_event('force')
     def on_force(self, _ts, value):
         self.client.write_register(0x101, c_uint16(value).value, slave=1)
 
-    @EventSystem.on_event('speed')
     def on_speed(self, _ts, value):
         self.client.write_register(0x104, c_uint16(value).value, slave=1)
 
@@ -178,7 +193,7 @@ def _main():
     gripper.ins.speed.write(20)
     gripper.ins.force.write(100)
 
-    @utils.control_system(inputs=['real_grip'], outputs=['grip'])
+    @utils.control_system_fn(inputs=['real_grip'], outputs=['grip'])
     def gripper_controller(ins, outs):
         for width in (np.sin(np.linspace(0, 10 * np.pi, 60)) + 1):
             outs.grip.write(width)

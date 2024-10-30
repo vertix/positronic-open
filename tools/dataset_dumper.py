@@ -4,14 +4,16 @@ import os
 import numpy as np
 import torch
 
-from control import ControlSystem, World
+from control import ControlSystem, World, control_system
 
+
+@control_system(inputs=['image',
+                       'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints', 'grip',
+                       'start_episode', 'end_episode',
+                       'target_grip', 'target_robot_position'], outputs=[])
 class DatasetDumper(ControlSystem):
     def __init__(self, world: World, directory: str):
-        super().__init__(world, inputs=['image',
-                                        'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints', 'grip',
-                                        'start_episode', 'end_episode',
-                                        'target_grip', 'target_robot_position'], outputs=[])
+        super().__init__(world)
         self.directory = directory
         os.makedirs(self.directory, exist_ok=True)
 

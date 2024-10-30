@@ -4,13 +4,15 @@ from typing import Optional
 
 import franky
 
-from control import ControlSystem, World
+from control import ControlSystem, World, control_system
 from control.utils import FPSCounter
 from geom import Transform3D
 
 logger = logging.getLogger(__name__)
 
 
+@control_system(inputs=["target_position", "gripper_grasped"],
+                outputs=["position", "gripper_grasped", "joint_positions", "ext_force_base", "ext_force_ee"])
 class Franka(ControlSystem):
     def __init__(self, world: World, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
                  reporting_frequency: Optional[float] = None,
@@ -19,11 +21,7 @@ class Franka(ControlSystem):
         Args:
             reporting_frequency: Frequency at which to report outputs. If None, they will be reported only on inputs.
         """
-        super().__init__(
-            world,
-            inputs=["target_position", "gripper_grasped"],
-            outputs=["position", "gripper_grasped", "joint_positions", "ext_force_base", "ext_force_ee"])
-
+        super().__init__(world)
         self.robot = franky.Robot(ip, realtime_config=realtime_config)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
         self.robot.set_collision_behavior(
@@ -43,7 +41,7 @@ class Franka(ControlSystem):
             self.gripper_speed = gripper_speed
             self.gripper_grasped = None
         except Exception as e:
-            logger.warning(f"Did not connect to gripper: {e}")
+            logger.warning("Did not connect to gripper: %s", e)
             self.gripper = None
             self.gripper_speed = 0.0
             self.gripper_grasped = None
@@ -102,7 +100,7 @@ class Franka(ControlSystem):
             self.robot.move(franky.CartesianMotion(pos, franky.ReferenceType.Absolute), asynchronous=True)
         except franky.ControlException as e:
             self.robot.recover_from_errors()
-            logger.warning(f"IK failed for {value}: {e}")
+            logger.warning("IK failed for %s: %s", value, e)
 
     def on_gripper_grasped(self, value):
         if self.gripper_grasped:
@@ -116,4 +114,4 @@ class Franka(ControlSystem):
                                        epsilon_outer=1.0 * self.gripper.max_width)
                     self.gripper_grasped = True
                 except franky.CommandException as e:
-                    logger.warning(f"Grasping failed: {e}")
+                    logger.warning("Grasping failed: %s", e)

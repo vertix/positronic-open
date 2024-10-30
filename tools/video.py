@@ -1,12 +1,13 @@
 import av
 
-from control import ControlSystem, World
+from control import ControlSystem, World, control_system
 from control.utils import FPSCounter
 
 
+@control_system(inputs=['image'])
 class VideoDumper(ControlSystem):
     def __init__(self, world: World, filename: str, fps: int, width: int = None, height: int = None, codec: str = 'libx264'):
-        super().__init__(world, inputs=['image'], outputs=[])
+        super().__init__(world)
         self.filename = filename
         self.fps = fps
         self.width = width
