@@ -1,0 +1,202 @@
+from dataclasses import dataclass
+from typing import Tuple, Optional
+from threading import Lock
+
+import mujoco
+import numpy as np
+from dm_control import mujoco as dm_mujoco
+from dm_control.utils import inverse_kinematics as ik
+
+from control import ControlSystem, control_system
+from geom import Transform3D
+
+mjc_lock = Lock()
+
+@dataclass
+class DesiredAction:
+    position: np.ndarray
+    orientation: np.ndarray
+    grip: int
+
+
+@dataclass
+class ActuatorValues:
+    values: np.ndarray
+    grip: int
+    success: bool
+
+
+@dataclass
+class Observation:
+    position: np.ndarray
+    orientation: np.ndarray
+    grip: int
+    joints: np.ndarray
+
+    # Images
+    top_image: np.ndarray
+    side_image: np.ndarray
+    handcam_left_image: np.ndarray
+    handcam_right_image: np.ndarray
+
+@control_system(
+    inputs=["desired_action"],
+    outputs=["actuator_values"]
+)
+class InverseKinematicsControlSystem(ControlSystem):
+    desired_action: Optional[DesiredAction]
+
+    def __init__(self, world: "World", data: mujoco.MjData):
+        super().__init__(world)
+        self.joints = [f'joint{i}' for i in range(1, 8)]
+
+        self.physics = dm_mujoco.Physics.from_model(data)
+        self.desired_action = None
+
+
+    def recalculate_ik(self):
+        if self.desired_action is None:
+            return
+
+        with mjc_lock:
+            result = ik.qpos_from_site_pose(
+                physics=self.physics,
+                site_name='end_effector',
+                target_pos=self.desired_action.position,
+                target_quat=self.desired_action.orientation,
+                joint_names=self.joints,
+                rot_weight=0.5,
+            )
+
+        if result.success:
+            values = ActuatorValues(values=result.qpos[:7], grip=self.desired_action.grip, success=True)
+            self.outs.actuator_values.write(values, self.world.now_ts)
+        else:
+            values = ActuatorValues(values=np.zeros(7), grip=self.desired_action.grip, success=False)
+            self.outs.actuator_values.write(values, self.world.now_ts)
+            print(f"Failed to calculate IK for {self.desired_action.position}")
+
+    def run(self):
+        while True:
+            if self.world.should_stop:
+                break
+
+            for name, _ts, value in self.ins.read(timeout=0.01):
+                if name == 'desired_action':
+                    self.desired_action = value
+                    self.recalculate_ik()
+
+@control_system(
+    inputs=["observation", "desired_action"],
+    outputs=['image',
+           'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints', 'grip',
+           'start_episode', 'end_episode',
+           'target_grip', 'target_robot_position']
+)
+class ObservationTransform(ControlSystem):
+    def run(self):
+        while True:
+            if self.world.should_stop:
+                break
+
+            for name, ts, value in self.ins.read(timeout=0.01):
+                if name == 'observation':
+                    obs = value
+                    self.outs.image.write(obs.top_image, ts)
+                    self.outs.robot_position.write(Transform3D(obs.position, obs.orientation), ts)
+                    self.outs.grip.write(obs.grip, ts)
+
+                    self.outs.ext_force_ee.write(np.zeros(6), ts)
+                    self.outs.ext_force_base.write(np.zeros(6), ts)
+                    self.outs.robot_joints.write(obs.joints, ts)
+
+                if name == 'desired_action':
+                    self.outs.target_grip.write(value.grip, ts)
+                    self.outs.target_robot_position.write(Transform3D(value.position, value.orientation), ts)
+
+
+@control_system(inputs=["actuator_values"],
+                outputs=["observation"])
+class MujocoControlSystem(ControlSystem):
+    def __init__(self, world: "World", model, data, render_resolution: Tuple[int, int] = (320, 240)):
+        super().__init__(world)
+        self.model = model
+        self.data = data
+        self.renderer = None
+        self.render_resolution = render_resolution
+        self.simulation_rate = 1 / 60
+        self.observation_rate = 1 / 60
+        self.last_observation_time = -1
+        self.last_simulation_time = None
+
+    def render_frames(self):
+        views = {}
+        for cam_name in ['top', 'side', 'handcam_left', 'handcam_right']:
+            with mjc_lock:
+
+                mujoco.mj_forward(self.model, self.data)
+                self.renderer.update_scene(self.data, camera=cam_name)
+                views[cam_name] = self.renderer.render()
+        return views
+
+    def get_observation(self):
+        data = {'sensor': self.data.sensordata}
+        images = self.render_frames()
+
+        for cam_name, image in images.items():
+            data[cam_name] = image
+
+        return data
+
+    def simulate(self):
+        with mjc_lock:
+            mujoco.mj_step(self.model, self.data)
+            self.last_simulation_time = self.world.now_ts
+
+    def _init_position(self):
+        # TODO: hacky way to set initial position, figure out how to do it via xml
+        values = [0, 0.3, 0, -1.57079, 0, 1.92, 0.927, 0.04]
+
+        for i in range(7):
+            self.data.actuator(f'actuator{i + 1}').ctrl = values[i]
+
+        for i in range(10):
+            self.simulate()
+
+
+    def run(self):
+        self.renderer = mujoco.Renderer(self.model, height=self.render_resolution[1], width=self.render_resolution[0])
+        self._init_position()
+
+        while True:
+            if self.world.should_stop:
+                break
+            for name, _ts, value in self.ins.read(timeout=0.01):
+                if name == 'actuator_values':
+                    if value.success:
+                        for i in range(7):
+                            self.data.actuator(f'actuator{i + 1}').ctrl = value.values[i]
+                        self.data.actuator('actuator8').ctrl = value.grip * 255
+
+                if self.world.now_ts - self.last_simulation_time >= self.simulation_rate:
+                    self.simulate()
+
+                if self.world.now_ts - self.last_observation_time >= self.observation_rate:
+                    self.last_observation_time = self.world.now_ts
+                    obs = self.get_observation()
+                    observation = Observation(
+                        position=self.data.site('end_effector').xpos,
+                        orientation=self.data.body('hand').xquat,
+                        top_image=obs['top'],
+                        side_image=obs['side'],
+                        handcam_left_image=obs['handcam_left'],
+                        handcam_right_image=obs['handcam_right'],
+                        grip=self.data.actuator('actuator8').ctrl / 255,
+                        joints=np.array([self.data.qpos[i] for i in range(7)])
+                    )
+                    self.outs.observation.write(observation, self.world.now_ts)
+
+        self.renderer.close()
+
+
+
