@@ -15,8 +15,8 @@ def test_empty_control_system():
 
     assert hasattr(system, 'ins')
     assert hasattr(system, 'outs')
-    assert len(system.ins.available_ports()) == 0
-    assert len(system.outs.available_ports()) == 0
+    assert system.ins.size() == 0
+    assert system.outs.size() == 0
 
 def test_inputs_only_system():
     @control_system(inputs=["input1", "input2"])
@@ -27,10 +27,10 @@ def test_inputs_only_system():
     world = MainThreadWorld()
     system = InputsSystem(world)
 
-    assert len(system.ins.available_ports()) == 2
-    assert "input1" in system.ins.available_ports()
-    assert "input2" in system.ins.available_ports()
-    assert len(system.outs.available_ports()) == 0
+    assert system.ins.size() == 2
+    assert system.ins.input1 is not None
+    assert system.ins.input2 is not None
+    assert system.outs.size() == 0
 
 def test_outputs_only_system():
     @control_system(outputs=["output1", "output2"])
@@ -41,10 +41,10 @@ def test_outputs_only_system():
     world = MainThreadWorld()
     system = OutputsSystem(world)
 
-    assert len(system.ins.available_ports()) == 0
-    assert len(system.outs.available_ports()) == 2
-    assert "output1" in system.outs.available_ports()
-    assert "output2" in system.outs.available_ports()
+    assert system.ins.size() == 0
+    assert system.outs.size() == 2
+    assert system.outs.output1 is not None
+    assert system.outs.output2 is not None
 
 def test_lazy_port_initialization():
     @control_system(inputs=["input1"], outputs=["output1"])

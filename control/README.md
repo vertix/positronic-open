@@ -10,3 +10,11 @@ In its essense, every system is a control loop, that reads some inputs and produ
 * Every push connection can be turned into pull by caching the last value.
 * The push connection are done via `Port`s
 * The pull connections are done via `Properties`
+
+Systems can live in different `World`s, like threads (when we migrate library to make every control system a coroutine), processes on the same or different machines. Ideally, when we bind inputs to outputs, we want framework to figure out how to connect them together. It can be as simple as shared memory, async or threaded queues, sockets or web-sockets, etc.
+
+It is important to keep the control systems pure and move all the sophisticated logic like caching, polling and similar to the channels. Consider the following examples:
+```python
+inp_sys.ins.status = CachedProperty(out_sys.outs.status, every_sec=1.)
+inp_sys.ins.telemetry = ThrottledChannel(out_sys.outs.telemtry, rps=10)
+```
