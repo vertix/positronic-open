@@ -39,7 +39,15 @@ def control_system(*, inputs: List[str] = None, outputs: List[str] = None,
 
         def _get_outputs(self):
             if not hasattr(self, '_outputs'):
-                self._outputs = OutputPortContainer(self.world, self._output_ports, self._output_props)
+                props = {}
+                for method in self.__class__.__dict__.values():
+                    if hasattr(method, '__is_output_property__'):
+                        props[method.__output_property_name__] = method.__get__(self, self.__class__)
+                if len(props) != len(self._output_props):
+                    diff = set(self._output_props) - set(props.keys())
+                    # TODO: Can we move this check to class definition time?
+                    raise ValueError(f"Output properties {diff} are not defined")
+                self._outputs = OutputPortContainer(self.world, self._output_ports, props)
             return self._outputs
 
         # Replace properties with lazy versions
@@ -47,6 +55,17 @@ def control_system(*, inputs: List[str] = None, outputs: List[str] = None,
         cls.outs = property(_get_outputs)
 
         return cls
+    return decorator
+
+
+def output_property(name: str):
+    """
+    Function decorator for defining output properties on a control system.
+    """
+    def decorator(method):
+        method.__is_output_property__ = True
+        method.__output_property_name__ = name
+        return method
     return decorator
 
 

@@ -60,7 +60,9 @@ class MainThreadWorld(World):
 
         try:
             while not self.stop_event.is_set():
-                time.sleep(1)
+                if not any(thread.is_alive() for thread in threads):
+                    break
+                time.sleep(0.5)
         finally:
             self.stop_event.set()
             for thread in threads:
