@@ -19,7 +19,8 @@ logging.basicConfig(level=logging.INFO,
                                logging.FileHandler("teleop.log", mode="w")])
 
 
-@control_system(inputs=["teleop_transform", "teleop_buttons", "robot_position"],
+@control_system(inputs=["teleop_transform", "teleop_buttons"],
+                input_props=["robot_position"],
                 outputs=["robot_target_position", "gripper_target_grasp", "start_tracking", "stop_tracking"])
 class TeleopSystem(ControlSystem):
     @classmethod
@@ -45,16 +46,13 @@ class TeleopSystem(ControlSystem):
 
     def run(self):
         track_but, untrack_but, grasp_but = 0., 0., 0.
-        robot_t = None
         teleop_t = None
         offset = None
         is_tracking = False
 
         fps = utils.FPSCounter("Teleop")
         for input_name, _ts, value in self.ins.read():
-            if input_name == "robot_position":
-                robot_t = value
-            elif input_name == "teleop_transform":
+            if input_name == "teleop_transform":
                 teleop_t = self._parse_position(value)
                 fps.tick()
                 if is_tracking and offset is not None:
@@ -68,7 +66,8 @@ class TeleopSystem(ControlSystem):
 
                 if track_but:
                     # Note that translation and rotation offsets are independent
-                    if teleop_t is not None and robot_t is not None:
+                    if teleop_t is not None:
+                        robot_t = self.ins.robot_position()
                         offset = Transform3D(-teleop_t.translation + robot_t.translation,
                                              teleop_t.quaternion.inv * robot_t.quaternion)
                     if not is_tracking:
@@ -87,7 +86,7 @@ class TeleopSystem(ControlSystem):
 def main(cfg: DictConfig):
     world = MainThreadWorld()
     webxr = WebXR(world, port=cfg.webxr.port)
-    franka = Franka(world, cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force, reporting_frequency=cfg.franka.reporting_frequency)
+    franka = Franka(world, cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
 
     teleop = TeleopSystem(world)
 

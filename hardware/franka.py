@@ -4,7 +4,7 @@ from typing import Optional
 
 import franky
 
-from control import ControlSystem, World, control_system
+from control import ControlSystem, World, control_system, output_property
 from control.utils import FPSCounter
 from geom import Transform3D
 
@@ -12,15 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 @control_system(inputs=["target_position", "gripper_grasped"],
-                outputs=["position", "gripper_grasped", "joint_positions", "ext_force_base", "ext_force_ee"])
+                output_props=["position", "gripper_grasped", "joint_positions", "ext_force_base", "ext_force_ee"])
 class Franka(ControlSystem):
     def __init__(self, world: World, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
-                 reporting_frequency: Optional[float] = None,
                  realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Ignore):
-        """
-        Args:
-            reporting_frequency: Frequency at which to report outputs. If None, they will be reported only on inputs.
-        """
         super().__init__(world)
         self.robot = franky.Robot(ip, realtime_config=realtime_config)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
@@ -34,7 +29,6 @@ class Franka(ControlSystem):
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
         )
-        self.reporting_frequency = reporting_frequency
 
         try:
             self.gripper = franky.Gripper(ip)
@@ -46,19 +40,31 @@ class Franka(ControlSystem):
             self.gripper_speed = 0.0
             self.gripper_grasped = None
 
-    def _write_outputs(self):
-        pos, joints, state = self.robot.current_pose.end_effector_pose, self.robot.current_joint_state, self.robot.state
-        ts = self.world.now_ts
+    @output_property('position')
+    def position(self):
+        """End effector position in robot base coordinate frame."""
+        pos = self.robot.current_pose.end_effector_pose
+        return Transform3D(pos.translation, pos.quaternion), self.world.now_ts
 
-        self.outs.position.write(Transform3D(pos.translation, pos.quaternion), ts)
-        self.outs.joint_positions.write(joints.position, ts)
+    @output_property('joint_positions')
+    def joint_positions(self):
+        return self.robot.current_joint_state, self.world.now_ts
+
+    @output_property('gripper_grasped')
+    def gripper_grasped(self):
         if self.gripper:
-            self.outs.gripper_grasped.write(self.gripper_grasped, ts)
+            return self.gripper_grasped, self.world.now_ts
+        return None, self.world.now_ts
 
-        if self.outs.ext_force_base.subscribed:
-            self.outs.ext_force_base.write(state.O_F_ext_hat_K, ts)
-        if self.outs.ext_force_ee.subscribed:
-            self.outs.ext_force_ee.write(state.K_F_ext_hat_K, ts)
+    @output_property('ext_force_base')
+    def ext_force_base(self):
+        state = self.robot.state
+        return state.O_F_ext_hat_K, self.world.now_ts
+
+    @output_property('ext_force_ee')
+    def ext_force_ee(self):
+        state = self.robot.state
+        return state.K_F_ext_hat_K, self.world.now_ts
 
     def on_start(self):
         self.robot.recover_from_errors()
@@ -81,16 +87,13 @@ class Franka(ControlSystem):
     def run(self):
         self.on_start()
         try:
-            to = 1.0 / self.reporting_frequency if self.reporting_frequency is not None else None
             fps = FPSCounter("Franka")
-            for name, _ts, value in self.ins.read(timeout=to):
+            for name, _ts, value in self.ins.read():
                 if name == "target_position":
                     self.on_target_position(value)
                     fps.tick()
                 elif name == "gripper_grasped":
                     self.on_gripper_grasped(value)
-
-                self._write_outputs()
         finally:
             self.on_stop()
 

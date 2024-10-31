@@ -7,11 +7,8 @@ import torch
 from control import ControlSystem, World, control_system
 
 
-@control_system(inputs=['image',
-                       'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints',
-                       'start_episode', 'end_episode',
-                       'target_grip', 'target_robot_position'],
-                input_props=['grip'])
+@control_system(inputs=['image', 'start_episode', 'end_episode', 'target_grip', 'target_robot_position'],
+                input_props=['grip', 'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints',])
 class DatasetDumper(ControlSystem):
     def __init__(self, world: World, directory: str):
         super().__init__(world)
@@ -52,14 +49,6 @@ class DatasetDumper(ControlSystem):
                 episode_start = None
                 tracked = False
             elif tracked and name == 'image' and self.ins.target_robot_position.last is not None:
-                if None in (self.ins.ext_force_ee.last, self.ins.ext_force_base.last,
-                            self.ins.robot_position.last, self.ins.robot_joints.last):
-                    continue
-
-                ext_force_ee = self.ins.ext_force_ee.last[1]
-                ext_force_base = self.ins.ext_force_base.last[1]
-                robot_position = self.ins.robot_position.last[1]
-                robot_joints = self.ins.robot_joints.last[1]
                 robot_ts, robot_position = self.ins.robot_position.last
 
                 target_grip = self.ins.target_grip.last[1] if self.ins.target_grip.last else 0.
@@ -73,14 +62,15 @@ class DatasetDumper(ControlSystem):
                 ep_dict['target_robot_position.quaternion'].append(target_robot_position.quaternion)
                 ep_dict['target_grip'].append(target_grip)
 
+                ep_dict['grip'].append(self.ins.grip()[0])
+                ep_dict['ee_force'].append(self.ins.ext_force_ee()[0])
+                ep_dict['base_force'].append(self.ins.ext_force_base()[0])
+                ep_dict['robot_joints'].append(self.ins.robot_joints()[0])
+                robot_position, robot_ts = self.ins.robot_position()
+                ep_dict['robot_position.translation'].append(robot_position.translation)
+                ep_dict['robot_position.quaternion'].append(robot_position.quaternion)
+
                 ep_dict['time'].append((now_ts - episode_start) / 1000)
                 ep_dict['delay/image'].append((now_ts - ts) / 1000)
                 ep_dict['delay/robot'].append((now_ts - robot_ts) / 1000)
                 ep_dict['delay/target'].append((now_ts - target_ts) / 1000)
-
-                ep_dict['grip'].append(self.ins.grip()[0])
-                ep_dict['ee_force'].append(ext_force_ee)
-                ep_dict['base_force'].append(ext_force_base)
-                ep_dict['robot_joints'].append(robot_joints)
-                ep_dict['robot_position.translation'].append(robot_position.translation)
-                ep_dict['robot_position.quaternion'].append(robot_position.quaternion)

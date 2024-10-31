@@ -42,8 +42,7 @@ def main(cfg: DictConfig):
     franka = Franka(world,
                     cfg.franka.ip,
                     cfg.franka.relative_dynamics_factor,
-                    cfg.franka.gripper_force,
-                    reporting_frequency=cfg.franka.reporting_frequency)
+                    cfg.franka.gripper_force)
 
     policy_runner = PolicyRunnerSystem(world)
 

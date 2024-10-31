@@ -66,19 +66,11 @@ class StateEncoder:
         for k in self.cfg.state:
             k_parts = k.split('.')
 
-            inp = inputs[k_parts[0]]
-            if callable(inp):  # This is property
-                value, _ts = inputs[k_parts[0]]()
-            else: # This is a port
-                #TODO: Make all inputs properties
-                # Record is a tuple of (timestamp, data) or None if no data is available
-                record = inputs[k_parts[0]].last
-                if record is None:
-                    return None
-                value = record[1]
-
-            if len(k_parts) > 1:
-                value = getattr(value, k_parts[1])
+            value, _ts = inputs[k_parts[0]]()
+            k_parts = k_parts[1:]
+            while len(k_parts) > 0:
+                value = getattr(value, k_parts[0])
+                k_parts = k_parts[1:]
 
             tensor = torch.tensor(value, dtype=torch.float32)
             if tensor.ndim == 0:
@@ -200,10 +192,8 @@ class ActionDecoder:
         return outputs
 
 
-@control_system(inputs=['image', 'ext_force_ee', 'ext_force_base',
-                       'robot_position', 'robot_joints',
-                       'start', 'stop'],
-                input_props=['grip'],
+@control_system(inputs=['image', 'start', 'stop'],
+                input_props=['grip', 'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints'],
                 outputs=['target_robot_position', 'target_grip'])
 class Inference(ControlSystem):
     def __init__(self, world: World, cfg: DictConfig):
