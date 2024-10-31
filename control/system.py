@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 from control.ports import InputPortContainer, OutputPortContainer
 
 
-def control_system(*, inputs: List[str] = None, outputs: List[str] = None):
+def control_system(*, inputs: List[str] = None, outputs: List[str] = None,
+                   input_props: List[str] = None, output_props: List[str] = None):
     """
     Class decorator for defining ports on a control system.
     """
@@ -18,21 +19,27 @@ def control_system(*, inputs: List[str] = None, outputs: List[str] = None):
         inputs = []
     if outputs is None:
         outputs = []
+    if input_props is None:
+        input_props = []
+    if output_props is None:
+        output_props = []
 
     def decorator(cls):
         # Store port definitions on class
         cls._input_ports = inputs
         cls._output_ports = outputs
+        cls._input_props = input_props
+        cls._output_props = output_props
 
         # Add lazy properties for port containers
         def _get_inputs(self):
             if not hasattr(self, '_inputs'):
-                self._inputs = InputPortContainer(self.world, self._input_ports)
+                self._inputs = InputPortContainer(self.world, self._input_ports, self._input_props)
             return self._inputs
 
         def _get_outputs(self):
             if not hasattr(self, '_outputs'):
-                self._outputs = OutputPortContainer(self.world, self._output_ports)
+                self._outputs = OutputPortContainer(self.world, self._output_ports, self._output_props)
             return self._outputs
 
         # Replace properties with lazy versions

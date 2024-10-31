@@ -153,7 +153,7 @@ class ThreadedInputPort(InputPort):
 
 
 class OutputPortContainer:
-    def __init__(self, world, ports: List[str]):
+    def __init__(self, world, ports: List[str], props: List[str]):
         self._ports = {name: OutputPort(world) for name in ports}
 
     def __getattr__(self, name: str):
@@ -169,7 +169,7 @@ class OutputPortContainer:
 class InputPortContainer(OutputPortContainer):
     __slots__ = ["_world", "_ports"]
 
-    def __init__(self, world, ports: List[str]):
+    def __init__(self, world, ports: List[str], props: List[str]):
         self._world = world
         self._ports = {name: None for name in ports}
 
