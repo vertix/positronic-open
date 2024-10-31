@@ -22,7 +22,7 @@ class OutputTestSystem(ControlSystem):
     @output_property("output")
     def output(self):
         self._counter += 1.0
-        return self.world.now_ts, self._counter
+        return self._counter, self.world.now_ts
 
     def run(self):
         time.sleep(1)
@@ -48,9 +48,9 @@ def test_properties(world: MainThreadWorld):
 
     world.run()
 
-    ts, vals = zip(*output)
-    assert all(ts[i] <= ts[i + 1] for i in range(len(ts) - 1)), "Timestamps are not monotonic"
+    vals, ts = zip(*output)
     assert vals == (1.0, 2.0, 3.0, 4.0, 5.0)
+    assert all(ts[i] <= ts[i + 1] for i in range(len(ts) - 1)), "Timestamps are not monotonic"
 
 
 if __name__ == "__main__":

@@ -14,6 +14,10 @@ def control_system(*, inputs: List[str] = None, outputs: List[str] = None,
                    input_props: List[str] = None, output_props: List[str] = None):
     """
     Class decorator for defining ports on a control system.
+
+    Ports are push communication medium (similar to channels).
+    Properties are pull communication medium (similar to RPC).
+    Both ports and properties return [value, timestamp] tuple as their results.
     """
     if inputs is None:
         inputs = []

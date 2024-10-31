@@ -8,9 +8,10 @@ from control import ControlSystem, World, control_system
 
 
 @control_system(inputs=['image',
-                       'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints', 'grip',
+                       'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints',
                        'start_episode', 'end_episode',
-                       'target_grip', 'target_robot_position'], outputs=[])
+                       'target_grip', 'target_robot_position'],
+                input_props=['grip'])
 class DatasetDumper(ControlSystem):
     def __init__(self, world: World, directory: str):
         super().__init__(world)
@@ -61,7 +62,6 @@ class DatasetDumper(ControlSystem):
                 robot_joints = self.ins.robot_joints.last[1]
                 robot_ts, robot_position = self.ins.robot_position.last
 
-                grip = self.ins.grip.last[1] if self.ins.grip.last else 0.
                 target_grip = self.ins.target_grip.last[1] if self.ins.target_grip.last else 0.
                 target_ts, target_robot_position = self.ins.target_robot_position.last
                 now_ts = self.world.now_ts
@@ -78,7 +78,7 @@ class DatasetDumper(ControlSystem):
                 ep_dict['delay/robot'].append((now_ts - robot_ts) / 1000)
                 ep_dict['delay/target'].append((now_ts - target_ts) / 1000)
 
-                ep_dict['grip'].append(grip)
+                ep_dict['grip'].append(self.ins.grip()[0])
                 ep_dict['ee_force'].append(ext_force_ee)
                 ep_dict['base_force'].append(ext_force_base)
                 ep_dict['robot_joints'].append(robot_joints)

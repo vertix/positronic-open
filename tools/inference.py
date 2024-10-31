@@ -65,14 +65,22 @@ class StateEncoder:
         data = {}
         for k in self.cfg.state:
             k_parts = k.split('.')
-            # Record is a tuple of (timestamp, data) or None if no data is available
-            record = inputs[k_parts[0]].last
-            # We consider grip to be zero in case we did not receive any grip data yet
-            if k_parts[0] == 'grip' and record is None:   # HACK: Get rid of this
-                record = None, 0.
-            if record is None:
-                return None
-            tensor = torch.tensor(getattr(record[1], k_parts[1]), dtype=torch.float32) if len(k_parts) > 1 else torch.tensor(record[1], dtype=torch.float32)
+
+            inp = inputs[k_parts[0]]
+            if callable(inp):  # This is property
+                value, _ts = inputs[k_parts[0]]()
+            else: # This is a port
+                #TODO: Make all inputs properties
+                # Record is a tuple of (timestamp, data) or None if no data is available
+                record = inputs[k_parts[0]].last
+                if record is None:
+                    return None
+                value = record[1]
+
+            if len(k_parts) > 1:
+                value = getattr(value, k_parts[1])
+
+            tensor = torch.tensor(value, dtype=torch.float32)
             if tensor.ndim == 0:
                 tensor = tensor.unsqueeze(0)
             data[k] = tensor
@@ -193,8 +201,9 @@ class ActionDecoder:
 
 
 @control_system(inputs=['image', 'ext_force_ee', 'ext_force_base',
-                       'robot_position', 'robot_joints', 'grip',
+                       'robot_position', 'robot_joints',
                        'start', 'stop'],
+                input_props=['grip'],
                 outputs=['target_robot_position', 'target_grip'])
 class Inference(ControlSystem):
     def __init__(self, world: World, cfg: DictConfig):

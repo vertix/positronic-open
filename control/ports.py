@@ -45,6 +45,7 @@ class OutputPort:
         return len(self._bound_to) > 0
 
 
+# TODO: Let users to subscribe to a port with a callback.
 class InputPort(ABC):
     @abstractmethod
     def read(self, block: bool = True, timeout: Optional[float] = None):
