@@ -10,7 +10,6 @@ import yappi
 from control import ControlSystem, utils, MainThreadWorld, control_system
 from geom import Quaternion, Transform3D
 from hardware import Franka, DHGripper, sl_camera
-from tools import rerun as rr_tools
 from tools.dataset_dumper import DatasetDumper
 from webxr import WebXR
 
@@ -67,7 +66,7 @@ class TeleopSystem(ControlSystem):
                 if track_but:
                     # Note that translation and rotation offsets are independent
                     if teleop_t is not None:
-                        robot_t = self.ins.robot_position()
+                        robot_t, _ts = self.ins.robot_position()
                         offset = Transform3D(-teleop_t.translation + robot_t.translation,
                                              teleop_t.quaternion.inv * robot_t.quaternion)
                     if not is_tracking:

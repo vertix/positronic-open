@@ -37,6 +37,8 @@ class DatasetDumper(ControlSystem):
         tracked = False
         episode_start = None
 
+        target_grip, target_robot_position, target_ts = None, None, None
+
         for name, ts, data in self.ins.read():
             if name == 'start_episode':
                 tracked = True
@@ -48,11 +50,13 @@ class DatasetDumper(ControlSystem):
                 ep_dict = defaultdict(list)
                 episode_start = None
                 tracked = False
-            elif tracked and name == 'image' and self.ins.target_robot_position.last is not None:
-                robot_ts, robot_position = self.ins.robot_position.last
+            elif tracked and name == 'target_grip':
+                target_grip, target_ts = data, ts
+            elif tracked and name == 'target_robot_position':
+                target_robot_position = data
+            elif tracked and name == 'image' and target_ts is not None:
+                robot_position, robot_ts = self.ins.robot_position()
 
-                target_grip = self.ins.target_grip.last[1] if self.ins.target_grip.last else 0.
-                target_ts, target_robot_position = self.ins.target_robot_position.last
                 now_ts = self.world.now_ts
 
                 img = data.image if hasattr(data, 'image') else data
@@ -62,7 +66,8 @@ class DatasetDumper(ControlSystem):
                 ep_dict['target_robot_position.quaternion'].append(target_robot_position.quaternion)
                 ep_dict['target_grip'].append(target_grip)
 
-                ep_dict['grip'].append(self.ins.grip()[0])
+                if self.ins.grip is not None:
+                    ep_dict['grip'].append(self.ins.grip()[0])
                 ep_dict['ee_force'].append(self.ins.ext_force_ee()[0])
                 ep_dict['base_force'].append(self.ins.ext_force_base()[0])
                 ep_dict['robot_joints'].append(self.ins.robot_joints()[0])

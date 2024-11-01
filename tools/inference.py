@@ -125,10 +125,10 @@ class ActionDecoder:
                 return fields[cfg.name]
             elif isinstance(cfg, InputField):
                 key, field = (cfg.name.split('.') + [None])[:2]
-                record = input_ports[key].last
+                record, _ts = input_ports[key]()
                 if record is None:
                     raise ValueError(f"Input field {cfg.name} does not have a value")
-                return getattr(record[1], field) if field else record[1]
+                return getattr(record, field) if field else record
             else:
                 return cfg
 
@@ -178,10 +178,10 @@ class ActionDecoder:
                 return fields[cfg.name]
             elif isinstance(cfg, InputField):
                 key, field = (cfg.name.split('.') + [None])[:2]
-                record = input_ports[key].last
+                record, _ts = input_ports[key]()
                 if record is None:
                     raise ValueError(f"Input field {cfg.name} does not have a value")
-                return getattr(record[1], field) if field else record[1]
+                return getattr(record, field) if field else record
             else:
                 return cfg
 

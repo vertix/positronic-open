@@ -5,7 +5,7 @@ from omegaconf import DictConfig
 import rerun as rr
 
 from control import MainThreadWorld
-from control.utils import control_system_fn
+from control.system import ControlSystem, control_system
 from hardware import Franka, DHGripper, sl_camera
 from tools.inference import Inference
 
@@ -13,21 +13,21 @@ logging.basicConfig(level=logging.INFO,
                     handlers=[logging.StreamHandler(),
                               logging.FileHandler("policy_runner.log", mode="w")])
 
-@control_system_fn(outputs=["start_policy", "stop_policy"])
-def PolicyRunnerSystem(ins, outs):
-    policy_running = False
-    while not ins.should_stop:
-        user_input = input()
-        if user_input == 's':
-            if not policy_running:
-                print('Started policy execution')
-                policy_running = True
-                outs.start_policy.write(True, ins.now_ts)
-            else:
-                print('Stopped policy execution')
-                policy_running = False
-                outs.stop_policy.write(True, ins.now_ts)
-
+@control_system(outputs=["start_policy", "stop_policy"])
+class PolicyRunnerSystem(ControlSystem):
+    def run(self):
+        policy_running = False
+        while not self.should_stop:
+            user_input = input()
+            if user_input == 's':
+                if not policy_running:
+                    print('Started policy execution')
+                    policy_running = True
+                    self.outs.start_policy.write(True, self.world.now_ts)
+                else:
+                    print('Stopped policy execution')
+                    policy_running = False
+                    self.outs.stop_policy.write(True, self.world.now_ts)
 
 @hydra.main(version_base=None, config_path="configs", config_name="policy_runner")
 def main(cfg: DictConfig):

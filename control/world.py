@@ -42,6 +42,7 @@ class MainThreadWorld(World):
             super().__init__()
             self._initialized = True
             self._mono_delta = time.time() - time.monotonic()
+            self._system_errors = {}
 
     @property
     def now_ts(self) -> int:
@@ -62,7 +63,10 @@ class MainThreadWorld(World):
             while not self.stop_event.is_set():
                 if not any(thread.is_alive() for thread in threads):
                     break
-                time.sleep(0.5)
+                if self._system_errors:
+                    system_name, error = next(iter(self._system_errors.items()))
+                    raise RuntimeError(f"System {system_name} failed:\n{error}")
+                time.sleep(1)
         finally:
             self.stop_event.set()
             for thread in threads:
@@ -72,6 +76,7 @@ class MainThreadWorld(World):
         try:
             system.run()
         except Exception as e:
+            self._system_errors[system.__class__.__name__] = e
             print(f"Exception in system {system.__class__.__name__}: {e}")
             import traceback
             traceback.print_exc()

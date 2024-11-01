@@ -48,7 +48,7 @@ class Franka(ControlSystem):
 
     @output_property('joint_positions')
     def joint_positions(self):
-        return self.robot.current_joint_state, self.world.now_ts
+        return self.robot.current_joint_state.position, self.world.now_ts
 
     @output_property('gripper_grasped')
     def gripper_grasped(self):
@@ -74,8 +74,6 @@ class Franka(ControlSystem):
         if self.gripper:
             self.gripper.homing()
             self.gripper_grasped = False
-
-        self._write_outputs()
 
     def on_stop(self):
         print("Franka stopping")

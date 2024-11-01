@@ -41,7 +41,6 @@ class DHGripper(ControlSystem):
                     self.on_speed(ts, value)
                 else:
                     raise ValueError(f"Unknown input: {name}")
-                self.on_after_input()
             except StopIteration:
                 return
 
