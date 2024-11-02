@@ -106,8 +106,10 @@ class ObservationTransform(ControlSystem):
                     self.outs.robot_position.write(Transform3D(obs.position, obs.orientation), ts)
                     self.outs.grip.write(obs.grip, ts)
 
+                    # TODO: add external forces
                     self.outs.ext_force_ee.write(np.zeros(6), ts)
                     self.outs.ext_force_base.write(np.zeros(6), ts)
+
                     self.outs.robot_joints.write(obs.joints, ts)
 
                 if name == 'desired_action':
