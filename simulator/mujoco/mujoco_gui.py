@@ -151,18 +151,13 @@ class DearpyguiUi(ControlSystem):
         self.dpg.setup_dearpygui()
         self.dpg.show_viewport()
         self.dpg.maximize_viewport()
-        self.update()
-        self.move(np.array([0, 0, 0]), np.array([0, 0, 0, 0]))
-        # self.dpg.start_dearpygui()
+
         while self.dpg.is_dearpygui_running():
             if self.world.should_stop:
                 break
             self.update()
             self.dpg.render_dearpygui_frame()
 
-            # if state['env'] is not None:
-            #     self.dpg.set_value("pos",
-            #                   f"Position: {state['env'].data.site('end_effector').xpos}\nQuatt: {state['env'].data.body('hand').xquat}")
         self.dpg.destroy_context()
         self.world.stop_event.set()
 
