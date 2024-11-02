@@ -1,5 +1,7 @@
+import hydra
 import mujoco
 import numpy as np
+from omegaconf import DictConfig
 
 from control import MainThreadWorld, ControlSystem, control_system
 from simulator.mujoco.environment import MujocoControlSystem, InverseKinematicsControlSystem, DesiredAction, \
@@ -82,9 +84,9 @@ class DearpyguiUi(ControlSystem):
 
     def record_episode(self):
         if self.recording:
-            self.outs.end_episode.write(True, world.now_ts)
+            self.outs.end_episode.write(True, self.world.now_ts)
         else:
-            self.outs.start_episode.write(True, world.now_ts)
+            self.outs.start_episode.write(True, self.world.now_ts)
 
         self.recording = not self.recording
 
@@ -107,7 +109,7 @@ class DearpyguiUi(ControlSystem):
         if change_grip:
             self.desired_action.grip = 1 - self.desired_action.grip
 
-        self.outs.desired_action.write(self.desired_action, world.now_ts)
+        self.outs.desired_action.write(self.desired_action, self.world.now_ts)
 
 
     def run(self):
@@ -153,7 +155,7 @@ class DearpyguiUi(ControlSystem):
         self.move(np.array([0, 0, 0]), np.array([0, 0, 0, 0]))
         # self.dpg.start_dearpygui()
         while self.dpg.is_dearpygui_running():
-            if world.should_stop:
+            if self.world.should_stop:
                 break
             self.update()
             self.dpg.render_dearpygui_frame()
@@ -162,13 +164,14 @@ class DearpyguiUi(ControlSystem):
             #     self.dpg.set_value("pos",
             #                   f"Position: {state['env'].data.site('end_effector').xpos}\nQuatt: {state['env'].data.body('hand').xquat}")
         self.dpg.destroy_context()
-        world.stop_event.set()
+        self.world.stop_event.set()
 
-if __name__ == '__main__':
-    width = 1280
-    height = 640
+@hydra.main(version_base=None, config_path=".", config_name="mujoco_gui")
+def main(cfg: DictConfig):
+    width = cfg.mujoco.camera_width
+    height = cfg.mujoco.camera_height
 
-    model = mujoco.MjModel.from_xml_path('/home/andrew/dev/positronic/simulator/mujoco/scene/mjx_single_cube.xml')
+    model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
     data = mujoco.MjData(model)
 
     world = MainThreadWorld()
@@ -179,7 +182,7 @@ if __name__ == '__main__':
     inverse_kinematics = InverseKinematicsControlSystem(world, data=data)
     window = DearpyguiUi(world, width, height)
     observation_transform = ObservationTransform(world)
-    data_dumper = DatasetDumper(world, 'data/')
+    data_dumper = DatasetDumper(world, cfg.data_output_dir)
 
     # wires
     simulator.ins.actuator_values = inverse_kinematics.outs.actuator_values
@@ -204,3 +207,6 @@ if __name__ == '__main__':
     data_dumper.ins.end_episode = window.outs.end_episode
 
     world.run()
+
+if __name__ == "__main__":
+    main()

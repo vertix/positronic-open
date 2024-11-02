@@ -1,0 +1,6 @@
+mujoco:
+  model_path: 'assets/mujoco/mjx_single_cube.xml'
+  camera_width: 1280
+  camera_height: 640
+
+data_output_dir: null
