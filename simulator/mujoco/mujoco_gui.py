@@ -170,8 +170,14 @@ def main(cfg: DictConfig):
     world = MainThreadWorld()
 
     # systems
-    simulator = MujocoControlSystem(world, model, data ,
-                                         render_resolution=(width, height))
+    simulator = MujocoControlSystem(
+        world=world,
+        model=model,
+        data=data,
+        render_resolution=(width, height),
+        simulation_rate=1 / cfg.mujoco.simulation_hz,
+        observation_rate=1 / cfg.mujoco.observation_hz
+    )
     inverse_kinematics = InverseKinematicsControlSystem(world, data=data)
     window = DearpyguiUi(world, width, height)
     observation_transform = ObservationTransform(world)

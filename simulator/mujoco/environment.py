@@ -120,14 +120,22 @@ class ObservationTransform(ControlSystem):
 @control_system(inputs=["actuator_values"],
                 outputs=["observation"])
 class MujocoControlSystem(ControlSystem):
-    def __init__(self, world: "World", model, data, render_resolution: Tuple[int, int] = (320, 240)):
+    def __init__(
+            self,
+            world: "World",
+            model,
+            data,
+            render_resolution: Tuple[int, int] = (320, 240),
+            simulation_rate: float = 1 / 60,
+            observation_rate: float = 1 / 60
+    ):
         super().__init__(world)
         self.model = model
         self.data = data
         self.renderer = None
         self.render_resolution = render_resolution
-        self.simulation_rate = 1 / 60
-        self.observation_rate = 1 / 60
+        self.simulation_rate = simulation_rate
+        self.observation_rate = observation_rate
         self.last_observation_time = -1
         self.last_simulation_time = None
 
@@ -199,6 +207,3 @@ class MujocoControlSystem(ControlSystem):
                     self.outs.observation.write(observation, self.world.now_ts)
 
         self.renderer.close()
-
-
-
