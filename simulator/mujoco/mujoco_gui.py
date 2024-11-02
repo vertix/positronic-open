@@ -2,6 +2,7 @@ import hydra
 import mujoco
 import numpy as np
 from omegaconf import DictConfig
+import dearpygui.dearpygui as dpg
 
 from control import MainThreadWorld, ControlSystem, control_system
 from simulator.mujoco.environment import MujocoControlSystem, InverseKinematicsControlSystem, DesiredAction, \
@@ -44,7 +45,7 @@ class DearpyguiUi(ControlSystem):
             self.raw_textures['handcam_right'][:] = obs.handcam_right_image / 255
 
             # set real position
-            self.dpg.set_value("pos", f"Position: {obs.position}\nQuatt: {obs.orientation}")
+            dpg.set_value("pos", f"Position: {obs.position}\nQuatt: {obs.orientation}")
             self.actual_position = obs.position
             self.actual_orientation = obs.orientation
 
@@ -105,7 +106,7 @@ class DearpyguiUi(ControlSystem):
         self.desired_action.position += dx
         self.desired_action.orientation += dq
 
-        self.dpg.set_value("target", f"Target Position: {self.desired_action.position}\nTarget Quat: {self.desired_action.orientation}")
+        dpg.set_value("target", f"Target Position: {self.desired_action.position}\nTarget Quat: {self.desired_action.orientation}")
         if change_grip:
             self.desired_action.grip = 1 - self.desired_action.grip
 
@@ -113,52 +114,49 @@ class DearpyguiUi(ControlSystem):
 
 
     def run(self):
-        import dearpygui.dearpygui as dpg
-        self.dpg = dpg
+        dpg.create_context()
+        with dpg.texture_registry():
 
-        self.dpg.create_context()
-        with self.dpg.texture_registry():
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="top", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['top'])
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="side", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['side'])
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_left", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['handcam_left'])
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_right", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['handcam_right'])
 
-            self.dpg.add_raw_texture(width=self.width, height=self.height, tag="top", format=self.dpg.mvFormat_Float_rgb, default_value=self.raw_textures['top'])
-            self.dpg.add_raw_texture(width=self.width, height=self.height, tag="side", format=self.dpg.mvFormat_Float_rgb, default_value=self.raw_textures['side'])
-            self.dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_left", format=self.dpg.mvFormat_Float_rgb, default_value=self.raw_textures['handcam_left'])
-            self.dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_right", format=self.dpg.mvFormat_Float_rgb, default_value=self.raw_textures['handcam_right'])
+        with dpg.window(label="Robot"):
+            with dpg.table(header_row=False):
+                dpg.add_table_column()
+                dpg.add_table_column()
+                with dpg.table_row():
+                    dpg.add_image("handcam_left")
+                    dpg.add_image("handcam_right")
+                with dpg.table_row():
+                    dpg.add_image("top")
+                    dpg.add_image("side")
+            dpg.add_text("", tag="pos")
+            dpg.add_text("", tag="target")
 
-        with self.dpg.window(label="Robot"):
-            with self.dpg.table(header_row=False):
-                self.dpg.add_table_column()
-                self.dpg.add_table_column()
-                with self.dpg.table_row():
-                    self.dpg.add_image("handcam_left")
-                    self.dpg.add_image("handcam_right")
-                with self.dpg.table_row():
-                    self.dpg.add_image("top")
-                    self.dpg.add_image("side")
-            self.dpg.add_text("", tag="pos")
-            self.dpg.add_text("", tag="target")
+        with dpg.handler_registry():
+            dpg.add_key_press_handler(key=dpg.mvKey_W, callback=self.move_fwd)
+            dpg.add_key_press_handler(key=dpg.mvKey_S, callback=self.move_bwd)
+            dpg.add_key_press_handler(key=dpg.mvKey_A, callback=self.move_left)
+            dpg.add_key_press_handler(key=dpg.mvKey_D, callback=self.move_right)
+            dpg.add_key_press_handler(key=dpg.mvKey_LControl, callback=self.move_down)
+            dpg.add_key_press_handler(key=dpg.mvKey_LShift, callback=self.move_up)
+            dpg.add_key_press_handler(key=dpg.mvKey_G, callback=self.grab)
+            dpg.add_key_press_handler(key=dpg.mvKey_R, callback=self.record_episode)
 
-        with self.dpg.handler_registry():
-            self.dpg.add_key_press_handler(key=self.dpg.mvKey_W, callback=self.move_fwd)
-            self.dpg.add_key_press_handler(key=self.dpg.mvKey_S, callback=self.move_bwd)
-            self.dpg.add_key_press_handler(key=self.dpg.mvKey_A, callback=self.move_left)
-            self.dpg.add_key_press_handler(key=self.dpg.mvKey_D, callback=self.move_right)
-            self.dpg.add_key_press_handler(key=self.dpg.mvKey_LControl, callback=self.move_down)
-            self.dpg.add_key_press_handler(key=self.dpg.mvKey_LShift, callback=self.move_up)
-            self.dpg.add_key_press_handler(key=self.dpg.mvKey_G, callback=self.grab)
-            self.dpg.add_key_press_handler(key=self.dpg.mvKey_R, callback=self.record_episode)
+        dpg.create_viewport(title='Custom Title', width=800, height=600)
+        dpg.setup_dearpygui()
+        dpg.show_viewport()
+        dpg.maximize_viewport()
 
-        self.dpg.create_viewport(title='Custom Title', width=800, height=600)
-        self.dpg.setup_dearpygui()
-        self.dpg.show_viewport()
-        self.dpg.maximize_viewport()
-
-        while self.dpg.is_dearpygui_running():
+        while dpg.is_dearpygui_running():
             if self.world.should_stop:
                 break
             self.update()
-            self.dpg.render_dearpygui_frame()
+            dpg.render_dearpygui_frame()
 
-        self.dpg.destroy_context()
+        dpg.destroy_context()
         self.world.stop_event.set()
 
 @hydra.main(version_base=None, config_path=".", config_name="mujoco_gui")
