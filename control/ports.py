@@ -64,17 +64,6 @@ class InputPort(ABC):
                 break
             yield res
 
-    @property
-    def last(self):
-        """
-        Returns the last value read from the input port.
-
-        This method will consume all available values in the queue to ensure that the most recent value is returned.
-        It will return a tuple of (timestamp, value), raise Empty if the queue is empty, and PortClosed
-        if the port is closed.
-        """
-        return None
-
 
 class DirectWriteInputPort(InputPort):
     def __init__(self, world):
@@ -101,22 +90,12 @@ class DirectWriteInputPort(InputPort):
             time.sleep(0.01)
         return None
 
-    @property
-    def last(self):
-        while self.read_nowait() is not None:
-            pass
-        with self._last_value_lock:
-            return self._last_value
-
 
 class ThreadedInputPort(InputPort):
     def __init__(self, world, binded_to: OutputPort):
         self.queue = queue.Queue(maxsize=5)
         binded_to._bind(self._write)
         self.world = world
-
-        self._last_value = None
-        self._last_value_lock = threading.Lock()
 
     def _write(self, value: Any, timestamp: Optional[int] = None):
         self.queue.put((timestamp, value))
@@ -129,20 +108,11 @@ class ThreadedInputPort(InputPort):
                 timeout = max(timeout - TICK, 0) if timeout is not None else None
                 result = self.queue.get(block=block, timeout=t_o)
                 self.queue.task_done()
-                with self._last_value_lock:
-                    self._last_value = result
                 return result
             except queue.Empty:
                 if not block or (timeout is not None and timeout <= 0):
                     return None
         return None  # Stop is requested
-
-    @property
-    def last(self):
-        while self.read_nowait() is not None:
-            pass
-        with self._last_value_lock:
-            return self._last_value
 
 
 class OutputPortContainer:
