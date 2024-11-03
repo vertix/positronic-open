@@ -9,6 +9,7 @@ from dm_control import mujoco as dm_mujoco
 from dm_control.utils import inverse_kinematics as ik
 
 from control import ControlSystem, control_system
+from control.utils import control_system_fn
 from geom import Transform3D
 
 mjc_lock = Lock()
@@ -55,9 +56,9 @@ class InverseKinematics(ControlSystem):
         self.desired_action = None
 
 
-    def recalculate_ik(self):
+    def recalculate_ik(self) -> ActuatorValues:
         if self.desired_action is None:
-            return
+            return ActuatorValues(values=np.zeros(7), grip=0.0, success=False)
 
         with mjc_lock:
             result = ik.qpos_from_site_pose(
@@ -70,47 +71,43 @@ class InverseKinematics(ControlSystem):
             )
 
         if result.success:
-            values = ActuatorValues(values=result.qpos[:7], grip=self.desired_action.grip, success=True)
-            self.outs.actuator_values.write(values, self.world.now_ts)
-        else:
-            values = ActuatorValues(values=np.zeros(7), grip=self.desired_action.grip, success=False)
-            self.outs.actuator_values.write(values, self.world.now_ts)
-            print(f"Failed to calculate IK for {self.desired_action.position}")
+            return ActuatorValues(values=result.qpos[:7], grip=self.desired_action.grip, success=True)
+
+        print(f"Failed to calculate IK for {self.desired_action.position}")
+        return ActuatorValues(values=np.zeros(7), grip=self.desired_action.grip, success=False)
 
     def run(self):
         for _ts, value in self.ins.desired_action.read_until_stop():
-                self.desired_action = value
-                self.recalculate_ik()
+            self.desired_action = value
+            values = self.recalculate_ik()
+            self.outs.actuator_values.write(values, self.world.now_ts)
 
-@control_system(
+
+@control_system_fn(
     inputs=["observation", "desired_action"],
     outputs=['image',
            'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints', 'grip',
            'start_episode', 'end_episode',
            'target_grip', 'target_robot_position']
 )
-class ObservationTransform(ControlSystem):
-    def run(self):
-        while True:
-            if self.world.should_stop:
-                break
+def extract_information_to_dump(ins, outs):
+    for name, ts, value in ins.read():
+        if name == 'observation':
+            obs = value
+            image = np.hstack([obs.handcam_left_image, obs.handcam_right_image])
+            outs.image.write(image, ts)
+            outs.robot_position.write(Transform3D(obs.position, obs.orientation), ts)
+            outs.grip.write(obs.grip, ts)
 
-            for name, ts, value in self.ins.read():
-                if name == 'observation':
-                    obs = value
-                    self.outs.image.write(obs.top_image, ts)
-                    self.outs.robot_position.write(Transform3D(obs.position, obs.orientation), ts)
-                    self.outs.grip.write(obs.grip, ts)
+            # TODO: add external forces
+            outs.ext_force_ee.write(np.zeros(6), ts)
+            outs.ext_force_base.write(np.zeros(6), ts)
 
-                    # TODO: add external forces
-                    self.outs.ext_force_ee.write(np.zeros(6), ts)
-                    self.outs.ext_force_base.write(np.zeros(6), ts)
+            outs.robot_joints.write(obs.joints, ts)
 
-                    self.outs.robot_joints.write(obs.joints, ts)
-
-                if name == 'desired_action':
-                    self.outs.target_grip.write(value.grip, ts)
-                    self.outs.target_robot_position.write(Transform3D(value.position, value.orientation), ts)
+        if name == 'desired_action':
+            outs.target_grip.write(value.grip, ts)
+            outs.target_robot_position.write(Transform3D(value.position, value.orientation), ts)
 
 
 @control_system(inputs=["actuator_values"],

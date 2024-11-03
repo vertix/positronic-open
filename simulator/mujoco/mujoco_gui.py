@@ -5,8 +5,7 @@ from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
 
 from control import MainThreadWorld, ControlSystem, control_system
-from simulator.mujoco.environment import Mujoco, InverseKinematics, DesiredAction, \
-    ObservationTransform
+from simulator.mujoco.environment import Mujoco, InverseKinematics, DesiredAction, extract_information_to_dump
 from tools.dataset_dumper import DatasetDumper
 
 
@@ -180,7 +179,7 @@ def main(cfg: DictConfig):
     )
     inverse_kinematics = InverseKinematics(world, data=data)
     window = DearpyguiUi(world, width, height)
-    observation_transform = ObservationTransform(world)
+    observation_transform = extract_information_to_dump(world)
     data_dumper = DatasetDumper(world, cfg.data_output_dir)
 
     # wires
