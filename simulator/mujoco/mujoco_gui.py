@@ -5,7 +5,7 @@ from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
 
 from control import MainThreadWorld, ControlSystem, control_system
-from simulator.mujoco.environment import MujocoControlSystem, InverseKinematicsControlSystem, DesiredAction, \
+from simulator.mujoco.environment import Mujoco, InverseKinematics, DesiredAction, \
     ObservationTransform
 from tools.dataset_dumper import DatasetDumper
 
@@ -170,7 +170,7 @@ def main(cfg: DictConfig):
     world = MainThreadWorld()
 
     # systems
-    simulator = MujocoControlSystem(
+    simulator = Mujoco(
         world=world,
         model=model,
         data=data,
@@ -178,7 +178,7 @@ def main(cfg: DictConfig):
         simulation_rate=1 / cfg.mujoco.simulation_hz,
         observation_rate=1 / cfg.mujoco.observation_hz
     )
-    inverse_kinematics = InverseKinematicsControlSystem(world, data=data)
+    inverse_kinematics = InverseKinematics(world, data=data)
     window = DearpyguiUi(world, width, height)
     observation_transform = ObservationTransform(world)
     data_dumper = DatasetDumper(world, cfg.data_output_dir)

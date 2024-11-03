@@ -43,7 +43,7 @@ class Observation:
     inputs=["desired_action"],
     outputs=["actuator_values"]
 )
-class InverseKinematicsControlSystem(ControlSystem):
+class InverseKinematics(ControlSystem):
     desired_action: Optional[DesiredAction]
 
     def __init__(self, world: "World", data: mujoco.MjData):
@@ -119,7 +119,7 @@ class ObservationTransform(ControlSystem):
 
 @control_system(inputs=["actuator_values"],
                 outputs=["observation"])
-class MujocoControlSystem(ControlSystem):
+class Mujoco(ControlSystem):
     def __init__(
             self,
             world: "World",
