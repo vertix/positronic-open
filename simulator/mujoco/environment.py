@@ -142,6 +142,7 @@ class Mujoco(ControlSystem):
         with mjc_lock:
             mujoco.mj_forward(self.model, self.data)
 
+        # TODO: make cameras configurable
         for cam_name in ['top', 'side', 'handcam_left', 'handcam_right']:
             self.renderer.update_scene(self.data, camera=cam_name)
             views[cam_name] = self.renderer.render()
@@ -181,10 +182,7 @@ class Mujoco(ControlSystem):
 
         self.last_fps_print_time = self.world.now_ts
 
-        while True:
-            if self.world.should_stop:
-                break
-
+        while not self.world.should_stop:
             result = self.ins.actuator_values.read_nowait()
             if result is not None:
                 _ts, value = result
