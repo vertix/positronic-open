@@ -94,7 +94,7 @@ class ObservationTransform(ControlSystem):
             if self.world.should_stop:
                 break
 
-            for name, ts, value in self.ins.read(timeout=0.01):
+            for name, ts, value in self.ins.read():
                 if name == 'observation':
                     obs = value
                     self.outs.image.write(obs.top_image, ts)
