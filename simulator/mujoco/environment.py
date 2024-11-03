@@ -1,3 +1,4 @@
+from asyncio import timeout
 from dataclasses import dataclass
 from typing import Tuple, Optional
 from threading import Lock
@@ -129,10 +130,15 @@ class Mujoco(ControlSystem):
         self.data = data
         self.renderer = None
         self.render_resolution = render_resolution
-        self.simulation_rate = simulation_rate
-        self.observation_rate = observation_rate
+        self.simulation_rate = simulation_rate * 1000
+        self.observation_rate = observation_rate * 1000
         self.last_observation_time = -1
         self.last_simulation_time = None
+
+        self.simulations_count = 0
+        self.observation_count = 0
+        self.fps_count_start_time = None
+        self.last_fps_print_time = None
 
     def render_frames(self):
         views = {}
@@ -151,12 +157,15 @@ class Mujoco(ControlSystem):
         for cam_name, image in images.items():
             data[cam_name] = image
 
+        self.observation_count += 1
+
         return data
 
     def simulate(self):
         with mjc_lock:
             mujoco.mj_step(self.model, self.data)
             self.last_simulation_time = self.world.now_ts
+            self.simulations_count += 1
 
     def _init_position(self):
         # TODO: hacky way to set initial position, figure out how to do it via xml
@@ -173,32 +182,44 @@ class Mujoco(ControlSystem):
         self.renderer = mujoco.Renderer(self.model, height=self.render_resolution[1], width=self.render_resolution[0])
         self._init_position()
 
+        self.last_fps_print_time = self.world.now_ts
+
         while True:
             if self.world.should_stop:
                 break
-            for name, _ts, value in self.ins.read(timeout=0.01):
-                if name == 'actuator_values':
-                    if value.success:
-                        for i in range(7):
-                            self.data.actuator(f'actuator{i + 1}').ctrl = value.values[i]
-                        self.data.actuator('actuator8').ctrl = value.grip
 
-                if self.world.now_ts - self.last_simulation_time >= self.simulation_rate:
-                    self.simulate()
+            result = self.ins.actuator_values.read_nowait()
+            if result is not None:
+                _ts, value = result
+                if value.success:
+                    for i in range(7):
+                        self.data.actuator(f'actuator{i + 1}').ctrl = value.values[i]
+                    self.data.actuator('actuator8').ctrl = value.grip
 
-                if self.world.now_ts - self.last_observation_time >= self.observation_rate:
-                    self.last_observation_time = self.world.now_ts
-                    obs = self.get_observation()
-                    observation = Observation(
-                        position=self.data.site('end_effector').xpos,
-                        orientation=self.data.body('hand').xquat,
-                        top_image=obs['top'],
-                        side_image=obs['side'],
-                        handcam_left_image=obs['handcam_left'],
-                        handcam_right_image=obs['handcam_right'],
-                        grip=self.data.actuator('actuator8').ctrl,
-                        joints=np.array([self.data.qpos[i] for i in range(7)])
-                    )
-                    self.outs.observation.write(observation, self.world.now_ts)
+            if self.world.now_ts - self.last_simulation_time >= self.simulation_rate:
+                self.simulate()
+
+            if self.world.now_ts - self.last_observation_time >= self.observation_rate:
+                self.last_observation_time = self.world.now_ts
+                obs = self.get_observation()
+                observation = Observation(
+                    position=self.data.site('end_effector').xpos,
+                    orientation=self.data.body('hand').xquat,
+                    top_image=obs['top'],
+                    side_image=obs['side'],
+                    handcam_left_image=obs['handcam_left'],
+                    handcam_right_image=obs['handcam_right'],
+                    grip=self.data.actuator('actuator8').ctrl,
+                    joints=np.array([self.data.qpos[i] for i in range(7)])
+                )
+                self.outs.observation.write(observation, self.world.now_ts)
+
+            if self.world.now_ts - self.last_fps_print_time >= 1000:
+                print(f"Sim FPS: {1000 * self.simulations_count / (self.world.now_ts - self.last_fps_print_time):.2f}, "
+                      f"Obs FPS: {1000 * self.observation_count / (self.world.now_ts - self.last_fps_print_time):.2f}")
+                self.simulations_count = 0
+                self.observation_count = 0
+                self.last_fps_print_time = self.world.now_ts
+
 
         self.renderer.close()
