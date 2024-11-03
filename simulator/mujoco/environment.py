@@ -16,13 +16,13 @@ mjc_lock = Lock()
 class DesiredAction:
     position: np.ndarray
     orientation: np.ndarray
-    grip: int
+    grip: float
 
 
 @dataclass
 class ActuatorValues:
     values: np.ndarray
-    grip: int
+    grip: float
     success: bool
 
 
@@ -30,7 +30,7 @@ class ActuatorValues:
 class Observation:
     position: np.ndarray
     orientation: np.ndarray
-    grip: int
+    grip: float
     joints: np.ndarray
 
     # Images
@@ -186,7 +186,7 @@ class MujocoControlSystem(ControlSystem):
                     if value.success:
                         for i in range(7):
                             self.data.actuator(f'actuator{i + 1}').ctrl = value.values[i]
-                        self.data.actuator('actuator8').ctrl = value.grip * 255
+                        self.data.actuator('actuator8').ctrl = value.grip
 
                 if self.world.now_ts - self.last_simulation_time >= self.simulation_rate:
                     self.simulate()
@@ -201,7 +201,7 @@ class MujocoControlSystem(ControlSystem):
                         side_image=obs['side'],
                         handcam_left_image=obs['handcam_left'],
                         handcam_right_image=obs['handcam_right'],
-                        grip=self.data.actuator('actuator8').ctrl / 255,
+                        grip=self.data.actuator('actuator8').ctrl,
                         joints=np.array([self.data.qpos[i] for i in range(7)])
                     )
                     self.outs.observation.write(observation, self.world.now_ts)

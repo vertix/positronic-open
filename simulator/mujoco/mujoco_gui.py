@@ -100,7 +100,7 @@ class DearpyguiUi(ControlSystem):
             self.desired_action = DesiredAction(
                 position=self.actual_position.copy(),
                 orientation=self.actual_orientation.copy(),
-                grip=0
+                grip=0.0
             )
 
         self.desired_action.position += dx
@@ -108,7 +108,7 @@ class DearpyguiUi(ControlSystem):
 
         dpg.set_value("target", f"Target Position: {self.desired_action.position}\nTarget Quat: {self.desired_action.orientation}")
         if change_grip:
-            self.desired_action.grip = 1 - self.desired_action.grip
+            self.desired_action.grip = 1.0 - self.desired_action.grip
 
         self.outs.desired_action.write(self.desired_action, self.world.now_ts)
 
