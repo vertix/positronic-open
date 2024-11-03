@@ -77,14 +77,9 @@ class InverseKinematics(ControlSystem):
             print(f"Failed to calculate IK for {self.desired_action.position}")
 
     def run(self):
-        while True:
-            if self.world.should_stop:
-                break
-
-            for name, _ts, value in self.ins.read(timeout=0.01):
-                if name == 'desired_action':
-                    self.desired_action = value
-                    self.recalculate_ik()
+        for _ts, value in self.ins.desired_action.read_until_stop():
+                self.desired_action = value
+                self.recalculate_ik()
 
 @control_system(
     inputs=["observation", "desired_action"],
