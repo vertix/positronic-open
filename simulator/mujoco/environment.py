@@ -1,4 +1,3 @@
-from asyncio import timeout
 from dataclasses import dataclass
 from typing import Tuple, Optional
 from threading import Lock
@@ -40,6 +39,13 @@ class Observation:
     side_image: np.ndarray
     handcam_left_image: np.ndarray
     handcam_right_image: np.ndarray
+
+
+def xmat_to_quat(xmat):
+    site_quat = np.empty(4)
+    mujoco.mju_mat2Quat(site_quat, xmat)
+    return site_quat
+
 
 @control_system(
     inputs=["desired_action"],
@@ -197,9 +203,10 @@ class Mujoco(ControlSystem):
             if self.world.now_ts - self.last_observation_time >= self.observation_rate:
                 self.last_observation_time = self.world.now_ts
                 obs = self.get_observation()
+
                 observation = Observation(
                     position=self.data.site('end_effector').xpos,
-                    orientation=self.data.body('hand').xquat,
+                    orientation=xmat_to_quat(self.data.site('end_effector').xmat),
                     top_image=obs['top'],
                     side_image=obs['side'],
                     handcam_left_image=obs['handcam_left'],

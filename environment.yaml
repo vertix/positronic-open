@@ -21,6 +21,7 @@ dependencies:
   - opencv
   - av
   - pip
+  - dearpygui
   - pip:
     - pytest
     - lerobot
