@@ -141,12 +141,12 @@ class Mujoco(ControlSystem):
 
     def render_frames(self):
         views = {}
-        for cam_name in ['top', 'side', 'handcam_left', 'handcam_right']:
-            with mjc_lock:
+        with mjc_lock:
+            mujoco.mj_forward(self.model, self.data)
 
-                mujoco.mj_forward(self.model, self.data)
-                self.renderer.update_scene(self.data, camera=cam_name)
-                views[cam_name] = self.renderer.render()
+        for cam_name in ['top', 'side', 'handcam_left', 'handcam_right']:
+            self.renderer.update_scene(self.data, camera=cam_name)
+            views[cam_name] = self.renderer.render()
         return views
 
     def get_observation(self):
