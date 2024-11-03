@@ -62,25 +62,25 @@ class DearpyguiUi(ControlSystem):
 
 
     def move_fwd(self):
-        self.move(np.array([0.01, 0, 0]), np.array([0, 0, 0, 0]))
+        self.move(np.array([0.01, 0, 0]))
 
     def move_bwd(self):
-        self.move(np.array([-0.01, 0, 0]), np.array([0, 0, 0, 0]))
+        self.move(np.array([-0.01, 0, 0]))
 
     def move_left(self):
-        self.move(np.array([0, 0.01, 0]), np.array([0, 0, 0, 0]))
+        self.move(np.array([0, 0.01, 0]))
 
     def move_right(self):
-        self.move(np.array([0, -0.01, 0]), np.array([0, 0, 0, 0]))
+        self.move(np.array([0, -0.01, 0]))
 
     def move_up(self):
-        self.move(np.array([0, 0, 0.01]), np.array([0, 0, 0, 0]))
+        self.move(np.array([0, 0, 0.01]))
 
     def move_down(self):
-        self.move(np.array([0, 0, -0.01]), np.array([0, 0, 0, 0]))
+        self.move(np.array([0, 0, -0.01]))
 
     def grab(self):
-        self.move(np.array([0, 0, 0]), np.array([0, 0, 0, 0]), change_grip=True)
+        self.move(np.array([0, 0, 0]), change_grip=True)
 
     def record_episode(self):
         if self.recording:
@@ -91,7 +91,7 @@ class DearpyguiUi(ControlSystem):
         self.recording = not self.recording
 
 
-    def move(self, dx, dq, change_grip: bool=False):
+    def move(self, dx, change_grip: bool=False):
         if self.desired_action is None:
             if self.actual_position is None:
                 return
@@ -103,7 +103,6 @@ class DearpyguiUi(ControlSystem):
             )
 
         self.desired_action.position += dx
-        self.desired_action.orientation += dq
 
         dpg.set_value("target", f"Target Position: {self.desired_action.position}\nTarget Quat: {self.desired_action.orientation}")
         if change_grip:
