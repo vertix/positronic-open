@@ -143,7 +143,9 @@ class DearpyguiUi(ControlSystem):
             dpg.add_key_press_handler(key=dpg.mvKey_G, callback=self.grab)
             dpg.add_key_press_handler(key=dpg.mvKey_R, callback=self.record_episode)
 
-        dpg.create_viewport(title='Custom Title', width=800, height=600)
+        dpg.create_viewport(
+            title='Custom Title', width=800, height=600
+        )
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.maximize_viewport()
