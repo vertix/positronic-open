@@ -101,7 +101,7 @@ def main(cfg: DictConfig):
     cam = sl_camera.SLCamera(world, view=sl_camera.sl.VIEW.SIDE_BY_SIDE,
                              fps=cfg.camera.fps, resolution=sl_camera.sl.RESOLUTION.VGA)
 
-    if cfg.data_output_dir:
+    if cfg.data_output_dir is not None:
         data_dumper = DatasetDumper(world, cfg.data_output_dir)
         data_dumper.ins.image = cam.outs.record
         data_dumper.ins.robot_joints = franka.outs.joint_positions

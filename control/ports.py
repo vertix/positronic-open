@@ -72,8 +72,8 @@ class DirectWriteInputPort(InputPort):
         self._last_value = None
         self._last_value_lock = threading.Lock()
 
-
     def write(self, value: Any, timestamp: Optional[int] = None):
+        # TODO: Change the order, value first, timestamp second
         self.queue.append((timestamp, value))
 
     def read(self, block: bool = True, timeout: Optional[float] = None):
@@ -98,6 +98,7 @@ class ThreadedInputPort(InputPort):
         self.world = world
 
     def _write(self, value: Any, timestamp: Optional[int] = None):
+        # TODO: Change the order, value first, timestamp second
         self.queue.put((timestamp, value))
 
     def read(self, block: bool = True, timeout: Optional[float] = None):
@@ -184,7 +185,7 @@ class InputPortContainer:
         """
         with ThreadPoolExecutor(max_workers=len(self._ports)) as executor:
             futures = {executor.submit(port.read): name
-                    for name, port in self._ports.items() if port is not None}
+                       for name, port in self._ports.items() if port is not None}
             TICK = 1
             timeout_left = timeout
 
