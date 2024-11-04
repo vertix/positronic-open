@@ -45,6 +45,7 @@ class DatasetDumper(ControlSystem):
                 print(f"Episode {self.episode_count} started")
                 episode_start = self.world.now_ts
             elif name == 'end_episode':
+                assert tracked, "end_episode without start_episode"
                 self.dump_episode(ep_dict)
                 ep_dict = defaultdict(list)
                 episode_start = None
@@ -65,7 +66,8 @@ class DatasetDumper(ControlSystem):
                 target_ts, target_robot_position = self.ins.target_robot_position.last
                 now_ts = self.world.now_ts
 
-                ep_dict['image'].append(data.image)
+                img = data.image if hasattr(data, 'image') else data
+                ep_dict['image'].append(img)
 
                 ep_dict['target_robot_position.translation'].append(target_robot_position.translation)
                 ep_dict['target_robot_position.quaternion'].append(target_robot_position.quaternion)
