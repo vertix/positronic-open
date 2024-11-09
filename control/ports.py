@@ -178,6 +178,10 @@ class InputPortContainer:
     def __setattr__(self, name: str, output_port: Any):
         self.__setitem__(name, output_port)
 
+    def bind(self, **kwargs):
+        for name, value in kwargs.items():
+            self.__setitem__(name, value)
+
     def read(self, timeout: Optional[float] = None):
         """
         Generator to yield values from any of the input ports as they arrive,

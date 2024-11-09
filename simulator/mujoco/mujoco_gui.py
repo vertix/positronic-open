@@ -11,10 +11,10 @@ from tools.dataset_dumper import DatasetDumper
 
 @control_system(
     inputs=["observation", "ik_result"],
-    outputs=["desired_action", "start_episode", "end_episode"]
+    input_props=["robot_position"],
+    outputs=["desired_action", "start_episode", "end_episode", "target_grip", "target_robot_position"]
 )
 class DearpyguiUi(ControlSystem):
-
     def __init__(self, world, width, height):
         super().__init__(world)
         self.width = width
@@ -43,10 +43,11 @@ class DearpyguiUi(ControlSystem):
             self.raw_textures['handcam_left'][:] = obs.handcam_left_image / 255
             self.raw_textures['handcam_right'][:] = obs.handcam_right_image / 255
 
-            # set real position
-            dpg.set_value("pos", f"Position: {obs.position}\nQuatt: {obs.orientation}")
-            self.actual_position = obs.position
-            self.actual_orientation = obs.orientation
+        # set real position
+        robot_position, _ts = self.ins.robot_position()
+        dpg.set_value("pos", f"Position: {robot_position}")
+        self.actual_position = robot_position.translation
+        self.actual_orientation = robot_position.quaternion
 
         ik_result = self.ins.ik_result.read_nowait()
         if ik_result is not None:
@@ -181,29 +182,31 @@ def main(cfg: DictConfig):
     inverse_kinematics = InverseKinematics(world, data=data)
     window = DearpyguiUi(world, width, height)
     observation_transform = extract_information_to_dump(world)
-    data_dumper = DatasetDumper(world, cfg.data_output_dir)
 
     # wires
     simulator.ins.actuator_values = inverse_kinematics.outs.actuator_values
 
     inverse_kinematics.ins.desired_action = window.outs.desired_action
 
-    window.ins.observation = simulator.outs.observation
-    window.ins.ik_result = inverse_kinematics.outs.actuator_values
+    window.ins.bind(observation=simulator.outs.observation,
+                    ik_result=inverse_kinematics.outs.actuator_values,
+                    robot_position=simulator.outs.robot_position)
 
     observation_transform.ins.observation = simulator.outs.observation
     observation_transform.ins.desired_action = window.outs.desired_action
 
-    data_dumper.ins.image = observation_transform.outs.image
-    data_dumper.ins.robot_joints = observation_transform.outs.robot_joints
-    data_dumper.ins.robot_position = observation_transform.outs.robot_position
-    data_dumper.ins.ext_force_ee = observation_transform.outs.ext_force_ee
-    data_dumper.ins.ext_force_base = observation_transform.outs.ext_force_base
-    data_dumper.ins.grip = observation_transform.outs.grip
-    data_dumper.ins.target_grip = observation_transform.outs.target_grip
-    data_dumper.ins.target_robot_position = observation_transform.outs.target_robot_position
-    data_dumper.ins.start_episode = window.outs.start_episode
-    data_dumper.ins.end_episode = window.outs.end_episode
+    if cfg.data_output_dir is not None:
+        data_dumper = DatasetDumper(world, cfg.data_output_dir)
+        data_dumper.ins.image = observation_transform.outs.image
+        data_dumper.ins.robot_joints = observation_transform.outs.robot_joints
+        data_dumper.ins.robot_position = observation_transform.outs.robot_position
+        data_dumper.ins.ext_force_ee = observation_transform.outs.ext_force_ee
+        data_dumper.ins.ext_force_base = observation_transform.outs.ext_force_base
+        data_dumper.ins.grip = observation_transform.outs.grip
+        data_dumper.ins.target_grip = observation_transform.outs.target_grip
+        data_dumper.ins.target_robot_position = observation_transform.outs.target_robot_position
+        data_dumper.ins.start_episode = window.outs.start_episode
+        data_dumper.ins.end_episode = window.outs.end_episode
 
     world.run()
 

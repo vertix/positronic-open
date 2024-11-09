@@ -8,6 +8,7 @@ from dm_control import mujoco as dm_mujoco
 from dm_control.utils import inverse_kinematics as ik
 
 from control import ControlSystem, control_system
+from control.system import output_property
 from control.utils import control_system_fn, FPSCounter
 from geom import Transform3D
 
@@ -117,7 +118,8 @@ def extract_information_to_dump(ins, outs):
 
 
 @control_system(inputs=["actuator_values"],
-                outputs=["observation"])
+                outputs=["observation"],
+                output_props=["robot_position"])
 class Mujoco(ControlSystem):
     def __init__(
             self,
@@ -164,6 +166,12 @@ class Mujoco(ControlSystem):
         self.observation_fps_counter.tick()
 
         return data
+
+    @output_property('robot_position')
+    def robot_position(self):
+        return (Transform3D(self.data.site('end_effector').xpos,
+                            xmat_to_quat(self.data.site('end_effector').xmat)),
+                self.world.now_ts)
 
     def simulate(self):
         with mjc_lock:
