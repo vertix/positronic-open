@@ -10,6 +10,7 @@ from dm_control.utils import inverse_kinematics as ik
 from control import ControlSystem, control_system
 from control.system import output_property
 from control.utils import control_system_fn, FPSCounter
+from control.world import World
 from geom import Transform3D
 
 mjc_lock = Lock()
@@ -91,39 +92,23 @@ class InverseKinematics(ControlSystem):
 
 
 @control_system_fn(
-    inputs=["observation", "desired_action"],
-    outputs=['image',
-           'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints', 'grip',
-           'start_episode', 'end_episode',
-           'target_grip', 'target_robot_position']
+    inputs=["desired_action"],
+    outputs=['target_grip', 'target_robot_position']
 )
 def extract_information_to_dump(ins, outs):
     for name, ts, value in ins.read():
-        if name == 'observation':
-            obs = value
-            image = np.hstack([obs.handcam_left_image, obs.handcam_right_image])
-            outs.image.write(image, ts)
-            outs.robot_position.write(Transform3D(obs.position, obs.orientation), ts)
-            outs.grip.write(obs.grip, ts)
-
-            # TODO: add external forces
-            outs.ext_force_ee.write(np.zeros(6), ts)
-            outs.ext_force_base.write(np.zeros(6), ts)
-
-            outs.robot_joints.write(obs.joints, ts)
-
         if name == 'desired_action':
             outs.target_grip.write(value.grip, ts)
             outs.target_robot_position.write(Transform3D(value.position, value.orientation), ts)
 
 
 @control_system(inputs=["actuator_values"],
-                outputs=["observation"],
-                output_props=["robot_position"])
+                outputs=["images"],
+                output_props=["robot_position", "grip", "joints", "ext_force_ee", "ext_force_base"])
 class Mujoco(ControlSystem):
     def __init__(
             self,
-            world: "World",
+            world: World,
             model,
             data,
             render_resolution: Tuple[int, int] = (320, 240),
@@ -154,24 +139,27 @@ class Mujoco(ControlSystem):
             views[cam_name] = self.renderer.render()
         return views
 
-    def get_observation(self):
-        self.last_observation_time = self.world.now_ts
-
-        data = {'sensor': self.data.sensordata}
-        images = self.render_frames()
-
-        for cam_name, image in images.items():
-            data[cam_name] = image
-
-        self.observation_fps_counter.tick()
-
-        return data
-
     @output_property('robot_position')
     def robot_position(self):
         return (Transform3D(self.data.site('end_effector').xpos,
                             xmat_to_quat(self.data.site('end_effector').xmat)),
                 self.world.now_ts)
+
+    @output_property('grip')
+    def grip(self):
+        return self.data.actuator('actuator8').ctrl, self.world.now_ts
+
+    @output_property('joints')
+    def joints(self):
+        return np.array([self.data.qpos[i] for i in range(7)]), self.world.now_ts
+
+    @output_property('ext_force_ee')
+    def ext_force_ee(self):
+        return np.zeros(6), self.world.now_ts
+
+    @output_property('ext_force_base')
+    def ext_force_base(self):
+        return np.zeros(6), self.world.now_ts
 
     def simulate(self):
         with mjc_lock:
@@ -209,19 +197,20 @@ class Mujoco(ControlSystem):
                 self.simulate()
 
             if self.world.now_ts - self.last_observation_time >= self.observation_rate:
-                obs = self.get_observation()
+                images = self.render_frames()
+                self.observation_fps_counter.tick()
+                self.outs.images.write(images, self.world.now_ts)
 
-                observation = Observation(
-                    position=self.data.site('end_effector').xpos,
-                    orientation=xmat_to_quat(self.data.site('end_effector').xmat),
-                    top_image=obs['top'],
-                    side_image=obs['side'],
-                    handcam_left_image=obs['handcam_left'],
-                    handcam_right_image=obs['handcam_right'],
-                    grip=self.data.actuator('actuator8').ctrl,
-                    joints=np.array([self.data.qpos[i] for i in range(7)])
-                )
-                self.outs.observation.write(observation, self.world.now_ts)
-
+                # observation = Observation(
+                #     position=self.data.site('end_effector').xpos,
+                #     orientation=xmat_to_quat(self.data.site('end_effector').xmat),
+                #     top_image=obs['top'],
+                #     side_image=obs['side'],
+                #     handcam_left_image=obs['handcam_left'],
+                #     handcam_right_image=obs['handcam_right'],
+                #     grip=self.data.actuator('actuator8').ctrl,
+                #     joints=np.array([self.data.qpos[i] for i in range(7)])
+                # )
+                # self.outs.observation.write(observation, self.world.now_ts)
 
         self.renderer.close()
