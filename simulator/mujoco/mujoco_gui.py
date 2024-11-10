@@ -5,14 +5,15 @@ from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
 
 from control import MainThreadWorld, ControlSystem, control_system, utils
-from simulator.mujoco.environment import Mujoco, InverseKinematics, DesiredAction, extract_information_to_dump
+from geom import Transform3D
+from simulator.mujoco.environment import Mujoco, InverseKinematics, DesiredAction
 from tools.dataset_dumper import DatasetDumper
 
 
 @control_system(
     inputs=["ik_result", "images"],
     input_props=["robot_position"],
-    outputs=["desired_action", "start_episode", "end_episode", "target_grip", "target_robot_position"]
+    outputs=["start_episode", "end_episode", "target_grip", "target_robot_position"]
 )
 class DearpyguiUi(ControlSystem):
     def __init__(self, world, width, height):
@@ -51,8 +52,9 @@ class DearpyguiUi(ControlSystem):
 
         ik_result = self.ins.ik_result.read_nowait()
         if ik_result is not None:
-            ts, ik_result = ik_result
-            if ik_result.success:
+            ik_success = ik_result[1] is not None
+            if ik_success:
+                # TODO: This is a bit goofy, as we rely on another system if something we produced failed
                 self.last_success_action = self.desired_action
             else:
                 self.desired_action = DesiredAction(
@@ -60,6 +62,11 @@ class DearpyguiUi(ControlSystem):
                     orientation=self.last_success_action.orientation.copy(),
                     grip=self.last_success_action.grip
                 )
+
+        if self.desired_action is not None:
+            target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
+            self.outs.target_grip.write(self.desired_action.grip, self.world.now_ts)
+            self.outs.target_robot_position.write(target_pos, self.world.now_ts)
 
     def move_fwd(self):
         self.move(np.array([0.01, 0, 0]))
@@ -90,7 +97,6 @@ class DearpyguiUi(ControlSystem):
 
         self.recording = not self.recording
 
-
     def move(self, dx, change_grip: bool=False):
         if self.desired_action is None:
             if self.actual_position is None:
@@ -103,13 +109,12 @@ class DearpyguiUi(ControlSystem):
             )
 
         self.desired_action.position += dx
-
-        dpg.set_value("target", f"Target Position: {self.desired_action.position}\nTarget Quat: {self.desired_action.orientation}")
         if change_grip:
             self.desired_action.grip = 1.0 - self.desired_action.grip
-
-        self.outs.desired_action.write(self.desired_action, self.world.now_ts)
-
+        dpg.set_value("target",
+                      f"Target Position: {self.desired_action.position}\n"
+                      f"Target Quat: {self.desired_action.orientation}\n"
+                      f"Target Grip: {self.desired_action.grip}")
 
     def run(self):
         dpg.create_context()
@@ -159,6 +164,7 @@ class DearpyguiUi(ControlSystem):
         dpg.destroy_context()
         self.world.stop_event.set()
 
+
 @hydra.main(version_base=None, config_path=".", config_name="mujoco_gui")
 def main(cfg: DictConfig):
     width = cfg.mujoco.camera_width
@@ -180,18 +186,16 @@ def main(cfg: DictConfig):
     )
     inverse_kinematics = InverseKinematics(world, data=data)
     window = DearpyguiUi(world, width, height)
-    observation_transform = extract_information_to_dump(world)
 
     # wires
-    simulator.ins.actuator_values = inverse_kinematics.outs.actuator_values
+    simulator.ins.bind(target_grip=window.outs.target_grip,
+                       actuator_values=inverse_kinematics.outs.actuator_values)
 
-    inverse_kinematics.ins.desired_action = window.outs.desired_action
+    inverse_kinematics.ins.bind(target_robot_position=window.outs.target_robot_position)
 
     window.ins.bind(ik_result=inverse_kinematics.outs.actuator_values,
                     images=simulator.outs.images,
                     robot_position=simulator.outs.robot_position)
-
-    observation_transform.ins.desired_action = window.outs.desired_action
 
     if cfg.data_output_dir is not None:
         @utils.map_port
@@ -207,8 +211,8 @@ def main(cfg: DictConfig):
             ext_force_base=simulator.outs.ext_force_base,
             grip=simulator.outs.grip,
 
-            target_grip=observation_transform.outs.target_grip,
-            target_robot_position=observation_transform.outs.target_robot_position,
+            target_grip=window.outs.target_grip,
+            target_robot_position=window.outs.target_robot_position,
             start_episode=window.outs.start_episode,
             end_episode=window.outs.end_episode
         )
