@@ -35,6 +35,16 @@ def control_system(*, inputs: List[str] = None, outputs: List[str] = None,
         cls._input_props = input_props
         cls._output_props = output_props
 
+        # Check output properties at class definition time
+        defined_props = {
+            method.__output_property_name__
+            for method in cls.__dict__.values()
+            if hasattr(method, '__is_output_property__')
+        }
+        missing_props = set(output_props) - defined_props
+        if missing_props:
+            raise ValueError(f"Output properties {missing_props} are not defined in class {cls.__name__}")
+
         # Add lazy properties for port containers
         def _get_inputs(self):
             if not hasattr(self, '_inputs'):
@@ -43,14 +53,11 @@ def control_system(*, inputs: List[str] = None, outputs: List[str] = None,
 
         def _get_outputs(self):
             if not hasattr(self, '_outputs'):
-                props = {}
-                for method in self.__class__.__dict__.values():
-                    if hasattr(method, '__is_output_property__'):
-                        props[method.__output_property_name__] = method.__get__(self, self.__class__)
-                if len(props) != len(self._output_props):
-                    diff = set(self._output_props) - set(props.keys())
-                    # TODO: Can we move this check to class definition time?
-                    raise ValueError(f"Output properties {diff} are not defined")
+                props = {
+                    method.__output_property_name__: method.__get__(self, self.__class__)
+                    for method in self.__class__.__dict__.values()
+                    if hasattr(method, '__is_output_property__')
+                }
                 self._outputs = OutputPortContainer(self.world, self._output_ports, props)
             return self._outputs
 
@@ -79,6 +86,10 @@ class ControlSystem(ABC):
     must be decorated with @control_system.
     """
     __slots__ = ["_inputs", "_outputs", "world", "_input_ports", "_output_ports"]
+
+    ins: InputPortContainer
+    outs: OutputPortContainer
+
     def __init__(self, world):
         self.world = world
         world.add_system(self)
