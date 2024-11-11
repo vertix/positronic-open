@@ -175,6 +175,7 @@ class InputPortContainer:
         else:
             raise ValueError(f"Input {name} not found")
 
+    # TODO: Remove this, assignment should go via bind method. Should we remove __setitem__ as well?
     def __setattr__(self, name: str, output_port: Any):
         self.__setitem__(name, output_port)
 

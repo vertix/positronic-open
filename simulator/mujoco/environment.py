@@ -33,8 +33,6 @@ def xmat_to_quat(xmat):
     outputs=["actuator_values"]
 )
 class InverseKinematics(ControlSystem):
-    desired_action: Optional[DesiredAction]
-
     def __init__(self, world: "World", data: mujoco.MjData):
         super().__init__(world)
         self.joints = [f'joint{i}' for i in range(1, 8)]
@@ -103,8 +101,8 @@ class Mujoco(ControlSystem):
 
     @output_property('robot_position')
     def robot_position(self):
-        return (Transform3D(self.data.site('end_effector').xpos,
-                            xmat_to_quat(self.data.site('end_effector').xmat)),
+        return (Transform3D(self.data.site('end_effector').xpos.copy(),
+                            xmat_to_quat(self.data.site('end_effector').xmat.copy())),
                 self.world.now_ts)
 
     @output_property('grip')
