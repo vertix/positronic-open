@@ -9,7 +9,7 @@ from dm_control.utils import inverse_kinematics as ik
 
 from control import ControlSystem, control_system
 from control.system import output_property
-from control.utils import control_system_fn, FPSCounter
+from control.utils import FPSCounter
 from control.world import World
 from geom import Transform3D
 
@@ -101,25 +101,24 @@ class Mujoco(ControlSystem):
 
     @output_property('robot_position')
     def robot_position(self):
-        return (Transform3D(self.data.site('end_effector').xpos.copy(),
-                            xmat_to_quat(self.data.site('end_effector').xmat.copy())),
-                self.world.now_ts)
+        return Transform3D(self.data.site('end_effector').xpos.copy(),
+                         xmat_to_quat(self.data.site('end_effector').xmat.copy()))
 
     @output_property('grip')
     def grip(self):
-        return self.data.actuator('actuator8').ctrl, self.world.now_ts
+        return self.data.actuator('actuator8').ctrl
 
     @output_property('joints')
     def joints(self):
-        return np.array([self.data.qpos[i] for i in range(7)]), self.world.now_ts
+        return np.array([self.data.qpos[i] for i in range(7)])
 
     @output_property('ext_force_ee')
     def ext_force_ee(self):
-        return np.zeros(6), self.world.now_ts
+        return np.zeros(6)
 
     @output_property('ext_force_base')
     def ext_force_base(self):
-        return np.zeros(6), self.world.now_ts
+        return np.zeros(6)
 
     def simulate(self):
         with mjc_lock:

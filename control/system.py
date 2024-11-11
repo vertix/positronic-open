@@ -72,6 +72,21 @@ def control_system(*, inputs: List[str] = None, outputs: List[str] = None,
 def output_property(name: str):
     """
     Function decorator for defining output properties on a control system.
+    The decorator automatically adds the current world timestamp to the returned value.
+    """
+    def decorator(method):
+        def wrapper(self, *args, **kwargs):
+            return method(self, *args, **kwargs), self.world.now_ts
+        wrapper.__is_output_property__ = True
+        wrapper.__output_property_name__ = name
+        return wrapper
+    return decorator
+
+def output_property_custom_time(name: str):
+    """
+    Function decorator for defining output properties on a control system.
+    Allows the method to return its own timestamp along with the value.
+    The decorated method must return a tuple of (value, timestamp).
     """
     def decorator(method):
         method.__is_output_property__ = True

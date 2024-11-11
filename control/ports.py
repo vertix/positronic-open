@@ -121,6 +121,9 @@ class OutputPortContainer:
         self._ports = {name: OutputPort(world) for name in ports}
         self._ports.update(props)
 
+    def size(self):
+        return len(self._ports)
+
     def __getattr__(self, name: str):
         return self.__getitem__(name)
 
@@ -135,6 +138,9 @@ class InputPortContainer:
         self._world = world
         self._ports = {name: None for name in ports}
         self._props = {name: None for name in props}
+
+    def size(self):
+        return len(self._ports) + len(self._props)
 
     def _create_port(self, output_port: OutputPort):
         return ThreadedInputPort(self._world, output_port)

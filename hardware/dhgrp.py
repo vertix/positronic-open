@@ -72,7 +72,7 @@ class DHGripper(ControlSystem):
         if response.isError():
             # TODO: Should we return an error instead?
             raise Exception(f"Error reading gripper position: {response}")
-        return 1 - response.registers[0] / 1000, self.world.now_ts
+        return 1 - response.registers[0] / 1000
 
 # region Old test code
 # connection = client.connect()

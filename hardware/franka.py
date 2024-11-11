@@ -44,27 +44,27 @@ class Franka(ControlSystem):
     def position(self):
         """End effector position in robot base coordinate frame."""
         pos = self.robot.current_pose.end_effector_pose
-        return Transform3D(pos.translation, pos.quaternion), self.world.now_ts
+        return Transform3D(pos.translation, pos.quaternion)
 
     @output_property('joint_positions')
     def joint_positions(self):
-        return self.robot.current_joint_state.position, self.world.now_ts
+        return self.robot.current_joint_state.position
 
     @output_property('gripper_grasped')
     def gripper_grasped(self):
         if self.gripper:
-            return self.gripper_grasped, self.world.now_ts
-        return None, self.world.now_ts
+            return self.gripper_grasped
+        return None
 
     @output_property('ext_force_base')
     def ext_force_base(self):
         state = self.robot.state
-        return state.O_F_ext_hat_K, self.world.now_ts
+        return state.O_F_ext_hat_K
 
     @output_property('ext_force_ee')
     def ext_force_ee(self):
         state = self.robot.state
-        return state.K_F_ext_hat_K, self.world.now_ts
+        return state.K_F_ext_hat_K
 
     def on_start(self):
         self.robot.recover_from_errors()
