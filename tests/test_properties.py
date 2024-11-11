@@ -22,7 +22,7 @@ class OutputTestSystem(ControlSystem):
     @output_property("output")
     def output(self):
         self._counter += 1.0
-        return self._counter, self.world.now_ts
+        return self._counter
 
     def run(self):
         time.sleep(1)
