@@ -4,17 +4,18 @@ import numpy as np
 from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
 
-from control import MainThreadWorld, ControlSystem, control_system
-from simulator.mujoco.environment import Mujoco, InverseKinematics, DesiredAction, extract_information_to_dump
+from control import MainThreadWorld, ControlSystem, control_system, utils
+from geom import Transform3D
+from simulator.mujoco.environment import Mujoco, InverseKinematics, DesiredAction
 from tools.dataset_dumper import DatasetDumper
 
 
 @control_system(
-    inputs=["observation", "ik_result"],
-    outputs=["desired_action", "start_episode", "end_episode"]
+    inputs=["ik_result", "images"],
+    input_props=["robot_position"],
+    outputs=["start_episode", "end_episode", "target_grip", "target_robot_position"]
 )
 class DearpyguiUi(ControlSystem):
-
     def __init__(self, world, width, height):
         super().__init__(world)
         self.width = width
@@ -35,23 +36,25 @@ class DearpyguiUi(ControlSystem):
         }
 
     def update(self):
-        obs = self.ins.observation.read_nowait()
-        if obs is not None:
-            ts, obs = obs
-            self.raw_textures['top'][:] = obs.top_image / 255
-            self.raw_textures['side'][:] = obs.side_image / 255
-            self.raw_textures['handcam_left'][:] = obs.handcam_left_image / 255
-            self.raw_textures['handcam_right'][:] = obs.handcam_right_image / 255
+        images = self.ins.images.read_nowait()
+        if images is not None:
+            ts, images = images
+            self.raw_textures['top'][:] = images['top'] / 255
+            self.raw_textures['side'][:] = images['side'] / 255
+            self.raw_textures['handcam_left'][:] = images['handcam_left'] / 255
+            self.raw_textures['handcam_right'][:] = images['handcam_right'] / 255
 
-            # set real position
-            dpg.set_value("pos", f"Position: {obs.position}\nQuatt: {obs.orientation}")
-            self.actual_position = obs.position
-            self.actual_orientation = obs.orientation
+        # set real position
+        robot_position, _ts = self.ins.robot_position()
+        dpg.set_value("pos", f"Position: {robot_position}")
+        self.actual_position = robot_position.translation
+        self.actual_orientation = robot_position.quaternion
 
         ik_result = self.ins.ik_result.read_nowait()
         if ik_result is not None:
-            ts, ik_result = ik_result
-            if ik_result.success:
+            ik_success = ik_result[1] is not None
+            if ik_success:
+                # TODO: This is a bit goofy, as we rely on another system if something we produced failed
                 self.last_success_action = self.desired_action
             else:
                 self.desired_action = DesiredAction(
@@ -60,6 +63,10 @@ class DearpyguiUi(ControlSystem):
                     grip=self.last_success_action.grip
                 )
 
+        if self.desired_action is not None:
+            target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
+            self.outs.target_grip.write(self.desired_action.grip, self.world.now_ts)
+            self.outs.target_robot_position.write(target_pos, self.world.now_ts)
 
     def move_fwd(self):
         self.move(np.array([0.01, 0, 0]))
@@ -90,7 +97,6 @@ class DearpyguiUi(ControlSystem):
 
         self.recording = not self.recording
 
-
     def move(self, dx, change_grip: bool=False):
         if self.desired_action is None:
             if self.actual_position is None:
@@ -103,13 +109,12 @@ class DearpyguiUi(ControlSystem):
             )
 
         self.desired_action.position += dx
-
-        dpg.set_value("target", f"Target Position: {self.desired_action.position}\nTarget Quat: {self.desired_action.orientation}")
         if change_grip:
             self.desired_action.grip = 1.0 - self.desired_action.grip
-
-        self.outs.desired_action.write(self.desired_action, self.world.now_ts)
-
+        dpg.set_value("target",
+                      f"Target Position: {self.desired_action.position}\n"
+                      f"Target Quat: {self.desired_action.orientation}\n"
+                      f"Target Grip: {self.desired_action.grip}")
 
     def run(self):
         dpg.create_context()
@@ -159,6 +164,7 @@ class DearpyguiUi(ControlSystem):
         dpg.destroy_context()
         self.world.stop_event.set()
 
+
 @hydra.main(version_base=None, config_path=".", config_name="mujoco_gui")
 def main(cfg: DictConfig):
     width = cfg.mujoco.camera_width
@@ -180,30 +186,37 @@ def main(cfg: DictConfig):
     )
     inverse_kinematics = InverseKinematics(world, data=data)
     window = DearpyguiUi(world, width, height)
-    observation_transform = extract_information_to_dump(world)
-    data_dumper = DatasetDumper(world, cfg.data_output_dir)
 
     # wires
-    simulator.ins.actuator_values = inverse_kinematics.outs.actuator_values
+    simulator.ins.bind(target_grip=window.outs.target_grip,
+                       actuator_values=inverse_kinematics.outs.actuator_values)
 
-    inverse_kinematics.ins.desired_action = window.outs.desired_action
+    inverse_kinematics.ins.bind(target_robot_position=window.outs.target_robot_position)
 
-    window.ins.observation = simulator.outs.observation
-    window.ins.ik_result = inverse_kinematics.outs.actuator_values
+    window.ins.bind(ik_result=inverse_kinematics.outs.actuator_values,
+                    images=simulator.outs.images,
+                    robot_position=simulator.outs.robot_position)
 
-    observation_transform.ins.observation = simulator.outs.observation
-    observation_transform.ins.desired_action = window.outs.desired_action
+    if cfg.data_output_dir is not None:
+        @utils.map_port
+        def stack_images(images):
+            return np.hstack([images['handcam_left'], images['handcam_right']])
 
-    data_dumper.ins.image = observation_transform.outs.image
-    data_dumper.ins.robot_joints = observation_transform.outs.robot_joints
-    data_dumper.ins.robot_position = observation_transform.outs.robot_position
-    data_dumper.ins.ext_force_ee = observation_transform.outs.ext_force_ee
-    data_dumper.ins.ext_force_base = observation_transform.outs.ext_force_base
-    data_dumper.ins.grip = observation_transform.outs.grip
-    data_dumper.ins.target_grip = observation_transform.outs.target_grip
-    data_dumper.ins.target_robot_position = observation_transform.outs.target_robot_position
-    data_dumper.ins.start_episode = window.outs.start_episode
-    data_dumper.ins.end_episode = window.outs.end_episode
+        data_dumper = DatasetDumper(world, cfg.data_output_dir)
+        data_dumper.ins.bind(
+            image=stack_images(simulator.outs.images),
+            robot_joints=simulator.outs.joints,
+            robot_position=simulator.outs.robot_position,
+            ext_force_ee=simulator.outs.ext_force_ee,
+            ext_force_base=simulator.outs.ext_force_base,
+            grip=simulator.outs.grip,
+
+            target_grip=window.outs.target_grip,
+            target_robot_position=window.outs.target_robot_position,
+            start_episode=window.outs.start_episode,
+            end_episode=window.outs.end_episode
+        )
+
 
     world.run()
 

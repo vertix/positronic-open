@@ -8,7 +8,9 @@ from dm_control import mujoco as dm_mujoco
 from dm_control.utils import inverse_kinematics as ik
 
 from control import ControlSystem, control_system
-from control.utils import control_system_fn, FPSCounter
+from control.system import output_property
+from control.utils import FPSCounter
+from control.world import World
 from geom import Transform3D
 
 mjc_lock = Lock()
@@ -20,27 +22,6 @@ class DesiredAction:
     grip: float
 
 
-@dataclass
-class ActuatorValues:
-    values: np.ndarray
-    grip: float
-    success: bool
-
-
-@dataclass
-class Observation:
-    position: np.ndarray
-    orientation: np.ndarray
-    grip: float
-    joints: np.ndarray
-
-    # Images
-    top_image: np.ndarray
-    side_image: np.ndarray
-    handcam_left_image: np.ndarray
-    handcam_right_image: np.ndarray
-
-
 def xmat_to_quat(xmat):
     site_quat = np.empty(4)
     mujoco.mju_mat2Quat(site_quat, xmat)
@@ -48,80 +29,46 @@ def xmat_to_quat(xmat):
 
 
 @control_system(
-    inputs=["desired_action"],
+    inputs=["target_robot_position"],
     outputs=["actuator_values"]
 )
 class InverseKinematics(ControlSystem):
-    desired_action: Optional[DesiredAction]
-
     def __init__(self, world: "World", data: mujoco.MjData):
         super().__init__(world)
         self.joints = [f'joint{i}' for i in range(1, 8)]
-
         self.physics = dm_mujoco.Physics.from_model(data)
-        self.desired_action = None
 
-
-    def recalculate_ik(self) -> ActuatorValues:
-        if self.desired_action is None:
-            return ActuatorValues(values=np.zeros(7), grip=0.0, success=False)
-
+    def recalculate_ik(self, target_robot_position: Transform3D) -> Optional[np.ndarray]:
+        """
+        Returns None if the IK calculation failed
+        """
         with mjc_lock:
             result = ik.qpos_from_site_pose(
                 physics=self.physics,
                 site_name='end_effector',
-                target_pos=self.desired_action.position,
-                target_quat=self.desired_action.orientation,
+                target_pos=target_robot_position.translation,
+                target_quat=target_robot_position.quaternion,
                 joint_names=self.joints,
                 rot_weight=0.5,
             )
 
         if result.success:
-            return ActuatorValues(values=result.qpos[:7], grip=self.desired_action.grip, success=True)
-
-        print(f"Failed to calculate IK for {self.desired_action.position}")
-        return ActuatorValues(values=np.zeros(7), grip=self.desired_action.grip, success=False)
+            return result.qpos[:7]
+        print(f"Failed to calculate IK for {target_robot_position}")
+        return None
 
     def run(self):
-        for _ts, value in self.ins.desired_action.read_until_stop():
-            self.desired_action = value
-            values = self.recalculate_ik()
-            self.outs.actuator_values.write(values, self.world.now_ts)
+        for _ts, value in self.ins.target_robot_position.read_until_stop():
+            self.outs.actuator_values.write(self.recalculate_ik(value), self.world.now_ts)
 
 
-@control_system_fn(
-    inputs=["observation", "desired_action"],
-    outputs=['image',
-           'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints', 'grip',
-           'start_episode', 'end_episode',
-           'target_grip', 'target_robot_position']
-)
-def extract_information_to_dump(ins, outs):
-    for name, ts, value in ins.read():
-        if name == 'observation':
-            obs = value
-            image = np.hstack([obs.handcam_left_image, obs.handcam_right_image])
-            outs.image.write(image, ts)
-            outs.robot_position.write(Transform3D(obs.position, obs.orientation), ts)
-            outs.grip.write(obs.grip, ts)
-
-            # TODO: add external forces
-            outs.ext_force_ee.write(np.zeros(6), ts)
-            outs.ext_force_base.write(np.zeros(6), ts)
-
-            outs.robot_joints.write(obs.joints, ts)
-
-        if name == 'desired_action':
-            outs.target_grip.write(value.grip, ts)
-            outs.target_robot_position.write(Transform3D(value.position, value.orientation), ts)
-
-
-@control_system(inputs=["actuator_values"],
-                outputs=["observation"])
+@control_system(inputs=["actuator_values", "target_grip"],
+                outputs=["images"],
+                output_props=["robot_position", "grip", "joints", "ext_force_ee", "ext_force_base"])
 class Mujoco(ControlSystem):
     def __init__(
             self,
-            world: "World",
+            world: World,
             model,
             data,
             render_resolution: Tuple[int, int] = (320, 240),
@@ -152,18 +99,26 @@ class Mujoco(ControlSystem):
             views[cam_name] = self.renderer.render()
         return views
 
-    def get_observation(self):
-        self.last_observation_time = self.world.now_ts
+    @output_property('robot_position')
+    def robot_position(self):
+        return Transform3D(self.data.site('end_effector').xpos.copy(),
+                         xmat_to_quat(self.data.site('end_effector').xmat.copy()))
 
-        data = {'sensor': self.data.sensordata}
-        images = self.render_frames()
+    @output_property('grip')
+    def grip(self):
+        return self.data.actuator('actuator8').ctrl
 
-        for cam_name, image in images.items():
-            data[cam_name] = image
+    @output_property('joints')
+    def joints(self):
+        return np.array([self.data.qpos[i] for i in range(7)])
 
-        self.observation_fps_counter.tick()
+    @output_property('ext_force_ee')
+    def ext_force_ee(self):
+        return np.zeros(6)
 
-        return data
+    @output_property('ext_force_base')
+    def ext_force_base(self):
+        return np.zeros(6)
 
     def simulate(self):
         with mjc_lock:
@@ -186,34 +141,25 @@ class Mujoco(ControlSystem):
         self.renderer = mujoco.Renderer(self.model, height=self.render_resolution[1], width=self.render_resolution[0])
         self._init_position()
 
-        self.last_fps_print_time = self.world.now_ts
-
         while not self.world.should_stop:
             result = self.ins.actuator_values.read_nowait()
             if result is not None:
-                _ts, value = result
-                if value.success:
+                _ts, values = result
+                if values is not None:
                     for i in range(7):
-                        self.data.actuator(f'actuator{i + 1}').ctrl = value.values[i]
-                    self.data.actuator('actuator8').ctrl = value.grip
+                        self.data.actuator(f'actuator{i + 1}').ctrl = values[i]
+
+            grip = self.ins.target_grip.read_nowait()
+            if grip is not None:
+                _ts, grip = grip
+                self.data.actuator('actuator8').ctrl = grip
 
             if self.world.now_ts - self.last_simulation_time >= self.simulation_rate:
                 self.simulate()
 
             if self.world.now_ts - self.last_observation_time >= self.observation_rate:
-                obs = self.get_observation()
-
-                observation = Observation(
-                    position=self.data.site('end_effector').xpos,
-                    orientation=xmat_to_quat(self.data.site('end_effector').xmat),
-                    top_image=obs['top'],
-                    side_image=obs['side'],
-                    handcam_left_image=obs['handcam_left'],
-                    handcam_right_image=obs['handcam_right'],
-                    grip=self.data.actuator('actuator8').ctrl,
-                    joints=np.array([self.data.qpos[i] for i in range(7)])
-                )
-                self.outs.observation.write(observation, self.world.now_ts)
-
+                images = self.render_frames()
+                self.observation_fps_counter.tick()
+                self.outs.images.write(images, self.world.now_ts)
 
         self.renderer.close()

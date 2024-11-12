@@ -5,11 +5,11 @@ import pymodbus.client as ModbusClient
 
 import numpy as np
 
-from control import World, MainThreadWorld, ControlSystem, control_system
+from control import World, MainThreadWorld, ControlSystem, control_system, output_property, utils
 
 
 # TODO: Make robot report actual gripper position
-@control_system(inputs=['grip', 'force', 'speed'], outputs=['grip'])
+@control_system(inputs=['grip', 'force', 'speed'], output_props=['grip'])
 class DHGripper(ControlSystem):
     def __init__(self, world: World, port: str):
         super().__init__(world)
@@ -41,7 +41,6 @@ class DHGripper(ControlSystem):
                     self.on_speed(ts, value)
                 else:
                     raise ValueError(f"Unknown input: {name}")
-                self.on_after_input()
             except StopIteration:
                 return
 
@@ -67,11 +66,13 @@ class DHGripper(ControlSystem):
     def on_speed(self, _ts, value):
         self.client.write_register(0x104, c_uint16(value).value, slave=1)
 
-    def on_after_input(self):
+    @output_property("grip")
+    def grip(self):
         response = self.client.read_holding_registers(0x202, 1, slave=1)
         if response.isError():
+            # TODO: Should we return an error instead?
             raise Exception(f"Error reading gripper position: {response}")
-        self.outs.grip.write(1 - response.registers[0] / 1000, self.world.now_ts)
+        return 1 - response.registers[0] / 1000
 
 # region Old test code
 # connection = client.connect()
@@ -193,13 +194,13 @@ def _main():
     gripper.ins.speed.write(20)
     gripper.ins.force.write(100)
 
-    @utils.control_system_fn(inputs=['real_grip'], outputs=['grip'])
+    @utils.control_system_fn(input_props=['real_grip'], outputs=['grip'])
     def gripper_controller(ins, outs):
         for width in (np.sin(np.linspace(0, 10 * np.pi, 60)) + 1):
             outs.grip.write(width)
             time.sleep(0.25)
-            if (res := ins.real_grip.last) is not None:
-                print(f"Real grip: {res[1]}")
+            real_grip, _ = ins.real_grip
+            print(f"Real grip: {real_grip}")
 
     controller = gripper_controller(world)
     gripper.ins.grip = controller.outs.grip
