@@ -69,8 +69,8 @@ class MujocoSimulator(ControlSystem):
     def __init__(
             self,
             world: World,
-            model,
-            data,
+            model: mujoco.MjModel,
+            data: mujoco.MjData,
             simulation_rate: float = 1 / 60,
     ):
         super().__init__(world)
@@ -119,15 +119,13 @@ class MujocoSimulator(ControlSystem):
             self.simulation_fps_counter.tick()
 
     def _init_position(self):
-        # TODO: hacky way to set initial position, figure out how to do it via xml
-        values = [0, 0.3, 0, -1.57079, 0, 1.92, 0.927, 0.04]
+        # Load initial position from keyframe in XML
+        frame = self.model.keyframe("home")
+        self.data.qpos = frame.qpos
+        self.data.ctrl = frame.ctrl
 
-        for i in range(7):
-            self.data.actuator(f'actuator{i + 1}').ctrl = values[i]
-
-        for i in range(10):
-            self.simulate()
-
+        #mujoco.mj_resetData(self.model, self.data)
+        self.simulate()
 
     def run(self):
         self._init_position()
