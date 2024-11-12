@@ -1,9 +1,9 @@
 import logging
 import time
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from control.world import World
-from .system import ControlSystem, control_system
+from .system import ControlSystem, control_system, output_property
 from .ports import OutputPort
 from .ports import InputPort
 
@@ -45,3 +45,16 @@ class FPSCounter:
             print(f"{self.prefix}: {fps:.2f} fps")
             self.last_report_time = time.monotonic()
             self.frame_count = 0
+
+@control_system(outputs=["prop_values"])
+class PropDict(ControlSystem):
+    def __init__(self, world: World, input_props: Dict[str, Callable[[], Any]]):
+        super().__init__(world)
+        self.input_props = input_props
+
+    @output_property("prop_values")
+    def prop_values(self):
+        return {name: fn()[0] for name, fn in self.input_props.items()}
+
+    def run(self):
+        pass

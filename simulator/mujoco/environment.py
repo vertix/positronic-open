@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Tuple, Optional
 from threading import Lock
+import time
 
 import mujoco
 import numpy as np
@@ -62,47 +63,38 @@ class InverseKinematics(ControlSystem):
             self.outs.actuator_values.write(self.recalculate_ik(value), self.world.now_ts)
 
 
-@control_system(inputs=["actuator_values", "target_grip"],
-                outputs=["images"],
-                output_props=["robot_position", "grip", "joints", "ext_force_ee", "ext_force_base"])
-class Mujoco(ControlSystem):
+@control_system(inputs=["actuator_values", "target_grip", "target_position"],
+                output_props=["robot_position", "robot_translation", "robot_quaternion", "grip", "joints", "ext_force_ee", "ext_force_base"])
+class MujocoSimulator(ControlSystem):
     def __init__(
             self,
             world: World,
             model,
             data,
-            render_resolution: Tuple[int, int] = (320, 240),
             simulation_rate: float = 1 / 60,
-            observation_rate: float = 1 / 60
     ):
         super().__init__(world)
         self.model = model
         self.data = data
-        self.renderer = None
-        self.render_resolution = render_resolution
         self.simulation_rate = simulation_rate * 1000
-        self.observation_rate = observation_rate * 1000
-        self.last_observation_time = -1
         self.last_simulation_time = None
 
         self.simulation_fps_counter = FPSCounter('Simulation')
-        self.observation_fps_counter = FPSCounter('Observation')
 
-    def render_frames(self):
-        views = {}
-        with mjc_lock:
-            mujoco.mj_forward(self.model, self.data)
+    @output_property('robot_translation')
+    def robot_translation(self):
+        return self.data.site('end_effector').xpos.copy()
 
-        # TODO: make cameras configurable
-        for cam_name in ['top', 'side', 'handcam_left', 'handcam_right']:
-            self.renderer.update_scene(self.data, camera=cam_name)
-            views[cam_name] = self.renderer.render()
-        return views
+    @output_property('robot_quaternion')
+    def robot_quaternion(self):
+        return xmat_to_quat(self.data.site('end_effector').xmat)
 
     @output_property('robot_position')
     def robot_position(self):
-        return Transform3D(self.data.site('end_effector').xpos.copy(),
-                         xmat_to_quat(self.data.site('end_effector').xmat.copy()))
+        return Transform3D(
+            translation=self.data.site('end_effector').xpos.copy(),
+            quaternion=xmat_to_quat(self.data.site('end_effector').xmat.copy())
+        )
 
     @output_property('grip')
     def grip(self):
@@ -138,9 +130,7 @@ class Mujoco(ControlSystem):
 
 
     def run(self):
-        self.renderer = mujoco.Renderer(self.model, height=self.render_resolution[1], width=self.render_resolution[0])
         self._init_position()
-
         while not self.world.should_stop:
             result = self.ins.actuator_values.read_nowait()
             if result is not None:
@@ -157,9 +147,52 @@ class Mujoco(ControlSystem):
             if self.world.now_ts - self.last_simulation_time >= self.simulation_rate:
                 self.simulate()
 
-            if self.world.now_ts - self.last_observation_time >= self.observation_rate:
+                grip = self.ins.target_grip.read_nowait()
+                if grip is not None:
+                    _ts, grip = grip
+                    self.data.actuator('actuator8').ctrl = grip
+            else:
+                time_to_sleep = (self.last_simulation_time + self.simulation_rate - self.world.now_ts) / 1000
+                if time_to_sleep > 0:
+                    time.sleep(time_to_sleep)
+
+
+@control_system(outputs=["images"])
+class MujocoRenderer(ControlSystem):
+    def __init__(self, world: World, model, data, render_resolution: Tuple[int, int] = (320, 240), max_fps=60):
+        super().__init__(world)
+        self.model = model
+        self.data = data
+        self.renderer = None
+        self.render_resolution = render_resolution
+        self.max_fps = max_fps
+        self.last_render_time = -1
+        self.observation_fps_counter = FPSCounter('Observation')
+
+    def render_frames(self):
+        self.last_render_time = self.world.now_ts
+
+        views = {}
+
+        # TODO: make cameras configurable
+        for cam_name in ['top', 'side', 'handcam_left', 'handcam_right']:
+            with mjc_lock:
+                self.renderer.update_scene(self.data, camera=cam_name)
+                views[cam_name] = self.renderer.render()
+
+        self.observation_fps_counter.tick()
+        return views
+
+    def run(self):
+        self.renderer = mujoco.Renderer(self.model, height=self.render_resolution[1], width=self.render_resolution[0])
+        while not self.world.should_stop:
+            if self.world.now_ts - self.last_render_time >= 1 / self.max_fps:
                 images = self.render_frames()
-                self.observation_fps_counter.tick()
                 self.outs.images.write(images, self.world.now_ts)
+            else:
+                time_to_sleep = (self.last_render_time + 1 / self.max_fps - self.world.now_ts)
+                if time_to_sleep > 0:
+                    time.sleep(time_to_sleep)
 
         self.renderer.close()
+

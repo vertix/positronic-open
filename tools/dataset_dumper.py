@@ -8,11 +8,13 @@ from control import ControlSystem, World, control_system
 
 
 @control_system(inputs=['image', 'start_episode', 'end_episode', 'target_grip', 'target_robot_position'],
-                input_props=['grip', 'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints',])
+                input_props=['robot_data'])
 class DatasetDumper(ControlSystem):
     def __init__(self, world: World, directory: str):
         super().__init__(world)
         self.directory = directory
+
+
         os.makedirs(self.directory, exist_ok=True)
 
         episode_files = [f for f in os.listdir(directory) if f.endswith('.pt')]
@@ -55,25 +57,17 @@ class DatasetDumper(ControlSystem):
             elif tracked and name == 'target_robot_position':
                 target_robot_position = data
             elif tracked and name == 'image' and target_ts is not None:
-                robot_position, robot_ts = self.ins.robot_position()
-
                 now_ts = self.world.now_ts
 
                 img = data.image if hasattr(data, 'image') else data
                 ep_dict['image'].append(img)
-
+                ep_dict['target_grip'].append(target_grip)
                 ep_dict['target_robot_position.translation'].append(target_robot_position.translation)
                 ep_dict['target_robot_position.quaternion'].append(target_robot_position.quaternion)
-                ep_dict['target_grip'].append(target_grip)
 
-                if self.ins.grip is not None:
-                    ep_dict['grip'].append(self.ins.grip()[0])
-                ep_dict['ee_force'].append(self.ins.ext_force_ee()[0])
-                ep_dict['base_force'].append(self.ins.ext_force_base()[0])
-                ep_dict['robot_joints'].append(self.ins.robot_joints()[0])
-                robot_position, robot_ts = self.ins.robot_position()
-                ep_dict['robot_position.translation'].append(robot_position.translation)
-                ep_dict['robot_position.quaternion'].append(robot_position.quaternion)
+                data, robot_ts = self.ins.robot_data()
+                for name, value in data.items():
+                    ep_dict[name].append(value)
 
                 ep_dict['time'].append((now_ts - episode_start) / 1000)
                 ep_dict['delay/image'].append((now_ts - ts) / 1000)

@@ -6,16 +6,37 @@ import dearpygui.dearpygui as dpg
 
 from control import MainThreadWorld, ControlSystem, control_system, utils
 from geom import Transform3D
-from simulator.mujoco.environment import Mujoco, InverseKinematics, DesiredAction
+from simulator.mujoco.environment import MujocoSimulator, InverseKinematics, DesiredAction, MujocoRenderer
 from tools.dataset_dumper import DatasetDumper
 
 
 @control_system(
-    inputs=["ik_result", "images"],
+    inputs=["images"],
     input_props=["robot_position"],
-    outputs=["start_episode", "end_episode", "target_grip", "target_robot_position"]
+    outputs=["start_episode", "end_episode", "target_grip", "target_robot_position"],
 )
 class DearpyguiUi(ControlSystem):
+    speed = 0.002
+    movement_vectors = {
+        'forward': np.array([speed, 0, 0]),
+        'backward': np.array([-speed, 0, 0]),
+        'left': np.array([0, speed, 0]),
+        'right': np.array([0, -speed, 0]),
+        'up': np.array([0, 0, speed]),
+        'down': np.array([0, 0, -speed]),
+    }
+
+    key_map = {
+        dpg.mvKey_W: 'forward',
+        dpg.mvKey_S: 'backward',
+        dpg.mvKey_A: 'left',
+        dpg.mvKey_D: 'right',
+        dpg.mvKey_LControl: 'down',
+        dpg.mvKey_LShift: 'up',
+    }
+
+    move_update_rate = 0.1
+
     def __init__(self, world, width, height):
         super().__init__(world)
         self.width = width
@@ -27,6 +48,17 @@ class DearpyguiUi(ControlSystem):
         self.actual_orientation = None
 
         self.recording = False
+        self.last_move_ts = -1
+
+        self.move_key_states = {
+            'forward': False,
+            'backward': False,
+            'left': False,
+            'right': False,
+            'up': False,
+            'down': False,
+        }
+        self.grip_state = False
 
         self.raw_textures = {
             'top': np.zeros((self.height, self.width, 3), dtype=np.float32),
@@ -47,47 +79,31 @@ class DearpyguiUi(ControlSystem):
         # set real position
         robot_position, _ts = self.ins.robot_position()
         dpg.set_value("pos", f"Position: {robot_position}")
-        self.actual_position = robot_position.translation
-        self.actual_orientation = robot_position.quaternion
+        self.actual_position = robot_position.translation.copy()
+        self.actual_orientation = robot_position.quaternion.copy()
 
-        ik_result = self.ins.ik_result.read_nowait()
-        if ik_result is not None:
-            ik_success = ik_result[1] is not None
-            if ik_success:
-                # TODO: This is a bit goofy, as we rely on another system if something we produced failed
-                self.last_success_action = self.desired_action
-            else:
-                self.desired_action = DesiredAction(
-                    position=self.last_success_action.position.copy(),
-                    orientation=self.last_success_action.orientation.copy(),
-                    grip=self.last_success_action.grip
-                )
+        if self.world.now_ts - self.last_move_ts >= self.move_update_rate:
+            self.move()
+            self.last_move_ts = self.world.now_ts
 
         if self.desired_action is not None:
             target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
             self.outs.target_grip.write(self.desired_action.grip, self.world.now_ts)
             self.outs.target_robot_position.write(target_pos, self.world.now_ts)
 
-    def move_fwd(self):
-        self.move(np.array([0.01, 0, 0]))
 
-    def move_bwd(self):
-        self.move(np.array([-0.01, 0, 0]))
+    def key_down(self, sender, app_data):
+        key = app_data[0]
+        key = self.key_map.get(key, None)
+        self.move_key_states[key] = True
 
-    def move_left(self):
-        self.move(np.array([0, 0.01, 0]))
-
-    def move_right(self):
-        self.move(np.array([0, -0.01, 0]))
-
-    def move_up(self):
-        self.move(np.array([0, 0, 0.01]))
-
-    def move_down(self):
-        self.move(np.array([0, 0, -0.01]))
+    def key_release(self, sender, app_data):
+        key = app_data
+        key = self.key_map.get(key, None)
+        self.move_key_states[key] = False
 
     def grab(self):
-        self.move(np.array([0, 0, 0]), change_grip=True)
+        self.grip_state = not self.grip_state
 
     def record_episode(self):
         if self.recording:
@@ -97,7 +113,11 @@ class DearpyguiUi(ControlSystem):
 
         self.recording = not self.recording
 
-    def move(self, dx, change_grip: bool=False):
+    def move(self):
+        any_key_pressed = any(self.move_key_states.values())
+        if not any_key_pressed:
+            return
+
         if self.desired_action is None:
             if self.actual_position is None:
                 return
@@ -107,10 +127,14 @@ class DearpyguiUi(ControlSystem):
                 orientation=self.actual_orientation.copy(),
                 grip=0.0
             )
+        #print(f"Desired action: {self.desired_action}")
+        self.desired_action.grip = 1.0 if self.grip_state else 0.0
+        for key, vector in self.movement_vectors.items():
+            # print(f"Moving {key} {self.move_key_states.get(key, False)}")
 
-        self.desired_action.position += dx
-        if change_grip:
-            self.desired_action.grip = 1.0 - self.desired_action.grip
+            if self.move_key_states.get(key, False):
+                self.desired_action.position += vector
+
         dpg.set_value("target",
                       f"Target Position: {self.desired_action.position}\n"
                       f"Target Quat: {self.desired_action.orientation}\n"
@@ -139,12 +163,8 @@ class DearpyguiUi(ControlSystem):
             dpg.add_text("", tag="target")
 
         with dpg.handler_registry():
-            dpg.add_key_press_handler(key=dpg.mvKey_W, callback=self.move_fwd)
-            dpg.add_key_press_handler(key=dpg.mvKey_S, callback=self.move_bwd)
-            dpg.add_key_press_handler(key=dpg.mvKey_A, callback=self.move_left)
-            dpg.add_key_press_handler(key=dpg.mvKey_D, callback=self.move_right)
-            dpg.add_key_press_handler(key=dpg.mvKey_LControl, callback=self.move_down)
-            dpg.add_key_press_handler(key=dpg.mvKey_LShift, callback=self.move_up)
+            dpg.add_key_down_handler(callback=self.key_down)
+            dpg.add_key_release_handler(callback=self.key_release)
             dpg.add_key_press_handler(key=dpg.mvKey_G, callback=self.grab)
             dpg.add_key_press_handler(key=dpg.mvKey_R, callback=self.record_episode)
 
@@ -158,6 +178,8 @@ class DearpyguiUi(ControlSystem):
         while dpg.is_dearpygui_running():
             if self.world.should_stop:
                 break
+
+
             self.update()
             dpg.render_dearpygui_frame()
 
@@ -176,14 +198,14 @@ def main(cfg: DictConfig):
     world = MainThreadWorld()
 
     # systems
-    simulator = Mujoco(
+    simulator = MujocoSimulator(
         world=world,
         model=model,
         data=data,
-        render_resolution=(width, height),
         simulation_rate=1 / cfg.mujoco.simulation_hz,
-        observation_rate=1 / cfg.mujoco.observation_hz
     )
+    renderer = MujocoRenderer(world, model, data, render_resolution=(width, height), max_fps=cfg.mujoco.observation_hz)
+
     inverse_kinematics = InverseKinematics(world, data=data)
     window = DearpyguiUi(world, width, height)
 
@@ -193,28 +215,32 @@ def main(cfg: DictConfig):
 
     inverse_kinematics.ins.bind(target_robot_position=window.outs.target_robot_position)
 
-    window.ins.bind(ik_result=inverse_kinematics.outs.actuator_values,
-                    images=simulator.outs.images,
+    window.ins.bind(#ik_result=inverse_kinematics.outs.actuator_values,
+                    images=renderer.outs.images,
                     robot_position=simulator.outs.robot_position)
 
     if cfg.data_output_dir is not None:
         @utils.map_port
         def stack_images(images):
             return np.hstack([images['handcam_left'], images['handcam_right']])
+        
+        properties_to_dump = utils.PropDict(world, {
+            'robot_joints': simulator.outs.joints,
+            'robot_position.translation': simulator.outs.robot_translation,
+            'robot_position.quaternion': simulator.outs.robot_quaternion,
+            'ext_force_ee': simulator.outs.ext_force_ee,
+            'ext_force_base': simulator.outs.ext_force_base,
+            'grip': simulator.outs.grip,
+        })
 
         data_dumper = DatasetDumper(world, cfg.data_output_dir)
         data_dumper.ins.bind(
-            image=stack_images(simulator.outs.images),
-            robot_joints=simulator.outs.joints,
-            robot_position=simulator.outs.robot_position,
-            ext_force_ee=simulator.outs.ext_force_ee,
-            ext_force_base=simulator.outs.ext_force_base,
-            grip=simulator.outs.grip,
-
+            image=stack_images(renderer.outs.images),
             target_grip=window.outs.target_grip,
             target_robot_position=window.outs.target_robot_position,
             start_episode=window.outs.start_episode,
-            end_episode=window.outs.end_episode
+            end_episode=window.outs.end_episode,
+            robot_data=properties_to_dump.prop_values,
         )
 
 
