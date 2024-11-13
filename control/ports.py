@@ -188,7 +188,7 @@ class InputPortContainer:
         try:
             context_managers = []
             for name, callbacks in callbacks.items():
-                if not isinstance(callbacks, List):
+                if not isinstance(callbacks, list):
                     callbacks = [callbacks]
                 context_managers.append(self.__getattr__(name).subscribe(*callbacks))
             for cm in context_managers:

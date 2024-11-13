@@ -144,12 +144,14 @@ class Mujoco(ControlSystem):
 
         def on_actuator_values(values, _ts):
             if values is not None:
-                for i in range(7):
-                    self.data.actuator(f'actuator{i + 1}').ctrl = values[i]
+                with mjc_lock:
+                    for i in range(7):
+                        self.data.actuator(f'actuator{i + 1}').ctrl = values[i]
 
         def on_target_grip(grip, _ts):
             if grip is not None:
-                self.data.actuator('actuator8').ctrl = grip
+                with mjc_lock:
+                    self.data.actuator('actuator8').ctrl = grip
 
         with self.ins.subscribe(actuator_values=on_actuator_values, target_grip=on_target_grip):
             while not self.world.should_stop:
@@ -161,6 +163,6 @@ class Mujoco(ControlSystem):
                     self.observation_fps_counter.tick()
                     self.outs.images.write(images, self.world.now_ts)
 
-                time.sleep(0.01)
+                time.sleep(0.001)
 
         self.renderer.close()

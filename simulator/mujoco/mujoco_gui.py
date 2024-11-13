@@ -38,6 +38,7 @@ class DearpyguiUi(ControlSystem):
     def ik_update(self, ik_result, _ts):
         if ik_result is not None:
             # TODO: This is a bit goofy, as we rely on another system if something we produced failed
+            assert self.desired_action is not None
             self.last_success_action = self.desired_action
         else:
             self.desired_action = DesiredAction(
@@ -53,6 +54,10 @@ class DearpyguiUi(ControlSystem):
         self.raw_textures['handcam_right'][:] = images['handcam_right'] / 255
 
     def update(self):
+        # This consumes the data and calls the callbacks if needed
+        self.ins.ik_result.read_nowait()
+        self.ins.images.read_nowait()
+
         # set real position
         robot_position, _ts = self.ins.robot_position()
         dpg.set_value("pos", f"Position: {robot_position}")
