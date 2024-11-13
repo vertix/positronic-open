@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from contextlib import contextmanager
 import queue
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, ContextManager, Dict, List, Optional
 import threading
 
 
@@ -47,6 +48,20 @@ class InputPort(ABC):
         """
         pass
 
+    @abstractmethod
+    def subscribe(self, *callbacks: List[Callable]) -> ContextManager:
+        """Subscribe a callback function to be called when new data arrives.
+
+        Args:
+            callbacks: A list of callable that takes (value, timestamp) as arguments and will be called
+                     whenever new data arrives on this port.
+
+        Returns:
+            A context manager that will unsubscribe the callbacks when exited. Use with 'with' statement
+            to automatically unsubscribe when the block is exited.
+        """
+        pass
+
     def read_nowait(self, timeout: Optional[float] = None):
         return self.read(block=False, timeout=timeout)
 
@@ -71,18 +86,32 @@ class DirectWriteInputPort(InputPort):
         self.queue = deque()
         self._last_value = None
         self._last_value_lock = threading.Lock()
+        self.callbacks = {}  # Use dict to maintain order of subscriptions
 
     def write(self, value: Any, timestamp: Optional[int] = None):
-        # TODO: Change the order, value first, timestamp second
-        self.queue.append((timestamp, value))
+        with self._last_value_lock:
+            self._last_value = (timestamp, value)
+            self.queue.append(self._last_value)
+
+    @contextmanager
+    def subscribe(self, *callbacks: List[Callable]):
+        try:
+            self.callbacks.update({cb: None for cb in callbacks})
+            yield
+        finally:
+            for cb in callbacks:
+                self.callbacks.pop(cb)
 
     def read(self, block: bool = True, timeout: Optional[float] = None):
         start_time = time.time()
         while not self.world.should_stop:
             if self.queue:
                 with self._last_value_lock:
-                    self._last_value = self.queue.popleft()
-                return self._last_value
+                    value = self.queue.popleft()
+                    # Call callbacks when value is read
+                    for callback in self.callbacks.keys():
+                        callback(value[1], value[0])  # value, timestamp
+                    return value
             if not block:
                 return None
             if timeout is not None and (time.time() - start_time) >= timeout:
@@ -96,10 +125,20 @@ class ThreadedInputPort(InputPort):
         self.queue = queue.Queue(maxsize=5)
         binded_to._bind(self._write)
         self.world = world
+        self.callbacks = {}  # Use dict to maintain order of subscriptions
 
     def _write(self, value: Any, timestamp: Optional[int] = None):
         # TODO: Change the order, value first, timestamp second
         self.queue.put((timestamp, value))
+
+    @contextmanager
+    def subscribe(self, *callbacks: List[Callable]):
+        try:
+            self.callbacks.update({cb: None for cb in callbacks})
+            yield
+        finally:
+            for cb in callbacks:
+                self.callbacks.pop(cb)  # TODO: This is not efficient, should we use a set?
 
     def read(self, block: bool = True, timeout: Optional[float] = None):
         TICK = 1
@@ -109,6 +148,8 @@ class ThreadedInputPort(InputPort):
                 timeout = max(timeout - TICK, 0) if timeout is not None else None
                 result = self.queue.get(block=block, timeout=t_o)
                 self.queue.task_done()
+                for callback in self.callbacks.keys():
+                    callback(result[1], result[0])  # TODO: Change the order when we change the order of the tuple
                 return result
             except queue.Empty:
                 if not block or (timeout is not None and timeout <= 0):
