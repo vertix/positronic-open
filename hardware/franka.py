@@ -29,6 +29,7 @@ class Franka(ControlSystem):
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
         )
+        self.target_fps = FPSCounter("Franka target position")
 
         try:
             self.gripper = franky.Gripper(ip)
@@ -94,6 +95,7 @@ class Franka(ControlSystem):
         try:
             pos = franky.Affine(translation=value.translation, quaternion=value.quaternion)
             self.robot.move(franky.CartesianMotion(pos, franky.ReferenceType.Absolute), asynchronous=True)
+            self.target_fps.tick()
         except franky.ControlException as e:
             self.robot.recover_from_errors()
             logger.warning("IK failed for %s: %s", value, e)

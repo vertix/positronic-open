@@ -44,13 +44,13 @@ class TeleopSystem(ControlSystem):
         return but
 
     def run(self):
-        track_but, untrack_but, grasp_but = 0., 0., 0.
         teleop_t = None
         offset = None
         is_tracking = False
 
         fps = utils.FPSCounter("Teleop")
         def on_teleop_transform(value, _ts):
+            nonlocal teleop_t, is_tracking, offset
             teleop_t = self._parse_position(value)
             fps.tick()
             if is_tracking and offset is not None:
@@ -59,9 +59,11 @@ class TeleopSystem(ControlSystem):
                 self.outs.robot_target_position.write(target, self.world.now_ts)
 
         def on_teleop_buttons(value, _ts):
+            nonlocal is_tracking, offset
             track_but, untrack_but, grasp_but = self._parse_buttons(value)
 
-            if is_tracking: self.outs.gripper_target_grasp.write(grasp_but, self.world.now_ts)
+            if is_tracking:
+                self.outs.gripper_target_grasp.write(grasp_but, self.world.now_ts)
 
             if track_but:
                 # Note that translation and rotation offsets are independent
