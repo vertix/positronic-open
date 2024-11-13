@@ -29,20 +29,8 @@ class DHGripper(ControlSystem):
 
     def run(self):
         self.on_start()
-        read_iter = self.ins.read()
-        while not self.should_stop:
-            try:
-                name, ts, value = next(read_iter)
-                if name == 'grip':
-                    self.on_grip(ts, value)
-                elif name == 'force':
-                    self.on_force(ts, value)
-                elif name == 'speed':
-                    self.on_speed(ts, value)
-                else:
-                    raise ValueError(f"Unknown input: {name}")
-            except StopIteration:
-                return
+        with self.ins.subscribe(grip=self.on_grip, force=self.on_force, speed=self.on_speed):
+            for _ in self.ins.read(): pass
 
     def on_start(self):
         if self._state_g() != 1 or self._state_r() != 1:
@@ -50,20 +38,20 @@ class DHGripper(ControlSystem):
             while self._state_g() != 1 and self._state_r() != 1:
                 time.sleep(0.1)
 
-        self.on_force(None, 100)  # Set to maximum force
-        self.on_speed(None, 100)  # Set to maximum speed
-        self.on_grip(None, 0)  # Open gripper
+        self.on_force(100, None)  # Set to maximum force
+        self.on_speed(100, None)  # Set to maximum speed
+        self.on_grip(0, None)  # Open gripper
         time.sleep(0.5)
 
-    def on_grip(self, _ts, value):
+    def on_grip(self, value, _ts):
         """Accepts value in range [0, 1]. 0 means fully open, 1 means fully closed."""
         width = round((1 - max(0, min(value, 1))) * 1000)
         self.client.write_register(0x103, c_uint16(width).value, slave=1)
 
-    def on_force(self, _ts, value):
+    def on_force(self, value, _ts):
         self.client.write_register(0x101, c_uint16(value).value, slave=1)
 
-    def on_speed(self, _ts, value):
+    def on_speed(self, value, _ts):
         self.client.write_register(0x104, c_uint16(value).value, slave=1)
 
     @output_property("grip")
@@ -199,7 +187,7 @@ def _main():
         for width in (np.sin(np.linspace(0, 10 * np.pi, 60)) + 1):
             outs.grip.write(width)
             time.sleep(0.25)
-            real_grip, _ = ins.real_grip
+            real_grip, _ = ins.real_grip()
             print(f"Real grip: {real_grip}")
 
     controller = gripper_controller(world)

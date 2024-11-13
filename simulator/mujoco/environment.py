@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import time
 from typing import Tuple, Optional
 from threading import Lock
 
@@ -141,25 +142,25 @@ class Mujoco(ControlSystem):
         self.renderer = mujoco.Renderer(self.model, height=self.render_resolution[1], width=self.render_resolution[0])
         self._init_position()
 
-        while not self.world.should_stop:
-            result = self.ins.actuator_values.read_nowait()
-            if result is not None:
-                _ts, values = result
-                if values is not None:
-                    for i in range(7):
-                        self.data.actuator(f'actuator{i + 1}').ctrl = values[i]
+        def on_actuator_values(values, _ts):
+            if values is not None:
+                for i in range(7):
+                    self.data.actuator(f'actuator{i + 1}').ctrl = values[i]
 
-            grip = self.ins.target_grip.read_nowait()
+        def on_target_grip(grip, _ts):
             if grip is not None:
-                _ts, grip = grip
                 self.data.actuator('actuator8').ctrl = grip
 
-            if self.world.now_ts - self.last_simulation_time >= self.simulation_rate:
-                self.simulate()
+        with self.ins.subscribe(actuator_values=on_actuator_values, target_grip=on_target_grip):
+            while not self.world.should_stop:
+                if self.world.now_ts - self.last_simulation_time >= self.simulation_rate:
+                    self.simulate()
 
-            if self.world.now_ts - self.last_observation_time >= self.observation_rate:
-                images = self.render_frames()
-                self.observation_fps_counter.tick()
-                self.outs.images.write(images, self.world.now_ts)
+                if self.world.now_ts - self.last_observation_time >= self.observation_rate:
+                    images = self.render_frames()
+                    self.observation_fps_counter.tick()
+                    self.outs.images.write(images, self.world.now_ts)
+
+                time.sleep(0.01)
 
         self.renderer.close()

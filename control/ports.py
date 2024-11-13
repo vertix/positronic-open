@@ -183,6 +183,21 @@ class InputPortContainer:
     def size(self):
         return len(self._ports) + len(self._props)
 
+    @contextmanager
+    def subscribe(self, **callbacks):
+        try:
+            context_managers = []
+            for name, callbacks in callbacks.items():
+                if not isinstance(callbacks, List):
+                    callbacks = [callbacks]
+                context_managers.append(self.__getattr__(name).subscribe(*callbacks))
+            for cm in context_managers:
+                cm.__enter__()
+            yield
+        finally:
+            for cm in reversed(context_managers):
+                cm.__exit__(None, None, None)
+
     def _create_port(self, output_port: OutputPort):
         return ThreadedInputPort(self._world, output_port)
 

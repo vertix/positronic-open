@@ -50,35 +50,39 @@ class TeleopSystem(ControlSystem):
         is_tracking = False
 
         fps = utils.FPSCounter("Teleop")
-        for input_name, _ts, value in self.ins.read():
-            if input_name == "teleop_transform":
-                teleop_t = self._parse_position(value)
-                fps.tick()
-                if is_tracking and offset is not None:
-                    target = Transform3D(teleop_t.translation + offset.translation,
-                                         teleop_t.quaternion * offset.quaternion)
-                    self.outs.robot_target_position.write(target, self.world.now_ts)
-            elif input_name == "teleop_buttons":
-                track_but, untrack_but, grasp_but = self._parse_buttons(value)
+        def on_teleop_transform(value, _ts):
+            teleop_t = self._parse_position(value)
+            fps.tick()
+            if is_tracking and offset is not None:
+                target = Transform3D(teleop_t.translation + offset.translation,
+                                     teleop_t.quaternion * offset.quaternion)
+                self.outs.robot_target_position.write(target, self.world.now_ts)
 
-                if is_tracking: self.outs.gripper_target_grasp.write(grasp_but, self.world.now_ts)
+        def on_teleop_buttons(value, _ts):
+            track_but, untrack_but, grasp_but = self._parse_buttons(value)
 
-                if track_but:
-                    # Note that translation and rotation offsets are independent
-                    if teleop_t is not None:
-                        robot_t, _ts = self.ins.robot_position()
-                        offset = Transform3D(-teleop_t.translation + robot_t.translation,
-                                             teleop_t.quaternion.inv * robot_t.quaternion)
-                    if not is_tracking:
-                        logging.info('Started tracking')
-                        is_tracking = True
-                        self.outs.start_tracking.write(True, self.world.now_ts)
-                elif untrack_but:
-                    if is_tracking:
-                        logging.info('Stopped tracking')
-                        is_tracking = False
-                        offset = None
-                        self.outs.stop_tracking.write(True, self.world.now_ts)
+            if is_tracking: self.outs.gripper_target_grasp.write(grasp_but, self.world.now_ts)
+
+            if track_but:
+                # Note that translation and rotation offsets are independent
+                if teleop_t is not None:
+                    robot_t, _ts = self.ins.robot_position()
+                    offset = Transform3D(-teleop_t.translation + robot_t.translation,
+                                            teleop_t.quaternion.inv * robot_t.quaternion)
+                if not is_tracking:
+                    logging.info('Started tracking')
+                    is_tracking = True
+                    self.outs.start_tracking.write(True, self.world.now_ts)
+            elif untrack_but:
+                if is_tracking:
+                    logging.info('Stopped tracking')
+                    is_tracking = False
+                    offset = None
+                    self.outs.stop_tracking.write(True, self.world.now_ts)
+
+        with self.ins.subscribe(teleop_transform=on_teleop_transform,
+                                teleop_buttons=on_teleop_buttons):
+            for _ in self.ins.read(): pass
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="teleop")

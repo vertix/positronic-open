@@ -35,33 +35,29 @@ class DearpyguiUi(ControlSystem):
             'handcam_right': np.zeros((self.height, self.width, 3), dtype=np.float32),
         }
 
-    def update(self):
-        images = self.ins.images.read_nowait()
-        if images is not None:
-            ts, images = images
-            self.raw_textures['top'][:] = images['top'] / 255
-            self.raw_textures['side'][:] = images['side'] / 255
-            self.raw_textures['handcam_left'][:] = images['handcam_left'] / 255
-            self.raw_textures['handcam_right'][:] = images['handcam_right'] / 255
+    def ik_update(self, ik_result, _ts):
+        if ik_result is not None:
+            # TODO: This is a bit goofy, as we rely on another system if something we produced failed
+            self.last_success_action = self.desired_action
+        else:
+            self.desired_action = DesiredAction(
+                position=self.last_success_action.position.copy(),
+                orientation=self.last_success_action.orientation.copy(),
+                grip=self.last_success_action.grip
+            )
 
+    def on_images(self, images, _ts):
+        self.raw_textures['top'][:] = images['top'] / 255
+        self.raw_textures['side'][:] = images['side'] / 255
+        self.raw_textures['handcam_left'][:] = images['handcam_left'] / 255
+        self.raw_textures['handcam_right'][:] = images['handcam_right'] / 255
+
+    def update(self):
         # set real position
         robot_position, _ts = self.ins.robot_position()
         dpg.set_value("pos", f"Position: {robot_position}")
         self.actual_position = robot_position.translation
         self.actual_orientation = robot_position.quaternion
-
-        ik_result = self.ins.ik_result.read_nowait()
-        if ik_result is not None:
-            ik_success = ik_result[1] is not None
-            if ik_success:
-                # TODO: This is a bit goofy, as we rely on another system if something we produced failed
-                self.last_success_action = self.desired_action
-            else:
-                self.desired_action = DesiredAction(
-                    position=self.last_success_action.position.copy(),
-                    orientation=self.last_success_action.orientation.copy(),
-                    grip=self.last_success_action.grip
-                )
 
         if self.desired_action is not None:
             target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
@@ -155,11 +151,12 @@ class DearpyguiUi(ControlSystem):
         dpg.show_viewport()
         dpg.maximize_viewport()
 
-        while dpg.is_dearpygui_running():
-            if self.world.should_stop:
-                break
-            self.update()
-            dpg.render_dearpygui_frame()
+        with self.ins.subscribe(images=self.on_images, ik_result=self.ik_update):
+            while dpg.is_dearpygui_running():
+                if self.world.should_stop:
+                    break
+                self.update()
+                dpg.render_dearpygui_frame()
 
         dpg.destroy_context()
         self.world.stop_event.set()

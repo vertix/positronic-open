@@ -84,18 +84,13 @@ class Franka(ControlSystem):
 
     def run(self):
         self.on_start()
-        try:
-            fps = FPSCounter("Franka")
-            for name, _ts, value in self.ins.read():
-                if name == "target_position":
-                    self.on_target_position(value)
-                    fps.tick()
-                elif name == "gripper_grasped":
-                    self.on_gripper_grasped(value)
-        finally:
-            self.on_stop()
+        with self.ins.subscribe(target_position=self.on_target_position, gripper_grasped=self.on_gripper_grasped):
+            try:
+                for _ in self.ins.read(): pass
+            finally:
+                self.on_stop()
 
-    def on_target_position(self, value):
+    def on_target_position(self, value, _ts):
         try:
             pos = franky.Affine(translation=value.translation, quaternion=value.quaternion)
             self.robot.move(franky.CartesianMotion(pos, franky.ReferenceType.Absolute), asynchronous=True)
@@ -103,7 +98,7 @@ class Franka(ControlSystem):
             self.robot.recover_from_errors()
             logger.warning("IK failed for %s: %s", value, e)
 
-    def on_gripper_grasped(self, value):
+    def on_gripper_grasped(self, value, _ts):
         if self.gripper_grasped:
             if value < 0.33:
                 self.gripper.open(self.gripper_speed)

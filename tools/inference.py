@@ -227,27 +227,36 @@ class Inference(ControlSystem):
         policy.to(self.cfg.device)
         running = False
         fps = FPSCounter("Inference")
-        for name, ts, data in self.ins.read():
-            if name == 'start':
-                policy.reset()
-                running = True
-            elif name == 'stop':
-                running = False
-            elif running and name == 'image':
-                obs = self.state_encoder.encode(data.image, self.ins)
-                for key in obs:
-                    obs[key] = obs[key].to(self.cfg.device)
 
-                action = policy.select_action(obs).squeeze(0).cpu().numpy()
-                action_dict = self.action_decoder.decode(action, self.ins)
+        def on_start(_, _ts):
+            nonlocal running
+            policy.reset()
+            fps.reset()
+            running = True
 
-                if self.cfg.rerun:
-                    self._log_observation(ts, obs)
-                    self._log_action(ts, action)
-                    # for key, value in action_dict.items():
-                    #     for i, v in enumerate(value):
-                    #         rr.log(f"action/{key}/{i}", rr.Scalar(v))
+        def on_stop(_, _ts):
+            nonlocal running
+            fps.report()
+            running = False
 
-                for key in action_dict:
-                    self.outs[key].write(action_dict[key], ts)
-                fps.tick()
+        def on_image(data, ts):
+            if not running:
+                return
+            obs = self.state_encoder.encode(data.image, self.ins)
+            for key in obs:
+                obs[key] = obs[key].to(self.cfg.device)
+
+            action = policy.select_action(obs).squeeze(0).cpu().numpy()
+            action_dict = self.action_decoder.decode(action, self.ins)
+
+            if self.cfg.rerun:
+                self._log_observation(ts, obs)
+                self._log_action(ts, action)
+
+            for key in action_dict:
+                self.outs[key].write(action_dict[key], ts)
+            fps.tick()
+
+        with self.ins.subscribe(start=on_start, stop=on_stop, image=on_image):
+            for _ in self.ins.read():
+                pass

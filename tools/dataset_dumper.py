@@ -39,43 +39,59 @@ class DatasetDumper(ControlSystem):
 
         target_grip, target_robot_position, target_ts = None, None, None
 
-        for name, ts, data in self.ins.read():
-            if name == 'start_episode':
-                tracked = True
-                print(f"Episode {self.episode_count} started")
-                episode_start = self.world.now_ts
-            elif name == 'end_episode':
-                assert tracked, "end_episode without start_episode"
-                self.dump_episode(ep_dict)
-                ep_dict = defaultdict(list)
-                episode_start = None
-                tracked = False
-            elif tracked and name == 'target_grip':
-                target_grip, target_ts = data, ts
-            elif tracked and name == 'target_robot_position':
-                target_robot_position = data
-            elif tracked and name == 'image' and target_ts is not None:
-                robot_position, robot_ts = self.ins.robot_position()
+        def on_start_episode(_, _ts):
+            nonlocal tracked, episode_start
+            tracked = True
+            print(f"Episode {self.episode_count} started")
+            episode_start = self.world.now_ts
 
-                now_ts = self.world.now_ts
+        def on_end_episode(_, _ts):
+            nonlocal tracked, episode_start
+            assert tracked, "end_episode without start_episode"
+            self.dump_episode(ep_dict)
+            ep_dict = defaultdict(list)
+            episode_start = None
+            tracked = False
 
-                img = data.image if hasattr(data, 'image') else data
-                ep_dict['image'].append(img)
+        def on_target_grip(grip, ts):
+            nonlocal target_grip, target_ts
+            target_grip, target_ts = grip, ts
 
-                ep_dict['target_robot_position.translation'].append(target_robot_position.translation)
-                ep_dict['target_robot_position.quaternion'].append(target_robot_position.quaternion)
-                ep_dict['target_grip'].append(target_grip)
+        def on_target_robot_position(robot_position, _ts):
+            nonlocal target_robot_position
+            target_robot_position = robot_position
 
-                if self.ins.grip is not None:
-                    ep_dict['grip'].append(self.ins.grip()[0])
-                ep_dict['ee_force'].append(self.ins.ext_force_ee()[0])
-                ep_dict['base_force'].append(self.ins.ext_force_base()[0])
-                ep_dict['robot_joints'].append(self.ins.robot_joints()[0])
-                robot_position, robot_ts = self.ins.robot_position()
-                ep_dict['robot_position.translation'].append(robot_position.translation)
-                ep_dict['robot_position.quaternion'].append(robot_position.quaternion)
+        def on_image(data, ts):
+            if not tracked or target_ts is None:
+                return
 
-                ep_dict['time'].append((now_ts - episode_start) / 1000)
-                ep_dict['delay/image'].append((now_ts - ts) / 1000)
-                ep_dict['delay/robot'].append((now_ts - robot_ts) / 1000)
-                ep_dict['delay/target'].append((now_ts - target_ts) / 1000)
+            now_ts = self.world.now_ts
+
+            ep_dict['image'].append(data.image if hasattr(data, 'image') else data)
+
+            ep_dict['target_robot_position.translation'].append(target_robot_position.translation)
+            ep_dict['target_robot_position.quaternion'].append(target_robot_position.quaternion)
+            ep_dict['target_grip'].append(target_grip)
+
+            if self.ins.grip is not None:
+                ep_dict['grip'].append(self.ins.grip()[0])
+            ep_dict['ee_force'].append(self.ins.ext_force_ee()[0])
+            ep_dict['base_force'].append(self.ins.ext_force_base()[0])
+            ep_dict['robot_joints'].append(self.ins.robot_joints()[0])
+            robot_position, robot_ts = self.ins.robot_position()
+            ep_dict['robot_position.translation'].append(robot_position.translation)
+            ep_dict['robot_position.quaternion'].append(robot_position.quaternion)
+
+            ep_dict['time'].append((now_ts - episode_start) / 1000)
+            ep_dict['delay/image'].append((now_ts - ts) / 1000)
+            ep_dict['delay/robot'].append((now_ts - robot_ts) / 1000)
+            ep_dict['delay/target'].append((now_ts - target_ts) / 1000)
+
+        with self.ins.subscribe(start_episode=on_start_episode,
+                                end_episode=on_end_episode,
+                                target_grip=on_target_grip,
+                                target_robot_position=on_target_robot_position,
+                                image=on_image):
+            for _ in self.ins.read():
+                pass
+
