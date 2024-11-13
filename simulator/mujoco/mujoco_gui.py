@@ -12,7 +12,7 @@ from tools.dataset_dumper import DatasetDumper
 
 @control_system(
     inputs=["images"],
-    input_props=["robot_position"],
+    input_props=["robot_position", "simulator_ts"],
     outputs=["start_episode", "end_episode", "target_grip", "target_robot_position"],
 )
 class DearpyguiUi(ControlSystem):
@@ -88,8 +88,9 @@ class DearpyguiUi(ControlSystem):
 
         if self.desired_action is not None:
             target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
-            self.outs.target_grip.write(self.desired_action.grip, self.world.now_ts)
-            self.outs.target_robot_position.write(target_pos, self.world.now_ts)
+            simulator_ts = self.ins.simulator_ts()
+            self.outs.target_grip.write(self.desired_action.grip, simulator_ts)
+            self.outs.target_robot_position.write(target_pos, simulator_ts)
 
 
     def key_down(self, sender, app_data):
@@ -215,9 +216,11 @@ def main(cfg: DictConfig):
 
     inverse_kinematics.ins.bind(target_robot_position=window.outs.target_robot_position)
 
-    window.ins.bind(#ik_result=inverse_kinematics.outs.actuator_values,
-                    images=renderer.outs.images,
-                    robot_position=simulator.outs.robot_position)
+    window.ins.bind(
+        images=renderer.outs.images,
+        robot_position=simulator.outs.robot_position,
+        simulator_ts=simulator.outs.ts,
+    )
 
     if cfg.data_output_dir is not None:
         @utils.map_port
@@ -231,6 +234,7 @@ def main(cfg: DictConfig):
             'ext_force_ee': simulator.outs.ext_force_ee,
             'ext_force_base': simulator.outs.ext_force_base,
             'grip': simulator.outs.grip,
+            'actuator_values': simulator.outs.actuator_values,
         })
 
         data_dumper = DatasetDumper(world, cfg.data_output_dir)
