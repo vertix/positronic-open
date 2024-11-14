@@ -34,7 +34,7 @@ def xmat_to_quat(xmat):
     outputs=["actuator_values"]
 )
 class InverseKinematics(ControlSystem):
-    def __init__(self, world: "World", data: mujoco.MjData):
+    def __init__(self, world: World, data: mujoco.MjData):
         super().__init__(world)
         self.joints = [f'joint{i}' for i in range(1, 8)]
         self.physics = dm_mujoco.Physics.from_model(data)
@@ -51,6 +51,7 @@ class InverseKinematics(ControlSystem):
                 target_quat=target_robot_position.quaternion,
                 joint_names=self.joints,
                 rot_weight=0.5,
+                max_steps=200,
             )
 
         if result.success:
@@ -155,6 +156,11 @@ class Mujoco(ControlSystem):
 
         with self.ins.subscribe(actuator_values=on_actuator_values, target_grip=on_target_grip):
             while not self.world.should_stop:
+                while self.ins.actuator_values.read_nowait() is not None:
+                    pass
+                while self.ins.target_grip.read_nowait() is not None:
+                    pass
+
                 if self.world.now_ts - self.last_simulation_time >= self.simulation_rate:
                     self.simulate()
 

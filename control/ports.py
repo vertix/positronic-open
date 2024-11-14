@@ -120,6 +120,7 @@ class DirectWriteInputPort(InputPort):
         return None
 
 
+# TODO: Imporve debugability of this class, in particular the queue size.
 class ThreadedInputPort(InputPort):
     def __init__(self, world, binded_to: OutputPort):
         self.queue = queue.Queue(maxsize=5)
@@ -147,9 +148,9 @@ class ThreadedInputPort(InputPort):
                 t_o = min(TICK, timeout) if timeout is not None else TICK
                 timeout = max(timeout - TICK, 0) if timeout is not None else None
                 result = self.queue.get(block=block, timeout=t_o)
-                self.queue.task_done()
                 for callback in self.callbacks.keys():
                     callback(result[1], result[0])  # TODO: Change the order when we change the order of the tuple
+                self.queue.task_done()
                 return result
             except queue.Empty:
                 if not block or (timeout is not None and timeout <= 0):
@@ -269,7 +270,8 @@ class InputPortContainer:
                 for future in done:
                     name = futures.pop(future)
                     result = future.result()
-                    if result is None: return  # Stop is requested
+                    if result is None:
+                        return  # Stop is requested
                     timestamp, value = result
                     yield name, timestamp, value
 

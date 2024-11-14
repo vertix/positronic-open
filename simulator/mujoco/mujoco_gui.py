@@ -40,7 +40,7 @@ class DearpyguiUi(ControlSystem):
             # TODO: This is a bit goofy, as we rely on another system if something we produced failed
             assert self.desired_action is not None
             self.last_success_action = self.desired_action
-        else:
+        elif self.last_success_action is not None:
             self.desired_action = DesiredAction(
                 position=self.last_success_action.position.copy(),
                 orientation=self.last_success_action.orientation.copy(),
@@ -55,8 +55,10 @@ class DearpyguiUi(ControlSystem):
 
     def update(self):
         # This consumes the data and calls the callbacks if needed
-        self.ins.ik_result.read_nowait()
-        self.ins.images.read_nowait()
+        while self.ins.ik_result.read_nowait() is not None:
+            pass
+        while self.ins.images.read_nowait() is not None:
+            pass
 
         # set real position
         robot_position, _ts = self.ins.robot_position()
