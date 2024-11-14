@@ -85,11 +85,12 @@ class Franka(ControlSystem):
 
     def run(self):
         self.on_start()
-        with self.ins.subscribe(target_position=self.on_target_position, gripper_grasped=self.on_gripper_grasped):
-            try:
-                for _ in self.ins.read(): pass
-            finally:
-                self.on_stop()
+        try:
+            with self.ins.subscribe(target_position=self.on_target_position, gripper_grasped=self.on_gripper_grasped):
+                for _ in self.ins.read():
+                    pass
+        finally:
+            self.on_stop()
 
     def on_target_position(self, value, _ts):
         try:

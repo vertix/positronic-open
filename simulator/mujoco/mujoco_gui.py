@@ -1,3 +1,5 @@
+import time
+
 import hydra
 import mujoco
 import numpy as np
@@ -55,10 +57,14 @@ class DearpyguiUi(ControlSystem):
 
     def update(self):
         # This consumes the data and calls the callbacks if needed
+        consumed = False
         while self.ins.ik_result.read_nowait() is not None:
-            pass
+            consumed = True
         while self.ins.images.read_nowait() is not None:
-            pass
+            consumed = True
+
+        if not consumed:
+            time.sleep(0.01)
 
         # set real position
         robot_position, _ts = self.ins.robot_position()

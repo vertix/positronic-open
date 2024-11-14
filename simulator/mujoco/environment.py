@@ -50,8 +50,7 @@ class InverseKinematics(ControlSystem):
                 target_pos=target_robot_position.translation,
                 target_quat=target_robot_position.quaternion,
                 joint_names=self.joints,
-                rot_weight=0.5,
-                max_steps=200,
+                rot_weight=0.5
             )
 
         if result.success:

@@ -1,12 +1,13 @@
 from abc import ABC, abstractmethod
 from collections import deque
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 import queue
 import time
 from typing import Any, Callable, ContextManager, Dict, List, Optional
 import threading
 
+Empty = queue.Empty
 
 class OutputPort:
     """
@@ -42,9 +43,18 @@ class OutputPort:
 class InputPort(ABC):
     @abstractmethod
     def read(self, block: bool = True, timeout: Optional[float] = None):
-        """
-        Returns (timestamp, value) or None if timeout is reached.
-        Blocking if no timeout. Implementations must respect world.should_stop.
+        """Read a value from the input port.
+
+        Returns:
+            tuple: A (timestamp, value) pair.
+
+        Raises:
+            Empty: If timeout is reached before a value is available.
+            StopIteration: If the world should stop.
+
+        Note:
+            - Blocks indefinitely if no timeout is specified
+            - Implementations must respect world.should_stop
         """
         pass
 
@@ -63,21 +73,25 @@ class InputPort(ABC):
         pass
 
     def read_nowait(self, timeout: Optional[float] = None):
-        return self.read(block=False, timeout=timeout)
+        try:
+            return self.read(block=False, timeout=timeout)
+        except Empty:
+            return None
 
     def read_until_stop(self):
         """
-        Generator that continuously reads from the input port until the world should stop,
-        or until the port is closed.
+        Generator that continuously reads from the input port until the world should stop.
 
         This method blocks and yields (timestamp, value) tuples from the input port.
         It stops when the world's should_stop flag is set.
         """
         while not self.world.should_stop:
-            res = self.read(block=True, timeout=None)
-            if res is None:
-                break
-            yield res
+            try:
+                res = self.read(block=True, timeout=None)
+                if res is not None:  # Only yield if we got a value
+                    yield res
+            except StopIteration:
+                return
 
 
 class DirectWriteInputPort(InputPort):
@@ -113,12 +127,11 @@ class DirectWriteInputPort(InputPort):
                         callback(value[1], value[0])  # value, timestamp
                     return value
             if not block:
-                return None
+                raise Empty
             if timeout is not None and (time.time() - start_time) >= timeout:
-                return None
+                raise Empty
             time.sleep(0.01)
-        return None
-
+        raise StopIteration
 
 # TODO: Imporve debugability of this class, in particular the queue size.
 class ThreadedInputPort(InputPort):
@@ -154,8 +167,8 @@ class ThreadedInputPort(InputPort):
                 return result
             except queue.Empty:
                 if not block or (timeout is not None and timeout <= 0):
-                    return None
-        return None  # Stop is requested
+                    raise Empty
+        raise StopIteration
 
 
 class OutputPortContainer:
@@ -269,12 +282,12 @@ class InputPortContainer:
 
                 for future in done:
                     name = futures.pop(future)
-                    result = future.result()
-                    if result is None:
-                        return  # Stop is requested
+                    try:
+                        result = future.result()
+                    except StopIteration:
+                        return
                     timestamp, value = result
                     yield name, timestamp, value
 
                     futures[executor.submit(self._ports[name].read)] = name
                     timeout_left = timeout
-

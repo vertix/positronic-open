@@ -92,6 +92,10 @@ def test_system_world_registration():
     assert system.world == world
     assert not world.should_stop  # Verify initial state
 
+    # Test that input ports respect world stop
+    world.stop_event.set()
+    with pytest.raises(StopIteration):
+        system.ins.input1.read()
 
 if __name__ == "__main__":
     pytest.main([__file__])
