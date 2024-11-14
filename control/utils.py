@@ -1,9 +1,9 @@
 import logging
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from control.world import World
-from .system import ControlSystem, control_system, output_property
+from .system import ControlSystem, control_system, output_property, output_property_custom_time
 from .ports import OutputPort
 from .ports import InputPort
 
@@ -46,15 +46,29 @@ class FPSCounter:
             self.last_report_time = time.monotonic()
             self.frame_count = 0
 
-@control_system(outputs=["prop_values"])
+@control_system(output_props=["prop_values"])
 class PropDict(ControlSystem):
     def __init__(self, world: World, input_props: Dict[str, Callable[[], Any]]):
         super().__init__(world)
         self.input_props = input_props
 
-    @output_property("prop_values")
+    @output_property_custom_time("prop_values")
     def prop_values(self):
-        return {name: fn()[0] for name, fn in self.input_props.items()}
+        prop_times = {}
+        prop_values = {}
+        for name, fn in self.input_props.items():
+            value, ts = fn()
+            prop_values[name] = value
+            prop_times[name] = ts
+        
+        time_list = list(prop_times.values())
+        # warn if time range is too large
+        if len(time_list) > 0:
+            time_range = max(time_list) - min(time_list)
+            if time_range > 10:
+                print(f"Warning: time range for prop_values is {time_range} ms")
+        
+        return prop_values, min(time_list)
 
     def run(self):
         pass

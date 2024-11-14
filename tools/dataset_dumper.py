@@ -8,13 +8,12 @@ from control import ControlSystem, World, control_system
 
 
 @control_system(inputs=['image', 'start_episode', 'end_episode', 'target_grip', 'target_robot_position'],
+                outputs=['episode_saved'],
                 input_props=['robot_data'])
 class DatasetDumper(ControlSystem):
     def __init__(self, world: World, directory: str):
         super().__init__(world)
         self.directory = directory
-
-
         os.makedirs(self.directory, exist_ok=True)
 
         episode_files = [f for f in os.listdir(directory) if f.endswith('.pt')]
@@ -28,18 +27,20 @@ class DatasetDumper(ControlSystem):
         # Transform everything to torch tensors
         for k, v in ep_dict.items():
             ep_dict[k] = torch.tensor(np.array(v))
+
         fname = f"{self.directory}/{str(self.episode_count).zfill(3)}.pt"
         torch.save(ep_dict, fname)
-        print(f"Episode {self.episode_count} saved to {fname} with {ep_dict['image'].shape[0]} frames")
-        self.episode_count += 1
 
+        print(f"Episode {self.episode_count} saved to {fname} with {len(ep_dict['time'])} frames")
+        self.episode_count += 1
+        self.outs.episode_saved.write(True, self.world.now_ts)
     def run(self):
         ep_dict = defaultdict(list)
 
         tracked = False
         episode_start = None
 
-        target_grip, target_robot_position, target_ts = None, None, None
+        target_grip, target_robot_position, img, target_ts = None, None, None, None
 
         for name, ts, data in self.ins.read():
             if name == 'start_episode':
@@ -68,8 +69,9 @@ class DatasetDumper(ControlSystem):
                 data, robot_ts = self.ins.robot_data()
                 for name, value in data.items():
                     ep_dict[name].append(value)
-
+                
                 ep_dict['time'].append((now_ts - episode_start) / 1000)
+                ep_dict['time/robot'].append(robot_ts)
                 ep_dict['delay/image'].append((now_ts - ts) / 1000)
                 ep_dict['delay/robot'].append((now_ts - robot_ts) / 1000)
                 ep_dict['delay/target'].append((now_ts - target_ts) / 1000)

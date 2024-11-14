@@ -2,8 +2,10 @@ import pytest
 import time
 import threading
 from threading import Event
-from control.ports import OutputPort, ThreadedInputPort, InputPortContainer, OutputPortContainer, DirectWriteInputPort
+from control.ports import InputPort, OutputPort, ThreadedInputPort, InputPortContainer, OutputPortContainer, DirectWriteInputPort
 from control.world import MainThreadWorld
+from control import utils
+
 
 class MockWorld:
     def __init__(self):
@@ -106,6 +108,30 @@ def test_direct_write_input_port():
 
     stop_thread.join()
 
+def test_map_port(world):
+    output_port = OutputPort(world)
+    input_port = InputPortContainer(world, ["input"], [])
+
+    @utils.map_port
+    def square(value):
+        return value * value
+
+    input_port.bind(input=square(output_port))
+
+    output_port.write(2, timestamp=0)
+    assert input_port.input.read() == (0, 4)
+
+
+def test_port_to_prop():
+    world = MainThreadWorld()
+    output_port = OutputPort(world)
+    prop = utils.port_to_prop(output_port)
+    world.run()
+    time.sleep(0.2)
+
+    output_port.write(2, timestamp=0)
+    time.sleep(0.2)
+    assert prop() == (0, 2)
 
 if __name__ == "__main__":
     pytest.main([__file__])

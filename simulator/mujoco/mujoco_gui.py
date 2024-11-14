@@ -86,12 +86,12 @@ class DearpyguiUi(ControlSystem):
             self.move()
             self.last_move_ts = self.world.now_ts
 
-        if self.desired_action is not None:
-            target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
-            simulator_ts = self.ins.simulator_ts()
-            self.outs.target_grip.write(self.desired_action.grip, simulator_ts)
-            self.outs.target_robot_position.write(target_pos, simulator_ts)
+            if self.desired_action is not None:
+                target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
+                simulator_ts = self.ins.simulator_ts()
 
+                self.outs.target_grip.write(self.desired_action.grip, simulator_ts)
+                self.outs.target_robot_position.write(target_pos, simulator_ts)
 
     def key_down(self, sender, app_data):
         key = app_data[0]
@@ -128,11 +128,8 @@ class DearpyguiUi(ControlSystem):
                 orientation=self.actual_orientation.copy(),
                 grip=0.0
             )
-        #print(f"Desired action: {self.desired_action}")
         self.desired_action.grip = 1.0 if self.grip_state else 0.0
         for key, vector in self.movement_vectors.items():
-            # print(f"Moving {key} {self.move_key_states.get(key, False)}")
-
             if self.move_key_states.get(key, False):
                 self.desired_action.position += vector
 
@@ -180,7 +177,6 @@ class DearpyguiUi(ControlSystem):
             if self.world.should_stop:
                 break
 
-
             self.update()
             dpg.render_dearpygui_frame()
 
@@ -209,12 +205,13 @@ def main(cfg: DictConfig):
 
     inverse_kinematics = InverseKinematics(world, data=data)
     window = DearpyguiUi(world, width, height)
-
+    
     # wires
     simulator.ins.bind(target_grip=window.outs.target_grip,
                        actuator_values=inverse_kinematics.outs.actuator_values)
 
     inverse_kinematics.ins.bind(target_robot_position=window.outs.target_robot_position)
+    renderer.ins.bind(step_complete=simulator.outs.step_complete)
 
     window.ins.bind(
         images=renderer.outs.images,
@@ -223,10 +220,10 @@ def main(cfg: DictConfig):
     )
 
     if cfg.data_output_dir is not None:
-        @utils.map_port
-        def stack_images(images):
-            return np.hstack([images['handcam_left'], images['handcam_right']])
-        
+        # @utils.map_port
+        # def stack_images(images):
+        #     return np.hstack([images['handcam_left'], images['handcam_right']])
+                
         properties_to_dump = utils.PropDict(world, {
             'robot_joints': simulator.outs.joints,
             'robot_position.translation': simulator.outs.robot_translation,
@@ -239,7 +236,7 @@ def main(cfg: DictConfig):
 
         data_dumper = DatasetDumper(world, cfg.data_output_dir)
         data_dumper.ins.bind(
-            image=stack_images(renderer.outs.images),
+            image=simulator.outs.step_complete,
             target_grip=window.outs.target_grip,
             target_robot_position=window.outs.target_robot_position,
             start_episode=window.outs.start_episode,
