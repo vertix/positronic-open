@@ -1,93 +1,88 @@
 from logging.config import dictConfig
 from pathlib import Path
+from typing import Tuple
+
 from tqdm import tqdm
-from control import utils
-from control.utils import PropDict, control_system_fn
-from geom import Transform3D
 import numpy as np
 import hydra
 import mujoco
 import torch
 
-from control.system import ControlSystem, control_system
-from control.world import MainThreadWorld, World
-from simulator.mujoco.environment import MujocoRenderer, MujocoSimulator
-from tools.dataset_dumper import DatasetDumper
+from simulator.mujoco.environment import MujocoRenderer
+from simulator.mujoco.sim import MujocoSimulator
+from tools.dataset_dumper import SerialDumper
 
 
-@control_system(outputs=["actuator_values", "target_grip", "target_robot_position", "start_episode", "end_episode"])
-class RecordPlayer(ControlSystem):
-    def __init__(self, world: World, episode_path: Path):
-        super().__init__(world)
-        self.episode_path = Path(episode_path)
+class EpisodeRenderer:
+    def __init__(self, render_resolution: Tuple[int, int], simulation_hz: int, observation_hz: int):
+        self.render_resolution = render_resolution
+        self.simulation_hz = simulation_hz
+        self.observation_hz = observation_hz
         
-    def run(self):
-        data = torch.load(self.episode_path)
+    def render(self, episode_path: Path, target_path: Path):
+        data = torch.load(episode_path)
         n_frames = len(data['time'])
-        
-        self.outs.start_episode.write(True, data['time/robot'][0])
 
-        for i in tqdm(range(n_frames)):
-            simulator_ts = data['time/robot'][i]
-            self.outs.actuator_values.write(data['actuator_values'][i], simulator_ts)
-            self.outs.target_grip.write(data['target_grip'][i], simulator_ts)
+        mj_model = mujoco.MjModel.from_xml_path(data['mujoco_model_path'])
+        mj_data = mujoco.MjData(mj_model)
+        simulator = MujocoSimulator(mj_model, mj_data, simulation_rate=1 / self.simulation_hz)
+        renderer = MujocoRenderer(mj_model, mj_data, render_resolution=self.render_resolution)
+        dataset_writer = SerialDumper(target_path)
 
-            translation = torch.tensor(data['target_robot_position.translation'][i])
-            quaternion = torch.tensor(data['target_robot_position.quaternion'][i])
+        simulator.reset()
+        renderer.initialize()
+        dataset_writer.start_episode()
+
+        event_idx = 0
+        last_render_ts = 0
+        tqdm_iter = tqdm(total=n_frames)
+
+        while event_idx < n_frames:
+            if data['time'][event_idx] <= simulator.ts:
+                simulator.set_actuator_values(data['actuator_values'][event_idx])
+                simulator.set_grip(data['target_grip'][event_idx])
+                event_idx += 1
+                tqdm_iter.update(1)
             
-            self.outs.target_robot_position.write(Transform3D(translation, quaternion), simulator_ts)
+            tqdm_iter.set_postfix(sim_ts=simulator.ts)
+            simulator.step()
+            
+            if simulator.ts - last_render_ts >= 1 / self.observation_hz:
+                last_render_ts = simulator.ts
+                images = renderer.render_frames()
+                image = np.hstack([images['handcam_left'], images['handcam_right']])
+                dataset_writer.write({
+                    'image': image,
+                    'actuator_values': simulator.actuator_values,
+                    'grip': simulator.grip,
+                    'robot_position.translation': simulator.robot_position.translation,
+                    'robot_position.quaternion': simulator.robot_position.quaternion,
+                    'ext_force_ee': simulator.ext_force_ee,
+                    'ext_force_base': simulator.ext_force_base,
+                    'robot_joints': simulator.joints,
+                    'target_grip': data['target_grip'][event_idx],
+                    'target_robot_position.quaternion': data['target_robot_position.quaternion'][event_idx],
+                    'target_robot_position.translation': data['target_robot_position.translation'][event_idx],
+                    'time': data['time'][event_idx],
+                    'time/robot': data['time/robot'][event_idx],
+                    'delay/robot': data['delay/robot'][event_idx],
+                    'delay/target': data['delay/target'][event_idx],
+                    'delay/image': data['delay/image'][event_idx],
+                })
 
-        self.outs.end_episode.write(True, data['time/robot'][-1])
-
+        dataset_writer.end_episode()
+        tqdm_iter.close()
 
 
 @hydra.main(version_base=None, config_path=".", config_name="record_renderer")
 def main(cfg: dictConfig):
-    world = MainThreadWorld()
-    model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
-    data = mujoco.MjData(model)
-    record_player = RecordPlayer(world, Path(cfg.episode_path))
-    simulator = MujocoSimulator(world, model, data)
-    renderer = MujocoRenderer(
-        world, model, data, render_resolution=(cfg.mujoco.camera_width, cfg.mujoco.camera_height), max_fps=cfg.mujoco.observation_hz
+    renderer = EpisodeRenderer(
+        (cfg.mujoco.camera_width, cfg.mujoco.camera_height),
+        simulation_hz=cfg.mujoco.simulation_hz,
+        observation_hz=cfg.mujoco.observation_hz
     )
-    dumper = DatasetDumper(world, cfg.data_output_dir)
-    simulator.ins.bind(actuator_values=record_player.outs.actuator_values,
-                       target_grip=record_player.outs.target_grip)
-    renderer.ins.bind(step_complete=simulator.outs.step_complete)
-    
-    properties_to_dump = PropDict(world, {
-        'robot_joints': simulator.outs.joints,
-        'robot_position.translation': simulator.outs.robot_translation,
-        'robot_position.quaternion': simulator.outs.robot_quaternion,
-        'ext_force_ee': simulator.outs.ext_force_ee,
-        'ext_force_base': simulator.outs.ext_force_base,
-        'grip': simulator.outs.grip,
-        'actuator_values': simulator.outs.actuator_values,
-    })
+    renderer.render(cfg.episode_path, cfg.data_output_dir)
 
-    @utils.map_port
-    def stack_images(images):
-        return np.hstack([images['handcam_left'], images['handcam_right']])
-
-    dumper.ins.bind(
-        start_episode=record_player.outs.start_episode,
-        end_episode=record_player.outs.end_episode,
-        target_grip=record_player.outs.target_grip,
-        target_robot_position=record_player.outs.target_robot_position,
-        image=stack_images(renderer.outs.images),
-        robot_data=properties_to_dump.outs.prop_values,
-    )
-
-    @control_system_fn(inputs=['episode_saved'])
-    def on_episode_saved(ins, outs):
-        for _ts, _value in ins.episode_saved.read_until_stop():
-            world.stop_event.set()
-
-    stopper = on_episode_saved(world)
-    stopper.ins.bind(episode_saved=dumper.outs.episode_saved)
-
-    world.run()
 
 if __name__ == "__main__":
     main()

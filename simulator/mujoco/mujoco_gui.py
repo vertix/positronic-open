@@ -1,3 +1,4 @@
+import time
 import hydra
 import mujoco
 import numpy as np
@@ -6,14 +7,20 @@ import dearpygui.dearpygui as dpg
 
 from control import MainThreadWorld, ControlSystem, control_system, utils
 from geom import Transform3D
-from simulator.mujoco.environment import MujocoSimulator, InverseKinematics, DesiredAction, MujocoRenderer
+from simulator.mujoco.environment import MujocoSimulatorCS, InverseKinematics, DesiredAction, MujocoRendererCS
+from simulator.mujoco.sim import MujocoRenderer, MujocoSimulator
 from tools.dataset_dumper import DatasetDumper
+
+
+def _set_image(target, source):
+    target[:] = source.astype(np.float32)
+    target[:] /= 255
 
 
 @control_system(
     inputs=["images"],
     input_props=["robot_position", "simulator_ts"],
-    outputs=["start_episode", "end_episode", "target_grip", "target_robot_position"],
+    outputs=["start_episode", "end_episode", "target_grip", "target_robot_position", "metadata", "reset"],
 )
 class DearpyguiUi(ControlSystem):
     speed = 0.002
@@ -37,15 +44,16 @@ class DearpyguiUi(ControlSystem):
 
     move_update_rate = 0.1
 
-    def __init__(self, world, width, height):
+    def __init__(self, world, width, height, episode_metadata: dict = None):
         super().__init__(world)
         self.width = width
         self.height = height
+        self.episode_metadata = episode_metadata or {}
 
         self.desired_action = None
-        self.last_success_action = None
         self.actual_position = None
         self.actual_orientation = None
+        self.initial_position = None
 
         self.recording = False
         self.last_move_ts = -1
@@ -71,10 +79,10 @@ class DearpyguiUi(ControlSystem):
         images = self.ins.images.read_nowait()
         if images is not None:
             ts, images = images
-            self.raw_textures['top'][:] = images['top'] / 255
-            self.raw_textures['side'][:] = images['side'] / 255
-            self.raw_textures['handcam_left'][:] = images['handcam_left'] / 255
-            self.raw_textures['handcam_right'][:] = images['handcam_right'] / 255
+            _set_image(self.raw_textures['top'], images['top'])
+            _set_image(self.raw_textures['side'], images['side'])
+            _set_image(self.raw_textures['handcam_left'], images['handcam_left'])
+            _set_image(self.raw_textures['handcam_right'], images['handcam_right'])
 
         # set real position
         robot_position, _ts = self.ins.robot_position()
@@ -110,24 +118,37 @@ class DearpyguiUi(ControlSystem):
         if self.recording:
             self.outs.end_episode.write(True, self.world.now_ts)
         else:
+            self.outs.reset.write(True, self.world.now_ts)
+            self.desired_action = None
             self.outs.start_episode.write(True, self.world.now_ts)
-
+            time.sleep(0.1)  # TODO: figure out the better way to chain events
+            self.outs.metadata.write(self.episode_metadata, self.world.now_ts)
+            
         self.recording = not self.recording
+
+    def set_initial_position(self):
+        if self.actual_position is None or self.initial_position is not None:
+            return
+
+        self.initial_position = DesiredAction(
+            position=self.actual_position.copy(),
+            orientation=self.actual_orientation.copy(),
+            grip=0.0
+        )
 
     def move(self):
         any_key_pressed = any(self.move_key_states.values())
-        if not any_key_pressed:
+        if not any_key_pressed or self.actual_position is None:
             return
 
         if self.desired_action is None:
-            if self.actual_position is None:
-                return
             # initialize from current position
             self.desired_action = DesiredAction(
-                position=self.actual_position.copy(),
-                orientation=self.actual_orientation.copy(),
-                grip=0.0
+                position=self.initial_position.position.copy(),
+                orientation=self.initial_position.orientation.copy(),
+                grip=self.initial_position.grip,
             )
+
         self.desired_action.grip = 1.0 if self.grip_state else 0.0
         for key, vector in self.movement_vectors.items():
             if self.move_key_states.get(key, False):
@@ -157,6 +178,7 @@ class DearpyguiUi(ControlSystem):
                 with dpg.table_row():
                     dpg.add_image("top")
                     dpg.add_image("side")
+        with dpg.window(label="Info"):
             dpg.add_text("", tag="pos")
             dpg.add_text("", tag="target")
 
@@ -174,6 +196,7 @@ class DearpyguiUi(ControlSystem):
         dpg.maximize_viewport()
 
         while dpg.is_dearpygui_running():
+            self.set_initial_position()
             if self.world.should_stop:
                 break
 
@@ -192,23 +215,30 @@ def main(cfg: DictConfig):
     model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
     data = mujoco.MjData(model)
 
+    simulator = MujocoSimulator(model=model, data=data, simulation_rate=1 / cfg.mujoco.simulation_hz)
+    renderer = MujocoRenderer(model=model, data=data, render_resolution=(width, height))
+
     world = MainThreadWorld()
 
     # systems
-    simulator = MujocoSimulator(
+    simulator = MujocoSimulatorCS(
         world=world,
-        model=model,
-        data=data,
+        simulator=simulator,
         simulation_rate=1 / cfg.mujoco.simulation_hz,
     )
-    renderer = MujocoRenderer(world, model, data, render_resolution=(width, height), max_fps=cfg.mujoco.observation_hz)
+    renderer = MujocoRendererCS(world, renderer, render_resolution=(width, height), max_fps=cfg.mujoco.observation_hz)
 
     inverse_kinematics = InverseKinematics(world, data=data)
-    window = DearpyguiUi(world, width, height)
+    episode_metadata = {
+        'mujoco_model_path': cfg.mujoco.model_path,
+        'simulation_hz': cfg.mujoco.simulation_hz,
+    }
+    window = DearpyguiUi(world, width, height, episode_metadata)
     
     # wires
     simulator.ins.bind(target_grip=window.outs.target_grip,
-                       actuator_values=inverse_kinematics.outs.actuator_values)
+                       actuator_values=inverse_kinematics.outs.actuator_values,
+                       reset=window.outs.reset)
 
     inverse_kinematics.ins.bind(target_robot_position=window.outs.target_robot_position)
     renderer.ins.bind(step_complete=simulator.outs.step_complete)
@@ -220,10 +250,7 @@ def main(cfg: DictConfig):
     )
 
     if cfg.data_output_dir is not None:
-        # @utils.map_port
-        # def stack_images(images):
-        #     return np.hstack([images['handcam_left'], images['handcam_right']])
-                
+               
         properties_to_dump = utils.PropDict(world, {
             'robot_joints': simulator.outs.joints,
             'robot_position.translation': simulator.outs.robot_translation,
@@ -236,11 +263,12 @@ def main(cfg: DictConfig):
 
         data_dumper = DatasetDumper(world, cfg.data_output_dir)
         data_dumper.ins.bind(
-            image=simulator.outs.step_complete,
+            image=simulator.outs.step_complete,  # TODO: allow dumper to dump on any port
             target_grip=window.outs.target_grip,
             target_robot_position=window.outs.target_robot_position,
             start_episode=window.outs.start_episode,
             end_episode=window.outs.end_episode,
+            metadata=window.outs.metadata,
             robot_data=properties_to_dump.prop_values,
         )
 

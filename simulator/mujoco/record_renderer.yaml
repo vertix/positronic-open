@@ -2,7 +2,7 @@ mujoco:
   model_path: 'assets/mujoco/mjx_single_cube.xml'
   camera_width: 1280
   camera_height: 640
-  simulation_hz: 1000
+  simulation_hz: 500
   observation_hz: 30
 
 episode_path: null
