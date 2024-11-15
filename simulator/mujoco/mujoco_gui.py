@@ -19,7 +19,7 @@ def _set_image(target, source):
 
 @control_system(
     inputs=["images"],
-    input_props=["robot_position", "simulator_ts"],
+    input_props=["robot_position"],
     outputs=["start_episode", "end_episode", "target_grip", "target_robot_position", "metadata", "reset"],
 )
 class DearpyguiUi(ControlSystem):
@@ -96,10 +96,9 @@ class DearpyguiUi(ControlSystem):
 
             if self.desired_action is not None:
                 target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
-                simulator_ts = self.ins.simulator_ts()
 
-                self.outs.target_grip.write(self.desired_action.grip, simulator_ts)
-                self.outs.target_robot_position.write(target_pos, simulator_ts)
+                self.outs.target_grip.write(self.desired_action.grip, self.world.now_ts)
+                self.outs.target_robot_position.write(target_pos, self.world.now_ts)
 
     def key_down(self, sender, app_data):
         key = app_data[0]
@@ -246,7 +245,6 @@ def main(cfg: DictConfig):
     window.ins.bind(
         images=renderer.outs.images,
         robot_position=simulator.outs.robot_position,
-        simulator_ts=simulator.outs.ts,
     )
 
     if cfg.data_output_dir is not None:

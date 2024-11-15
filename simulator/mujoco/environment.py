@@ -158,8 +158,6 @@ class MujocoSimulatorCS(ControlSystem):
             if time_since_last_sim >= self.simulation_rate * 1000:
                 self.simulate()
 
-        print("Sim done")
-
 
 @control_system(inputs=["step_complete"], outputs=["images"])
 class MujocoRendererCS(ControlSystem):

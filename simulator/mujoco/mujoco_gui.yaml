@@ -3,6 +3,6 @@ mujoco:
   camera_width: 1280
   camera_height: 640
   simulation_hz: 500
-  observation_hz: 30
+  observation_hz: 60
 
 data_output_dir: null
