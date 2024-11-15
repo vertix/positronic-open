@@ -20,6 +20,16 @@ def map_port(fn: Callable[[Any], Any]):
 
     return _MapPort
 
+
+def map_prop(fn: Callable[[Any], Any]):
+    def _wrapper(original):
+        def _internal():
+            value, ts = original()
+            return fn(value), ts
+        return _internal
+    return _wrapper
+
+
 def control_system_fn(*, inputs: List[str] = None, outputs: List[str] = None, input_props: List[str] = None):
     def decorator(fn):
         @control_system(inputs=inputs, outputs=outputs, input_props=input_props)

@@ -61,8 +61,6 @@ class InverseKinematics(ControlSystem):
     outputs=["step_complete"],  
     output_props=[
         "robot_position",
-        "robot_translation",
-        "robot_quaternion",
         "grip",
         "joints",
         "ext_force_ee",
@@ -82,14 +80,6 @@ class MujocoSimulatorCS(ControlSystem):
         self.last_simulation_time = None
         self.simulation_rate = simulation_rate
         self.pending_actions = []
-
-    @output_property_custom_time('robot_translation')
-    def robot_translation(self):
-        return self.simulator.robot_position.translation, self.ts()
-
-    @output_property_custom_time('robot_quaternion')
-    def robot_quaternion(self):
-        return self.simulator.robot_position.quaternion, self.ts()
 
     @output_property_custom_time('robot_position')
     def robot_position(self):

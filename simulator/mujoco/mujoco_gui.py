@@ -248,11 +248,19 @@ def main(cfg: DictConfig):
     )
 
     if cfg.data_output_dir is not None:
-               
+
+        @utils.map_prop
+        def get_translation(position):
+            return position.translation
+
+        @utils.map_prop
+        def get_quaternion(position):
+            return position.quaternion
+
         properties_to_dump = utils.PropDict(world, {
             'robot_joints': simulator.outs.joints,
-            'robot_position.translation': simulator.outs.robot_translation,
-            'robot_position.quaternion': simulator.outs.robot_quaternion,
+            'robot_position.translation': get_translation(simulator.outs.robot_position),
+            'robot_position.quaternion': get_quaternion(simulator.outs.robot_position),
             'ext_force_ee': simulator.outs.ext_force_ee,
             'ext_force_base': simulator.outs.ext_force_base,
             'grip': simulator.outs.grip,
