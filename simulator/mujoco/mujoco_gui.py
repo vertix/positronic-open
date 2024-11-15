@@ -257,15 +257,15 @@ def main(cfg: DictConfig):
         def get_quaternion(position):
             return position.quaternion
 
-        properties_to_dump = utils.PropDict(world, {
-            'robot_joints': simulator.outs.joints,
-            'robot_position.translation': get_translation(simulator.outs.robot_position),
-            'robot_position.quaternion': get_quaternion(simulator.outs.robot_position),
-            'ext_force_ee': simulator.outs.ext_force_ee,
-            'ext_force_base': simulator.outs.ext_force_base,
-            'grip': simulator.outs.grip,
-            'actuator_values': simulator.outs.actuator_values,
-        })
+        properties_to_dump = utils.properties_dict(
+            robot_joints=simulator.outs.joints,
+            robot_position_translation=get_translation(simulator.outs.robot_position),
+            robot_position_quaternion=get_quaternion(simulator.outs.robot_position),
+            ext_force_ee=simulator.outs.ext_force_ee,
+            ext_force_base=simulator.outs.ext_force_base,
+            grip=simulator.outs.grip,
+            actuator_values=simulator.outs.actuator_values,
+        )
 
         data_dumper = DatasetDumper(world, cfg.data_output_dir)
         data_dumper.ins.bind(
@@ -275,7 +275,7 @@ def main(cfg: DictConfig):
             start_episode=window.outs.start_episode,
             end_episode=window.outs.end_episode,
             metadata=window.outs.metadata,
-            robot_data=properties_to_dump.prop_values,
+            robot_data=properties_to_dump,
         )
 
 
