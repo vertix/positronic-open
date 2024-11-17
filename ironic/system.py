@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import time
 from types import SimpleNamespace
 from typing import Any, List
 import re
@@ -12,10 +13,20 @@ class Message:
     Contains some data and a timestamp for this data. Timestamps are integers,
     to avoid floating point precision issues. It can be related to epoch or
     to anything else, depending on the context.
+
+    If no timestamp is provided, the current system time is used.
     """
     data: Any
-    timestamp: int
+    timestamp: int = None
 
+    def __post_init__(self):
+        if self.timestamp is None:
+            self.timestamp = system_clock()
+
+
+def system_clock() -> int:
+    """Get current timestamp in nanoseconds."""
+    return time.monotonic_ns()
 
 
 class OutputPort:
