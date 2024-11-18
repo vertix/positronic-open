@@ -3,7 +3,7 @@ import asyncio
 from typing import List, Tuple
 
 import ironic as ir
-from ironic.compose import compose
+from ironic.compose import ComposedSystem, CompositionError, compose
 
 
 @ir.ironic_system(output_ports=['data'], output_props=['counter'])
@@ -171,3 +171,36 @@ async def test_invalid_input():
 
     with pytest.raises(ValueError, match="Unknown input: invalid"):
         system.bind(invalid=None)
+
+
+@pytest.mark.asyncio
+async def test_invalid_component_references():
+    """Test validation of component references in inputs/outputs"""
+    source = DataSource()
+    processor = Processor()
+    other_processor = Processor()  # Not included in composition
+
+    # Test invalid input reference
+    with pytest.raises(CompositionError, match="Input mappings reference components not in composition"):
+        compose(
+            source,
+            processor,
+            inputs={'data': (other_processor, 'in_data')}  # other_processor not in components
+        )
+
+    # Test invalid output reference
+    with pytest.raises(CompositionError, match="Output mappings reference components not in composition"):
+        compose(
+            source,
+            processor,
+            outputs={'result': (other_processor, 'processed')}  # other_processor not in components
+        )
+
+    # Valid composition should work
+    system = compose(
+        source,
+        processor,
+        inputs={'data': (processor, 'in_data')},
+        outputs={'result': (processor, 'processed')}
+    )
+    assert isinstance(system, ComposedSystem)

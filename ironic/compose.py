@@ -23,10 +23,15 @@ Example usage:
     )
 """
 
-from typing import Dict, Sequence, Any, Tuple
+from typing import Dict, Sequence, Any, Tuple, Optional
 from types import SimpleNamespace
 
 from .system import ControlSystem, ironic_system, OutputPort
+
+
+class CompositionError(Exception):
+    """Error raised when composition validation fails"""
+    pass
 
 
 @ironic_system(input_ports=[], output_ports=[])
@@ -34,8 +39,15 @@ class ComposedSystem(ControlSystem):
     """A control system composed of other control systems"""
     def __init__(self,
                  components: Sequence[ControlSystem],
-                 inputs: Dict[str, Tuple[ControlSystem, str]] = None,
-                 outputs: Dict[str, Tuple[ControlSystem, str]] = None):
+                 inputs: Optional[Dict[str, Tuple[ControlSystem, str]]] = None,
+                 outputs: Optional[Dict[str, Tuple[ControlSystem, str]]] = None):
+        components_set = set(components)
+
+        # Validate all referenced components exist in composition
+        for mapping_type, mappings in [('Input', inputs), ('Output', outputs)]:
+            if mappings and any(comp not in components_set for comp, _ in mappings.values()):
+                raise CompositionError(f"{mapping_type} mappings reference components not in composition")
+
         # Get input/output ports from mappings
         input_ports = list(inputs.keys()) if inputs else []
         output_ports = list(outputs.keys()) if outputs else []
