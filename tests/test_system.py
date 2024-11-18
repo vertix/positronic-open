@@ -2,8 +2,8 @@ import pytest
 from ironic import ControlSystem, Message, ironic_system, on_message, out_property, OutputPort
 
 
-class TestSystemBase(ControlSystem):
-    """Base class to avoid pytest warnings about __init__"""
+class MockSystemBase(ControlSystem):
+    """Base class for mock systems used in testing"""
     def __init__(self):
         super().__init__()
         self.received_messages = []
@@ -16,7 +16,7 @@ class TestSystemBase(ControlSystem):
     input_props=['config'],
     output_props=['status']
 )
-class TestSystem(TestSystemBase):
+class MockSystem(MockSystemBase):
     @on_message('sensor')
     async def handle_sensor(self, message: Message):
         self.received_messages.append(message)
@@ -26,15 +26,35 @@ class TestSystem(TestSystemBase):
             timestamp=message.timestamp
         ))
 
-    @out_property()
+    @out_property
     async def status(self):
-        return "ok", 123
+        return Message("ok")
+
+
+class PropertySystemBase(ControlSystem):
+    """Base class for property-based mock systems"""
+    def __init__(self):
+        super().__init__()
+        self._multiplier = 1
+
+
+@ironic_system(
+    input_props=['multiplier'],
+    output_props=['value']
+)
+class PropertySystem(PropertySystemBase):
+    @out_property
+    async def value(self):
+        return self._multiplier * 10, 123
+
+    def set_multiplier(self, value):
+        self._multiplier = value
 
 
 @pytest.mark.asyncio
 async def test_output_port_subscription():
     """Test that output port subscriptions work."""
-    system = TestSystem()
+    system = MockSystem()  # Updated class name
     received_messages = []
 
     # Subscribe to the output port with an async lambda
@@ -54,8 +74,8 @@ async def test_output_port_subscription():
 @pytest.mark.asyncio
 async def test_binding():
     """Test that binding inputs to outputs works."""
-    system1 = TestSystem()
-    system2 = TestSystem()
+    system1 = MockSystem()  # Updated class name
+    system2 = MockSystem()  # Updated class name
 
     # Create a test output port
     test_port = OutputPort("test")
@@ -82,41 +102,10 @@ async def test_binding():
 
 def test_invalid_binding():
     """Test that binding invalid inputs raises error."""
-    system = TestSystem()
+    system = MockSystem()  # Updated class name
 
     with pytest.raises(ValueError, match="Unknown input: invalid_port"):
         system.bind(invalid_port=None)
-
-
-def test_double_binding():
-    """Test that binding inputs twice raises error."""
-    system1 = TestSystem()
-    system2 = TestSystem()
-
-    system2.bind(sensor=system1.outs.processed)
-
-    with pytest.raises(AssertionError, match="Inputs already bound"):
-        system2.bind(sensor=system1.outs.processed)
-
-
-class PropertySystemBase(ControlSystem):
-    """Base class to avoid pytest warnings about __init__"""
-    def __init__(self):
-        super().__init__()
-        self._multiplier = 1
-
-
-@ironic_system(
-    input_props=['multiplier'],
-    output_props=['value']
-)
-class PropertySystem(PropertySystemBase):
-    @out_property()
-    async def value(self):
-        return self._multiplier * 10, 123
-
-    def set_multiplier(self, value):
-        self._multiplier = value
 
 
 @pytest.mark.asyncio

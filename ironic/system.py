@@ -60,7 +60,7 @@ def _validate_pythonic_name(name: str, context: str) -> None:
             "and contain only letters, numbers, and underscores"
         )
 
-def out_property():
+def out_property(method):
     """
     Decorator for declaring that the method is an output property.
 
@@ -70,18 +70,16 @@ def out_property():
     Raises:
         ValueError: If the decorated method is not async
     """
-    def decorator(method):
-        if not inspect.iscoroutinefunction(method):
-            raise ValueError(
-                f"Output property '{method.__name__}' must be an async method"
-            )
+    if not inspect.iscoroutinefunction(method):
+        raise ValueError(
+            f"Output property '{method.__name__}' must be an async method"
+        )
 
-        async def wrapper(self, *args, **kwargs):
-            return await method(self, *args, **kwargs)
-        wrapper.__is_output_property__ = True
-        wrapper.__output_property_name__ = method.__name__
-        return wrapper
-    return decorator
+    async def wrapper(self, *args, **kwargs):
+        return await method(self, *args, **kwargs)
+    wrapper.__is_output_property__ = True
+    wrapper.__output_property_name__ = method.__name__
+    return wrapper
 
 
 def on_message(name: str):
@@ -217,24 +215,31 @@ class ControlSystem:
             for name, method in self.__class__.__dict__.items()
             if hasattr(method, '__is_message_handler__')
         }
-        self.outs = SimpleNamespace(**{
-            port: OutputPort(port) for port in self._output_ports
-        })
+        self._output_props = {
+            method.__output_property_name__: getattr(self, method.__output_property_name__)
+            for method in self.__class__.__dict__.values()
+            if hasattr(method, '__is_output_property__')
+        }
+        outs = {port: OutputPort(port) for port in self._output_ports}
+        outs.update(self._output_props)
+        self.outs = SimpleNamespace(**outs)
         self.ins = None
 
     def bind(self, **bindings):
-        """Bind inputs to provided outputs of other systems. Must be called only once and before setup."""
-        assert self.ins is None, "Inputs already bound"
+        """Bind inputs to provided outputs of other systems. Must be called before calling setup.
+
+        For convienice, returns self so result can be passed to other functions."""
         binds = {}
-        for name, inp in bindings.items():
+        for name, incoming_output in bindings.items():
             if name in self._input_ports:
                 if name in self._message_handlers:  # Otherwise we just ignore that input
-                    binds[name] = inp.subscribe(self._message_handlers[name])
+                    binds[name] = incoming_output.subscribe(self._message_handlers[name])
             elif name in self._input_props:
-                binds[name] = inp  # Property is just a callback, so assignment is enough
+                binds[name] = incoming_output  # Property is just a callback, so assignment is enough
             else:
                 raise ValueError(f"Unknown input: {name}")
         self.ins = SimpleNamespace(**binds)
+        return self
 
     async def setup(self):
         """Setup the control system."""
