@@ -94,6 +94,7 @@ def main(cfg: DictConfig):
     teleop.ins.robot_position = franka.outs.position
     franka.ins.target_position = teleop.outs.robot_target_position
 
+    gripper = None
     if 'dh_gripper' in cfg:
         gripper = DHGripper(world, cfg.dh_gripper)
         gripper.ins.grip = teleop.outs.gripper_target_grasp
@@ -104,11 +105,11 @@ def main(cfg: DictConfig):
     if cfg.data_output_dir is not None:
         properties_to_dump = utils.properties_dict(
             robot_joints=franka.outs.joint_positions,
-            robot_position_translation=lambda: franka.outs.position.read_nowait()[0].translation,
-            robot_position_quaternion=lambda: franka.outs.position.read_nowait()[0].quaternion,
+            robot_position_translation=utils.map_prop(lambda t: t.translation)(franka.outs.position),
+            robot_position_quaternion=utils.map_prop(lambda t: t.quaternion)(franka.outs.position),
             ext_force_ee=franka.outs.ext_force_ee,
             ext_force_base=franka.outs.ext_force_base,
-            grip=gripper.outs.grip if 'dh_gripper' in cfg else None
+            grip=gripper.outs.grip if gripper else None
         )
 
         data_dumper = DatasetDumper(world, cfg.data_output_dir)

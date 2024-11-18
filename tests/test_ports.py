@@ -122,16 +122,5 @@ def test_map_port(world):
     assert input_port.input.read() == (0, 4)
 
 
-def test_port_to_prop():
-    world = MainThreadWorld()
-    output_port = OutputPort(world)
-    prop = utils.port_to_prop(output_port)
-    world.run()
-    time.sleep(0.2)
-
-    output_port.write(2, timestamp=0)
-    time.sleep(0.2)
-    assert prop() == (0, 2)
-
 if __name__ == "__main__":
     pytest.main([__file__])

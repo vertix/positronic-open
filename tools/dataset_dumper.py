@@ -9,6 +9,20 @@ from control import ControlSystem, World, control_system
 
 class SerialDumper:
     def __init__(self, directory: str):
+        """
+        Dumps serial data to a directory as torch tensors.
+
+        Args:
+            directory: Directory to save the data to. Episodes will be named sequentially.
+
+        Example:
+            >>> dumper = SerialDumper("data")
+            >>> dumper.start_episode()
+            >>> dumper.add_metadata({"robot_type": "franka"})
+            >>> dumper.write({"position": np.array([1, 2, 3]), "time": 0.1})
+            >>> dumper.write({"position": np.array([4, 5, 6]), "time": 0.2})
+            >>> dumper.end_episode()
+        """
         self.directory = directory
         os.makedirs(self.directory, exist_ok=True)
         self.data = defaultdict(list)
@@ -49,7 +63,6 @@ class SerialDumper:
 
 
 @control_system(inputs=['image', 'start_episode', 'end_episode', 'target_grip', 'target_robot_position', 'metadata'],
-                outputs=['episode_saved'],
                 input_props=['robot_data'])
 class DatasetDumper(ControlSystem):
     def __init__(self, world: World, directory: str):
@@ -58,7 +71,6 @@ class DatasetDumper(ControlSystem):
 
     def dump_episode(self):
         self.dumper.dump_episode()
-        self.outs.episode_saved.write(True, self.world.now_ts)
 
     def run(self):
         tracked = False
@@ -74,7 +86,6 @@ class DatasetDumper(ControlSystem):
             elif name == 'end_episode':
                 assert tracked, "end_episode without start_episode"
                 self.dumper.end_episode()
-                self.outs.episode_saved.write(True, self.world.now_ts)
                 episode_start = None
                 tracked = False
             elif tracked and name == 'target_grip':
