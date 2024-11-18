@@ -141,8 +141,7 @@ class DearpyguiUi(ControlSystem):
         self.recording = not self.recording
 
     def move(self, time_since_last_move: float):
-        any_key_pressed = any(self.move_key_states.values())
-        if not any_key_pressed or self.actual_position is None:
+        if self.actual_position is None:
             return
         
         if self.desired_action is None:
