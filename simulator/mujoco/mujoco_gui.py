@@ -116,12 +116,14 @@ class DearpyguiUi(ControlSystem):
     def key_down(self, sender, app_data):
         key = app_data[0]
         key = self.key_map.get(key, None)
-        self.move_key_states[key] = True
+        if key is not None:
+            self.move_key_states[key] = True
 
     def key_release(self, sender, app_data):
         key = app_data
         key = self.key_map.get(key, None)
-        self.move_key_states[key] = False
+        if key is not None:
+            self.move_key_states[key] = False
 
     def grab(self):
         self.grip_state = not self.grip_state
@@ -215,8 +217,6 @@ def main(cfg: DictConfig):
 
     model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
     data = mujoco.MjData(model)
-
-    print(cfg)
 
     simulator = MujocoSimulator(model=model, data=data, simulation_rate=1 / cfg.mujoco.simulation_hz)
     renderer = MujocoRenderer(model=model, data=data, render_resolution=(width, height))
