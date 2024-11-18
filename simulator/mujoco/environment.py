@@ -1,6 +1,4 @@
-from dataclasses import dataclass
-from typing import Tuple, Optional
-from threading import Lock
+from typing import Optional
 
 import mujoco
 import numpy as np
@@ -9,26 +7,15 @@ from dm_control.utils import inverse_kinematics as ik
 
 from control import ControlSystem, control_system
 from control.system import output_property_custom_time
+from control.utils import IntervalChecker
 from control.world import World
 from geom import Transform3D
 from simulator.mujoco.sim import MujocoRenderer, MujocoSimulator
 
-mjc_lock = Lock()
 
-@dataclass
-class DesiredAction:
-    position: np.ndarray
-    orientation: np.ndarray
-    grip: float
-
-
-@control_system(
-    inputs=["target_robot_position"],
-    outputs=["actuator_values"]
-)
-class InverseKinematics(ControlSystem):
-    def __init__(self, world: "World", data: mujoco.MjData):
-        super().__init__(world)
+class InverseKinematics:
+    def __init__(self, data: mujoco.MjData):
+        super().__init__()
         self.joints = [f'joint{i}' for i in range(1, 8)]
         self.physics = dm_mujoco.Physics.from_model(data)
 
@@ -36,29 +23,24 @@ class InverseKinematics(ControlSystem):
         """
         Returns None if the IK calculation failed
         """
-        with mjc_lock:
-            result = ik.qpos_from_site_pose(
-                physics=self.physics,
-                site_name='end_effector',
-                target_pos=target_robot_position.translation,
-                target_quat=target_robot_position.quaternion,
-                joint_names=self.joints,
-                rot_weight=0.5,
-            )
+        result = ik.qpos_from_site_pose(
+            physics=self.physics,
+            site_name='end_effector',
+            target_pos=target_robot_position.translation,
+            target_quat=target_robot_position.quaternion,
+            joint_names=self.joints,
+            rot_weight=0.5,
+        )
 
         if result.success:
             return result.qpos[:7]
         print(f"Failed to calculate IK for {target_robot_position}")
         return None
 
-    def run(self):
-        for _ts, value in self.ins.target_robot_position.read_until_stop():
-            self.outs.actuator_values.write(self.recalculate_ik(value), _ts)
-
 
 @control_system(
-    inputs=["actuator_values", "target_grip", "reset"],
-    outputs=["step_complete"],  
+    inputs=["actuator_values", "target_grip", "reset", "target_robot_position"],
+    outputs=["images"],  
     output_props=[
         "robot_position",
         "grip",
@@ -73,12 +55,25 @@ class MujocoSimulatorCS(ControlSystem):
             world: World,
             simulator: MujocoSimulator,
             simulation_rate: float = 1 / 500,
+            render_rate: float = 1 / 60,
+            renderer: Optional[MujocoRenderer] = None,
+            inverse_kinematics: Optional[InverseKinematics] = None,
+
     ):
         super().__init__(world)
         self.simulator = simulator
-        self.last_simulation_time = None
+        self.do_simulation = IntervalChecker(interval=simulation_rate * 1000, time_fn=lambda: self.world.now_ts)
         self.simulation_rate = simulation_rate
         self.pending_actions = []
+
+        self.renderer = renderer
+
+        if renderer is not None:
+            self.do_render = IntervalChecker(interval=render_rate * 1000, time_fn=lambda: self.world.now_ts)
+        else:
+            self.do_render = lambda: False
+
+        self.inverse_kinematics = inverse_kinematics
 
     @output_property_custom_time('robot_position')
     def robot_position(self):
@@ -112,15 +107,19 @@ class MujocoSimulatorCS(ControlSystem):
         return self.simulator.ts
 
     def simulate(self):
-        with mjc_lock:
-            self.last_simulation_time = self.world.now_ts
-            self.simulator.step()
-        self.outs.step_complete.write(True, self.ts)
+        self.simulator.step()
+
+    def render(self):
+        if self.renderer is not None:
+            images = self.renderer.render_frames()
+            self.outs.images.write(images, self.ts)
 
     def _init_position(self):
-        with mjc_lock:
-            self.simulator.reset()
-        self.last_simulation_time = self.world.now_ts
+        self.simulator.reset()
+    
+    def _init_renderer(self):
+        if self.renderer is not None:
+            self.renderer.initialize()
 
     def _handle_inputs(self):
         result = self.ins.actuator_values.read_nowait()
@@ -128,55 +127,36 @@ class MujocoSimulatorCS(ControlSystem):
             ts, values = result
             if values is not None:
                 self.simulator.set_actuator_values(values)
+
         grip = self.ins.target_grip.read_nowait()
         if grip is not None:
             ts, grip_value = grip
             self.simulator.set_grip(grip_value)
+
         reset = self.ins.reset.read_nowait()
         if reset is not None:
             self._init_position()
 
+        target_robot_position = self.ins.target_robot_position.read_nowait()
+        if target_robot_position is not None:
+            ts, target_robot_position_value = target_robot_position
+            actuator_values = self.inverse_kinematics.recalculate_ik(target_robot_position_value)
+            if actuator_values is not None:
+                self.simulator.set_actuator_values(actuator_values)
+
     def run(self):
         self._init_position()
+        self._init_renderer()
 
-        while not self.world.should_stop:
-            time_since_last_sim = self.world.now_ts - self.last_simulation_time
-            
+        while not self.world.should_stop:           
             self._handle_inputs()
 
-            if time_since_last_sim >= self.simulation_rate * 1000:
+            for _ in range(self.do_simulation()):
                 self.simulate()
+            
+            if self.do_render():
+                self.render()
+                
 
-
-@control_system(inputs=["step_complete"], outputs=["images"])
-class MujocoRendererCS(ControlSystem):
-    def __init__(
-            self,
-            world: World,
-            renderer: MujocoRenderer,
-            render_resolution: Tuple[int, int] = (320, 240),
-            max_fps: int = 60
-    ):
-        super().__init__(world)
-        self.renderer = renderer
-        self.render_resolution = render_resolution
-        self.render_rate = 1 / max_fps
-        self.last_render_time = -float('inf')
-
-
-    def run(self):
-        self.renderer.initialize()
-        for ts, _ in self.ins.step_complete.read_until_stop():
-            if ts - self.last_render_time < 0:
-                # simulator reset
-                self.last_render_time = -float('inf')
-
-            if ts - self.last_render_time >= self.render_rate:
-                self.last_render_time = ts
-
-                with mjc_lock:
-                    images = self.renderer.render_frames()
-                self.outs.images.write(images, ts)
-
-        self.renderer.close()
-
+        if self.renderer is not None:
+            self.renderer.close()

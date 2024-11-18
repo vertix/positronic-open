@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import time
 import hydra
 import mujoco
@@ -7,7 +8,7 @@ import dearpygui.dearpygui as dpg
 
 from control import MainThreadWorld, ControlSystem, control_system, utils
 from geom import Transform3D
-from simulator.mujoco.environment import MujocoSimulatorCS, InverseKinematics, DesiredAction, MujocoRendererCS
+from simulator.mujoco.environment import MujocoSimulatorCS, InverseKinematics
 from simulator.mujoco.sim import MujocoRenderer, MujocoSimulator
 from tools.dataset_dumper import DatasetDumper
 
@@ -15,6 +16,15 @@ from tools.dataset_dumper import DatasetDumper
 def _set_image_uint8_to_float32(target, source):
     target[:] = source.astype(np.float32)
     target[:] /= 255
+
+
+
+@dataclass
+class DesiredAction:
+    position: np.ndarray
+    orientation: np.ndarray
+    grip: float
+
 
 
 @control_system(
@@ -42,7 +52,7 @@ class DearpyguiUi(ControlSystem):
         dpg.mvKey_LShift: 'up',
     }
 
-    def __init__(self, world, width, height, episode_metadata: dict = None):
+    def __init__(self, world, width, height, episode_metadata: dict = None, initial_position: Transform3D = None):
         super().__init__(world)
         self.width = width
         self.height = height
@@ -51,7 +61,12 @@ class DearpyguiUi(ControlSystem):
         self.desired_action = None
         self.actual_position = None
         self.actual_orientation = None
-        self.initial_position = None
+        self.initial_position = DesiredAction(
+            position=initial_position.translation.copy(),
+            orientation=initial_position.quaternion.copy(),
+            grip=0.0
+        )
+        print(f"Initial position: {self.initial_position}")
 
         self.recording = False
         self.last_move_ts = None
@@ -123,21 +138,11 @@ class DearpyguiUi(ControlSystem):
             
         self.recording = not self.recording
 
-    def set_initial_position(self):
-        if self.actual_position is None or self.initial_position is not None:
-            return
-
-        self.initial_position = DesiredAction(
-            position=self.actual_position.copy(),
-            orientation=self.actual_orientation.copy(),
-            grip=0.0
-        )
-
     def move(self, time_since_last_move: float):
         any_key_pressed = any(self.move_key_states.values())
         if not any_key_pressed or self.actual_position is None:
             return
-
+        
         if self.desired_action is None:
             # initialize from current position
             self.desired_action = DesiredAction(
@@ -193,7 +198,6 @@ class DearpyguiUi(ControlSystem):
         dpg.maximize_viewport()
 
         while dpg.is_dearpygui_running():
-            self.set_initial_position()
             if self.world.should_stop:
                 break
 
@@ -204,7 +208,7 @@ class DearpyguiUi(ControlSystem):
         self.world.stop_event.set()
 
 
-@hydra.main(version_base=None, config_path=".", config_name="mujoco_gui")
+@hydra.main(version_base=None, config_path="configs", config_name="mujoco_gui")
 def main(cfg: DictConfig):
     width = cfg.mujoco.camera_width
     height = cfg.mujoco.camera_height
@@ -212,8 +216,14 @@ def main(cfg: DictConfig):
     model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
     data = mujoco.MjData(model)
 
+    print(cfg)
+
     simulator = MujocoSimulator(model=model, data=data, simulation_rate=1 / cfg.mujoco.simulation_hz)
     renderer = MujocoRenderer(model=model, data=data, render_resolution=(width, height))
+    inverse_kinematics = InverseKinematics(data=data)
+
+    simulator.reset()
+    initial_position = simulator.initial_position
 
     world = MainThreadWorld()
 
@@ -222,26 +232,24 @@ def main(cfg: DictConfig):
         world=world,
         simulator=simulator,
         simulation_rate=1 / cfg.mujoco.simulation_hz,
+        render_rate=1 / cfg.mujoco.observation_hz,
+        renderer=renderer,
+        inverse_kinematics=inverse_kinematics,
     )
-    renderer = MujocoRendererCS(world, renderer, render_resolution=(width, height), max_fps=cfg.mujoco.observation_hz)
 
-    inverse_kinematics = InverseKinematics(world, data=data)
     episode_metadata = {
         'mujoco_model_path': cfg.mujoco.model_path,
         'simulation_hz': cfg.mujoco.simulation_hz,
     }
-    window = DearpyguiUi(world, width, height, episode_metadata)
+    window = DearpyguiUi(world, width, height, episode_metadata, initial_position)
     
     # wires
     simulator.ins.bind(target_grip=window.outs.target_grip,
-                       actuator_values=inverse_kinematics.outs.actuator_values,
+                       target_robot_position=window.outs.target_robot_position,
                        reset=window.outs.reset)
 
-    inverse_kinematics.ins.bind(target_robot_position=window.outs.target_robot_position)
-    renderer.ins.bind(step_complete=simulator.outs.step_complete)
-
     window.ins.bind(
-        images=renderer.outs.images,
+        images=simulator.outs.images,
         robot_position=simulator.outs.robot_position,
     )
 
@@ -254,6 +262,10 @@ def main(cfg: DictConfig):
         @utils.map_prop
         def get_quaternion(position):
             return position.quaternion
+        
+        @utils.map_port
+        def discard_images(images):
+            return 0
 
         properties_to_dump = utils.properties_dict(
             robot_joints=simulator.outs.joints,
@@ -267,7 +279,7 @@ def main(cfg: DictConfig):
 
         data_dumper = DatasetDumper(world, cfg.data_output_dir)
         data_dumper.ins.bind(
-            image=simulator.outs.step_complete,  # TODO: allow dumper to dump on any port
+            image=discard_images(simulator.outs.images),  # TODO: allow dumper to dump on any port
             target_grip=window.outs.target_grip,
             target_robot_position=window.outs.target_robot_position,
             start_episode=window.outs.start_episode,

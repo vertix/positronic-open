@@ -1,11 +1,8 @@
-import logging
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, List, Optional
 
-from control.world import World
-from .system import ControlSystem, control_system, output_property, output_property_custom_time
+from .system import ControlSystem, control_system
 from .ports import OutputPort
-from .ports import InputPort
 
 
 def map_port(fn: Callable[[Any], Any]):
@@ -74,3 +71,34 @@ def properties_dict(**properties):
 
         return prop_values, min(time_list)
     return result
+
+
+class IntervalChecker:
+    def __init__(self, interval: float, time_fn: Callable[[], float]):
+        """
+        A callable that returns the number of times the function should be called since the last check.
+
+        Args:   
+            interval: time in seconds between calls
+            time_fn: function to get the current time
+        """
+        self.interval = interval
+        self.time_fn = time_fn
+        self.last_time_checked = None
+    
+    def __call__(self) -> int:
+        """
+        Returns the number of times the function should be called since the last check.
+        """
+        current_time = self.time_fn()
+
+        if self.last_time_checked is None:
+            self.last_time_checked = current_time
+            return 1
+        
+        num_calls = int((current_time - self.last_time_checked) / self.interval)
+        if num_calls > 0:
+            self.last_time_checked = current_time
+
+        return num_calls
+

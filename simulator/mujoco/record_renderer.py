@@ -74,7 +74,7 @@ class EpisodeRenderer:
         tqdm_iter.close()
 
 
-@hydra.main(version_base=None, config_path=".", config_name="record_renderer")
+@hydra.main(version_base=None, config_path="configs", config_name="record_renderer")
 def main(cfg: dictConfig):
     renderer = EpisodeRenderer(
         (cfg.mujoco.camera_width, cfg.mujoco.camera_height),

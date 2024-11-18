@@ -25,6 +25,7 @@ class MujocoSimulator:
         self.model.opt.timestep = simulation_rate
         self.simulation_fps_counter = FPSCounter('Simulation')
         self.pending_actions = []
+        self._initial_position = None
 
     @property
     def robot_position(self):
@@ -56,18 +57,25 @@ class MujocoSimulator:
     @property
     def ext_force_base(self):
         return np.zeros(6)  # TODO: implement
+    
+    @property
+    def initial_position(self):
+        return self._initial_position
 
     def step(self):
         mujoco.mj_step(self.model, self.data)
         self.simulation_fps_counter.tick()
 
-    def reset(self):
+    def reset(self, keyframe: str = "home"):
+        """
+        Reset the simulator to the given keyframe.
+        """
         mujoco.mj_resetData(self.model, self.data)
-        mujoco.mj_forward(self.model, self.data)
-        frame = self.model.keyframe("home")
+        frame = self.model.keyframe(keyframe)
         self.data.qpos = frame.qpos
         self.data.ctrl = frame.ctrl
-
+        mujoco.mj_forward(self.model, self.data)
+        self._initial_position = self.robot_position
 
     def set_actuator_values(self, actuator_values: np.ndarray):
         for i in range(7):
@@ -95,7 +103,6 @@ class MujocoRenderer:
     def render_frames(self):
         views = {}
 
-        # mujoco.mj_forward(self.model, self.data)
         # TODO: make cameras configurable
         for cam_name in ['top', 'side', 'handcam_left', 'handcam_right']:
             self.renderer.update_scene(self.data, camera=cam_name)
@@ -105,6 +112,10 @@ class MujocoRenderer:
         return views
     
     def initialize(self):
+        """
+        Initialize the renderer. This must be called before calling render().
+        """
+        # in case we have other code which works with OpenGL, we need to initialize the renderer in a separate thread to avoid conflicts
         self.renderer = mujoco.Renderer(self.model, height=self.render_resolution[1], width=self.render_resolution[0])
 
     def render(self) -> Dict[str, np.ndarray]:
