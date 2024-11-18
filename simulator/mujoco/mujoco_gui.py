@@ -12,7 +12,7 @@ from simulator.mujoco.sim import MujocoRenderer, MujocoSimulator
 from tools.dataset_dumper import DatasetDumper
 
 
-def _set_image(target, source):
+def _set_image_uint8_to_float32(target, source):
     target[:] = source.astype(np.float32)
     target[:] /= 255
 
@@ -23,14 +23,14 @@ def _set_image(target, source):
     outputs=["start_episode", "end_episode", "target_grip", "target_robot_position", "metadata", "reset"],
 )
 class DearpyguiUi(ControlSystem):
-    speed = 0.002
+    speed_units_per_second = 0.1
     movement_vectors = {
-        'forward': np.array([speed, 0, 0]),
-        'backward': np.array([-speed, 0, 0]),
-        'left': np.array([0, speed, 0]),
-        'right': np.array([0, -speed, 0]),
-        'up': np.array([0, 0, speed]),
-        'down': np.array([0, 0, -speed]),
+        'forward': np.array([speed_units_per_second, 0, 0]),
+        'backward': np.array([-speed_units_per_second, 0, 0]),
+        'left': np.array([0, speed_units_per_second, 0]),
+        'right': np.array([0, -speed_units_per_second, 0]),
+        'up': np.array([0, 0, speed_units_per_second]),
+        'down': np.array([0, 0, -speed_units_per_second]),
     }
 
     key_map = {
@@ -41,8 +41,6 @@ class DearpyguiUi(ControlSystem):
         dpg.mvKey_LControl: 'down',
         dpg.mvKey_LShift: 'up',
     }
-
-    move_update_rate = 0.1
 
     def __init__(self, world, width, height, episode_metadata: dict = None):
         super().__init__(world)
@@ -56,7 +54,7 @@ class DearpyguiUi(ControlSystem):
         self.initial_position = None
 
         self.recording = False
-        self.last_move_ts = -1
+        self.last_move_ts = None
 
         self.move_key_states = {
             'forward': False,
@@ -79,10 +77,10 @@ class DearpyguiUi(ControlSystem):
         images = self.ins.images.read_nowait()
         if images is not None:
             ts, images = images
-            _set_image(self.raw_textures['top'], images['top'])
-            _set_image(self.raw_textures['side'], images['side'])
-            _set_image(self.raw_textures['handcam_left'], images['handcam_left'])
-            _set_image(self.raw_textures['handcam_right'], images['handcam_right'])
+            _set_image_uint8_to_float32(self.raw_textures['top'], images['top'])
+            _set_image_uint8_to_float32(self.raw_textures['side'], images['side'])
+            _set_image_uint8_to_float32(self.raw_textures['handcam_left'], images['handcam_left'])
+            _set_image_uint8_to_float32(self.raw_textures['handcam_right'], images['handcam_right'])
 
         # set real position
         robot_position, _ts = self.ins.robot_position()
@@ -90,15 +88,15 @@ class DearpyguiUi(ControlSystem):
         self.actual_position = robot_position.translation.copy()
         self.actual_orientation = robot_position.quaternion.copy()
 
-        if self.world.now_ts - self.last_move_ts >= self.move_update_rate:
-            self.move()
-            self.last_move_ts = self.world.now_ts
+        time_since_last_move = self.world.now_ts - self.last_move_ts if self.last_move_ts is not None else 0
+        self.move(time_since_last_move / 1000)
+        self.last_move_ts = self.world.now_ts
 
-            if self.desired_action is not None:
-                target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
+        if self.desired_action is not None:
+            target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
 
-                self.outs.target_grip.write(self.desired_action.grip, self.world.now_ts)
-                self.outs.target_robot_position.write(target_pos, self.world.now_ts)
+            self.outs.target_grip.write(self.desired_action.grip, self.world.now_ts)
+            self.outs.target_robot_position.write(target_pos, self.world.now_ts)
 
     def key_down(self, sender, app_data):
         key = app_data[0]
@@ -113,7 +111,7 @@ class DearpyguiUi(ControlSystem):
     def grab(self):
         self.grip_state = not self.grip_state
 
-    def record_episode(self):
+    def switch_recording(self):
         if self.recording:
             self.outs.end_episode.write(True, self.world.now_ts)
         else:
@@ -135,7 +133,7 @@ class DearpyguiUi(ControlSystem):
             grip=0.0
         )
 
-    def move(self):
+    def move(self, time_since_last_move: float):
         any_key_pressed = any(self.move_key_states.values())
         if not any_key_pressed or self.actual_position is None:
             return
@@ -151,7 +149,7 @@ class DearpyguiUi(ControlSystem):
         self.desired_action.grip = 1.0 if self.grip_state else 0.0
         for key, vector in self.movement_vectors.items():
             if self.move_key_states.get(key, False):
-                self.desired_action.position += vector
+                self.desired_action.position += vector * time_since_last_move
 
         dpg.set_value("target",
                       f"Target Position: {self.desired_action.position}\n"
@@ -185,7 +183,7 @@ class DearpyguiUi(ControlSystem):
             dpg.add_key_down_handler(callback=self.key_down)
             dpg.add_key_release_handler(callback=self.key_release)
             dpg.add_key_press_handler(key=dpg.mvKey_G, callback=self.grab)
-            dpg.add_key_press_handler(key=dpg.mvKey_R, callback=self.record_episode)
+            dpg.add_key_press_handler(key=dpg.mvKey_R, callback=self.switch_recording)
 
         dpg.create_viewport(
             title='Custom Title', width=800, height=600

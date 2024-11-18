@@ -66,7 +66,6 @@ class InverseKinematics(ControlSystem):
         "ext_force_ee",
         "ext_force_base",
         "actuator_values",
-        "ts"
     ])
 class MujocoSimulatorCS(ControlSystem):
     def __init__(
@@ -86,29 +85,29 @@ class MujocoSimulatorCS(ControlSystem):
         return Transform3D(
             translation=self.simulator.robot_position.translation,
             quaternion=self.simulator.robot_position.quaternion
-        ), self.ts()    
+        ), self.ts
 
     @output_property_custom_time('grip')
     def grip(self):
-        return self.simulator.grip, self.ts()
+        return self.simulator.grip, self.ts
 
     @output_property_custom_time('joints')
     def joints(self):
-        return self.simulator.joints, self.ts()
+        return self.simulator.joints, self.ts
 
     @output_property_custom_time('ext_force_ee')
     def ext_force_ee(self):
-        return self.simulator.ext_force_ee, self.ts()
+        return self.simulator.ext_force_ee, self.ts
 
     @output_property_custom_time('ext_force_base')
     def ext_force_base(self):
-        return self.simulator.ext_force_base, self.ts()
+        return self.simulator.ext_force_base, self.ts
 
     @output_property_custom_time('actuator_values')
     def actuator_values(self):
-        return self.simulator.actuator_values, self.ts()
+        return self.simulator.actuator_values, self.ts
 
-    @output_property_custom_time('ts')
+    @property
     def ts(self):
         return self.simulator.ts
 
@@ -116,7 +115,7 @@ class MujocoSimulatorCS(ControlSystem):
         with mjc_lock:
             self.last_simulation_time = self.world.now_ts
             self.simulator.step()
-        self.outs.step_complete.write(True, self.ts())
+        self.outs.step_complete.write(True, self.ts)
 
     def _init_position(self):
         with mjc_lock:
