@@ -1,22 +1,19 @@
-import logging
 import time
 from typing import Optional
 
 import franky
-
-from control import ControlSystem, World, control_system, output_property
-from control.utils import FPSCounter
+import ironic as ir
 from geom import Transform3D
 
-logger = logging.getLogger(__name__)
 
-
-@control_system(inputs=["target_position", "gripper_grasped"],
-                output_props=["position", "gripper_grasped", "joint_positions", "ext_force_base", "ext_force_ee"])
-class Franka(ControlSystem):
-    def __init__(self, world: World, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
+@ir.ironic_system(
+    input_ports=['target_position', 'gripper_grasped'],
+    output_props=['position', 'gripper_grasped', 'joint_positions', 'ext_force_base', 'ext_force_ee']
+)
+class Franka(ir.ControlSystem):
+    def __init__(self, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
                  realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Ignore):
-        super().__init__(world)
+        super().__init__()
         self.robot = franky.Robot(ip, realtime_config=realtime_config)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
         self.robot.set_collision_behavior(
@@ -29,88 +26,123 @@ class Franka(ControlSystem):
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
         )
-        self.target_fps = FPSCounter("Franka target position")
+        self.target_fps = ir.utils.FPSCounter("Franka target position")
 
         try:
             self.gripper = franky.Gripper(ip)
             self.gripper_speed = gripper_speed
-            self.gripper_grasped = None
+            self._gripper_grasped = None
         except Exception as e:
-            logger.warning("Did not connect to gripper: %s", e)
+            print(f"Did not connect to gripper: {e}")
             self.gripper = None
             self.gripper_speed = 0.0
-            self.gripper_grasped = None
+            self._gripper_grasped = None
 
-    @output_property('position')
-    def position(self):
-        """End effector position in robot base coordinate frame."""
-        pos = self.robot.current_pose.end_effector_pose
-        return Transform3D(pos.translation, pos.quaternion)
-
-    @output_property('joint_positions')
-    def joint_positions(self):
-        return self.robot.current_joint_state.position
-
-    @output_property('gripper_grasped')
-    def gripper_grasped(self):
-        if self.gripper:
-            return self.gripper_grasped
-        return None
-
-    @output_property('ext_force_base')
-    def ext_force_base(self):
-        state = self.robot.state
-        return state.O_F_ext_hat_K
-
-    @output_property('ext_force_ee')
-    def ext_force_ee(self):
-        state = self.robot.state
-        return state.K_F_ext_hat_K
-
-    def on_start(self):
+    async def setup(self):
         self.robot.recover_from_errors()
         self.robot.move(franky.JointWaypointMotion([
-            franky.JointWaypoint([0.0,  -0.31, 0.0, -1.53, 0.0, 1.522,  0.785])]))
+            franky.JointWaypoint([0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785])
+        ]))
 
         if self.gripper:
             self.gripper.homing()
-            self.gripper_grasped = False
+            self._gripper_grasped = False
 
-    def on_stop(self):
+    async def cleanup(self):
         print("Franka stopping")
         self.robot.stop()
         if self.gripper:
             self.gripper.open(self.gripper_speed)
         print("Franka stopped")
 
-    def run(self):
-        self.on_start()
+    @ir.on_message('target_position')
+    async def handle_target_position(self, message: ir.Message):
         try:
-            with self.ins.subscribe(target_position=self.on_target_position, gripper_grasped=self.on_gripper_grasped):
-                for _ in self.ins.read():
-                    pass
-        finally:
-            self.on_stop()
-
-    def on_target_position(self, value, _ts):
-        try:
-            pos = franky.Affine(translation=value.translation, quaternion=value.quaternion)
-            self.robot.move(franky.CartesianMotion(pos, franky.ReferenceType.Absolute), asynchronous=True)
+            pos = franky.Affine(
+                translation=message.data.translation,
+                quaternion=message.data.quaternion
+            )
+            self.robot.move(
+                franky.CartesianMotion(pos, franky.ReferenceType.Absolute),
+                asynchronous=True
+            )
             self.target_fps.tick()
         except franky.ControlException as e:
             self.robot.recover_from_errors()
-            logger.warning("IK failed for %s: %s", value, e)
+            print(f"IK failed for {message.data}: {e}")
 
-    def on_gripper_grasped(self, value, _ts):
-        if self.gripper_grasped:
-            if value < 0.33:
+    @ir.on_message('gripper_grasped')
+    async def handle_gripper_grasped(self, message: ir.Message):
+        if self._gripper_grasped:
+            if message.data < 0.33:
                 self.gripper.open(self.gripper_speed)
-                self.gripper_grasped = False
+                self._gripper_grasped = False
         else:
-            if value > 0.66:
+            if message.data > 0.66:
                 try:
-                    self.gripper.grasp(0.0, self.gripper_speed, 20.0,
-                                       epsilon_outer=1.0 * self.gripper.max_width)
-                    self.gripper_grasped = True
+                    self.gripper.grasp(
+                        0.0, self.gripper_speed, 20.0,
+                        epsilon_outer=1.0 * self.gripper.max_width
+                    )
+                    self._gripper_grasped = True
                 except franky.CommandException as e:
-                    logger.warning("Grasping failed: %s", e)
+                    print(f"Grasping failed: {e}")
+
+    @ir.out_property
+    async def position(self):
+        """End effector position in robot base coordinate frame."""
+        pos = self.robot.current_pose.end_effector_pose
+        return ir.Message(data=Transform3D(pos.translation, pos.quaternion))
+
+    @ir.out_property
+    async def joint_positions(self):
+        return ir.Message(data=self.robot.current_joint_state.position)
+
+    @ir.out_property
+    async def gripper_grasped(self):
+        return ir.Message(
+            data=self._gripper_grasped if self.gripper else None,
+            timestamp=ir.system_clock()
+        )
+
+    @ir.out_property
+    async def ext_force_base(self):
+        return ir.Message(
+            data=self.robot.state.O_F_ext_hat_K,
+            timestamp=ir.system_clock()
+        )
+
+    @ir.out_property
+    async def ext_force_ee(self):
+        return ir.Message(
+            data=self.robot.state.K_F_ext_hat_K,
+            timestamp=ir.system_clock()
+        )
+
+
+if __name__ == "__main__":
+    import asyncio
+    import numpy as np
+
+    async def _main():
+        franka = Franka("172.168.0.2")
+        await franka.setup()
+
+        target_port = ir.OutputPort('target')
+        franka.bind(target_position=target_port)
+
+        current_pos = (await franka.position()).data
+
+        # Move in a small circle
+        for t in np.linspace(0, 2*np.pi, 50):
+            tr = np.array(current_pos.translation)
+            tr[0] += np.cos(t) * 0.1
+            tr[1] += np.sin(t) * 0.1
+            new_pos = Transform3D(tr, current_pos.quaternion)
+
+            await target_port.write(ir.Message(data=new_pos))
+            await asyncio.sleep(0.1)
+
+        await franka.cleanup()
+
+    asyncio.run(_main())
