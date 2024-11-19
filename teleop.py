@@ -145,22 +145,15 @@ async def main_async(cfg: DictConfig):
         yappi.set_clock_type("cpu")
         yappi.start(profile_threads=False)
 
-    try:
-        await system.setup()
-        while True:
-            await system.step()
-    finally:
-        print("Program interrupted by user, exiting...")
-        await system.cleanup()
+    def profile_cleanup():
         if cfg.profile:
             yappi.stop()
             yappi.get_func_stats().save("func.pstat", type='pstat')
             yappi.get_func_stats().save("func.ystat")
             with open("thread.ystat", "w") as f:
                 yappi.get_thread_stats().print_all(out=f)
-            print("Program exited, stats saved")
-        else:
-            print("Program exited")
+
+    await ir.utils.run_gracefully(system, extra_cleanup_fn=profile_cleanup)
 
 
 if __name__ == "__main__":

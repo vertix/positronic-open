@@ -58,6 +58,7 @@ class PolicyRunnerSystem(ir.ControlSystem):
         import termios
         termios.tcsetattr(sys.stdin, termios.TCSANOW, self.old_settings)
         await super().cleanup()
+        print('Policy runner stopped')
 
 @hydra.main(version_base=None, config_path="configs", config_name="policy_runner")
 def main(cfg: DictConfig):
@@ -103,15 +104,11 @@ async def async_main(cfg: DictConfig):
         gripper
     )
 
-    try:
-        await system.setup()
-        while True:
-            await system.step()
-    finally:
-        await system.cleanup()
+    def rerun_cleanup():
         if cfg.rerun:
             rr.disconnect()
-        print('Finished')
+
+    await ir.utils.run_gracefully(system, extra_cleanup_fn=rerun_cleanup)
 
 
 if __name__ == "__main__":

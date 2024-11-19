@@ -1,12 +1,14 @@
 name: positronic
 channels:
   - conda-forge
-  - nvidia
   - pytorch
+  - defaults
 dependencies:
   - python=3.11
-  - libstdcxx-ng>=12.1.0
+  # Build tools
+  - gcc_linux-64
   - gxx_linux-64
+  # Deps
   - jupyter
   - numpy
   - matplotlib
@@ -21,14 +23,15 @@ dependencies:
   - opencv
   - av
   - pip
-  - dearpygui
   - pip:
     - pytest
+    - pytest-asyncio
     - lerobot
     - click
     - yappi
     - websockets
     - hydra-core
     - hydra-colorlog
+    - dearpygui
 
 # python /usr/local/zed/get_python_api.py
