@@ -5,16 +5,12 @@ from typing import List, Optional
 import hydra
 from hydra.core.config_store import ConfigStore
 from lerobot.common.policies.act.modeling_act import ACTPolicy
-import numpy as np
 from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.nn.functional as F
 import rerun as rr
 
-from control import ControlSystem, World
-from control.system import control_system
-from control.utils import FPSCounter
-
+import ironic as ir
 
 @dataclass
 class ImageEncodingConfig:
@@ -50,7 +46,7 @@ class StateEncoder:
                                               for k in self.cfg.state], dim=1)
         return obs
 
-    def encode(self, image, inputs):
+    async def encode(self, image, inputs):
         obs = {}
         image = torch.tensor(image, dtype=torch.float32).permute(2, 1, 0).contiguous().unsqueeze(0) / 255
         left = image[:, :, :image.shape[2] // 2, :]
@@ -66,7 +62,8 @@ class StateEncoder:
         for k in self.cfg.state:
             k_parts = k.split('.')
 
-            value, _ts = inputs[k_parts[0]]()
+            property = getattr(inputs, k_parts[0])
+            value = (await property()).data
             k_parts = k_parts[1:]
             while len(k_parts) > 0:
                 value = getattr(value, k_parts[0])
@@ -109,23 +106,25 @@ class ActionDecoder:
         records = [record.value.unsqueeze(1) if record.value.dim() == 1 else record.value for record in cfg.values()]
         return torch.cat(records, dim=1)
 
-    def decode(self, action_vector, input_ports):
+    async def decode(self, action_vector, input_ports):
         start = 0
         fields = {}
         for name in self.cfg.fields:
             fields[name] = action_vector[start:start + self.cfg.fields[name].length]
             start += self.cfg.fields[name].length
 
-        def replace_fields(cfg):
+        async def replace_fields(cfg):
             if OmegaConf.is_dict(cfg):
-                return {k: replace_fields(v) for k, v in cfg.items()}
+                return {k: await replace_fields(v) for k, v in cfg.items()}
             elif OmegaConf.is_list(cfg):
-                return [replace_fields(item) for item in cfg]
+                return [await replace_fields(item) for item in cfg]
             elif isinstance(cfg, Field):
                 return fields[cfg.name]
             elif isinstance(cfg, InputField):
                 key, field = (cfg.name.split('.') + [None])[:2]
-                record, _ts = input_ports[key]()
+
+                property = getattr(input_ports, key)
+                record = (await property()).data
                 if record is None:
                     raise ValueError(f"Input field {cfg.name} does not have a value")
                 return getattr(record, field) if field else record
@@ -134,74 +133,68 @@ class ActionDecoder:
 
         cfg_copy = OmegaConf.to_container(self.cfg, resolve=False)
         cfg_copy = OmegaConf.create(cfg_copy)
-        cfg = replace_fields(cfg_copy.outputs)
+        cfg = await replace_fields(cfg_copy.outputs)
         outputs = hydra.utils.instantiate(cfg)
         return outputs
 
 
-class ActionDecoder:
+@ir.ironic_system(
+    input_ports=['image', 'start', 'stop'],
+    input_props=['grip', 'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints'],
+    output_ports=['target_robot_position', 'target_grip']
+)
+class Inference(ir.ControlSystem):
     def __init__(self, cfg: DictConfig):
-        self.cfg = cfg
-
-    def encode_episode(self, episode_data):
-        def replace_inputs(cfg):
-            if OmegaConf.is_dict(cfg):
-                return {k: replace_inputs(v) for k, v in cfg.items()}
-            elif OmegaConf.is_list(cfg):
-                return [replace_inputs(item) for item in cfg]
-            elif isinstance(cfg, InputField):
-                return episode_data[cfg.name]
-            else:
-                return cfg
-
-        cfg_copy = OmegaConf.to_container(self.cfg, resolve=False)
-        cfg_copy = OmegaConf.create(cfg_copy)
-        cfg = replace_inputs(cfg_copy.fields)
-        cfg = hydra.utils.instantiate(cfg)
-
-        records = [record.value.unsqueeze(1) if record.value.dim() == 1 else record.value for record in cfg.values()]
-        return torch.cat(records, dim=1)
-
-    def decode(self, action_vector, input_ports):
-        start = 0
-        fields = {}
-        for name in self.cfg.fields:
-            fields[name] = action_vector[start:start + self.cfg.fields[name].length]
-            start += self.cfg.fields[name].length
-
-        def replace_fields(cfg):
-            if OmegaConf.is_dict(cfg):
-                return {k: replace_fields(v) for k, v in cfg.items()}
-            elif OmegaConf.is_list(cfg):
-                return [replace_fields(item) for item in cfg]
-            elif isinstance(cfg, Field):
-                return fields[cfg.name]
-            elif isinstance(cfg, InputField):
-                key, field = (cfg.name.split('.') + [None])[:2]
-                record, _ts = input_ports[key]()
-                if record is None:
-                    raise ValueError(f"Input field {cfg.name} does not have a value")
-                return getattr(record, field) if field else record
-            else:
-                return cfg
-
-        cfg_copy = OmegaConf.to_container(self.cfg, resolve=False)
-        cfg_copy = OmegaConf.create(cfg_copy)
-        cfg = replace_fields(cfg_copy.outputs)
-        outputs = hydra.utils.instantiate(cfg)
-        return outputs
-
-
-@control_system(inputs=['image', 'start', 'stop'],
-                input_props=['grip', 'ext_force_ee', 'ext_force_base', 'robot_position', 'robot_joints'],
-                outputs=['target_robot_position', 'target_grip'])
-class Inference(ControlSystem):
-    def __init__(self, world: World, cfg: DictConfig):
-        super().__init__(world)
+        super().__init__()
         self.policy_factory = lambda: ACTPolicy.from_pretrained(cfg.checkpoint_path)
         self.cfg = cfg
         self.state_encoder = StateEncoder(hydra.utils.instantiate(cfg.state))
         self.action_decoder = ActionDecoder(cfg.action)
+        self.policy = None
+        self.running = False
+        self.fps = ir.utils.FPSCounter("Inference")
+
+    async def setup(self):
+        """Initialize the policy"""
+        self.policy = self.policy_factory()
+        self.policy.to(self.cfg.device)
+
+    @ir.on_message("start")
+    async def handle_start(self, message: ir.Message):
+        """Handle policy start message"""
+        self.policy.reset()
+        self.fps.reset()
+        self.running = True
+
+    @ir.on_message("stop")
+    async def handle_stop(self, message: ir.Message):
+        """Handle policy stop message"""
+        self.fps.report()
+        self.running = False
+
+    @ir.on_message("image")
+    async def handle_image(self, message: ir.Message):
+        """Process image and generate actions"""
+        if not self.running:
+            return
+
+        obs = await self.state_encoder.encode(message.data, self.ins)
+        for key in obs:
+            obs[key] = obs[key].to(self.cfg.device)
+
+        action = self.policy.select_action(obs).squeeze(0).cpu().numpy()
+        action_dict = await self.action_decoder.decode(action, self.ins)
+
+        if self.cfg.rerun:
+            self._log_observation(message.timestamp, obs)
+            self._log_action(message.timestamp, action)
+
+        for key, value in action_dict.items():
+            out_port = getattr(self.outs, key)
+            print(f"Writing {value} to {key}")
+            await out_port.write(ir.Message(value, message.timestamp))
+
+        self.fps.tick()
 
     def _log_observation(self, ts, obs):
         rr.set_time_seconds('time', ts / 1000)
@@ -221,42 +214,3 @@ class Inference(ControlSystem):
         rr.set_time_seconds('time', ts / 1000)
         for i, action in enumerate(action):
             rr.log(f"action/{i}", rr.Scalar(action))
-
-    def run(self):
-        policy = self.policy_factory()
-        policy.to(self.cfg.device)
-        running = False
-        fps = FPSCounter("Inference")
-
-        def on_start(_, _ts):
-            nonlocal running
-            policy.reset()
-            fps.reset()
-            running = True
-
-        def on_stop(_, _ts):
-            nonlocal running
-            fps.report()
-            running = False
-
-        def on_image(data, ts):
-            if not running:
-                return
-            obs = self.state_encoder.encode(data.image, self.ins)
-            for key in obs:
-                obs[key] = obs[key].to(self.cfg.device)
-
-            action = policy.select_action(obs).squeeze(0).cpu().numpy()
-            action_dict = self.action_decoder.decode(action, self.ins)
-
-            if self.cfg.rerun:
-                self._log_observation(ts, obs)
-                self._log_action(ts, action)
-
-            for key in action_dict:
-                self.outs[key].write(action_dict[key], ts)
-            fps.tick()
-
-        with self.ins.subscribe(start=on_start, stop=on_stop, image=on_image):
-            for _ in self.ins.read():
-                pass

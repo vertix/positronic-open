@@ -24,10 +24,12 @@ class SLCamera(ir.ControlSystem):
         self.view = view
         self.frame_queue = Queue(maxsize=5)
         self.process = None
+        self.fps = None
 
     async def setup(self):
         self.process = mp.Process(target=self._camera_process, args=(self.frame_queue,))
         self.process.start()
+        self.fps = ir.utils.FPSCounter("Camera")
 
     async def cleanup(self):
         if self.process and self.process.is_alive():
@@ -38,6 +40,7 @@ class SLCamera(ir.ControlSystem):
         try:
             image, ts_ms = self.frame_queue.get(timeout=1)
             await self.outs.frame.write(ir.Message(data=image, timestamp=ts_ms))
+            self.fps.tick()
         except Empty:
             await asyncio.sleep(1 / self.init_params.camera_fps)
 
@@ -48,10 +51,8 @@ class SLCamera(ir.ControlSystem):
         TIME_REF_IMAGE = sl.TIME_REFERENCE.IMAGE
 
         try:
-            fps = ir.utils.FPSCounter("Camera")
             while True:
                 result = zed.grab()
-                fps.tick()
                 if result != SUCCESS:
                     queue.put((None, 0))
                     continue

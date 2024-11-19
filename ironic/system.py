@@ -230,16 +230,17 @@ class ControlSystem:
         """Bind inputs to provided outputs of other systems. Must be called before calling setup.
 
         For convienice, returns self so result can be passed to other functions."""
-        binds = {}
+        if self.ins is None:
+            self.ins = SimpleNamespace()
+
         for name, incoming_output in bindings.items():
             if name in self._input_ports:
                 if name in self._message_handlers:  # Otherwise we just ignore that input
-                    binds[name] = incoming_output.subscribe(self._message_handlers[name])
+                    setattr(self.ins, name, incoming_output.subscribe(self._message_handlers[name]))
             elif name in self._input_props:
-                binds[name] = incoming_output  # Property is just a callback, so assignment is enough
+                setattr(self.ins, name, incoming_output)  # Property is just a callback, so assignment is enough
             else:
                 raise ValueError(f"Unknown input: {name}")
-        self.ins = SimpleNamespace(**binds)
         return self
 
     async def setup(self):
@@ -255,6 +256,10 @@ class ControlSystem:
         Perform periodic work. This method is called repeatedly while the system is running.
 
         By default does nothing. Override this method to implement active behavior.
+
+        IMPORTANT: If you run your system with other systems (which is what you are here for),
+        the step must be non-blocking and return back as soon as possible. If you really need
+        to perform blocking operations, do them in a separate thread or asyncio.run_coroutine_threadsafe.
         """
         pass
 
