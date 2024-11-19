@@ -4,8 +4,8 @@ import os
 import numpy as np
 import torch
 
-from control import ControlSystem, World, control_system
 
+import ironic as ir
 
 class SerialDumper:
     def __init__(self, directory: str):
@@ -59,57 +59,64 @@ class SerialDumper:
         print(f"Episode {self.episode_count} saved to {fname} with {len(self.data['time'])} frames")
 
 
-@control_system(inputs=['image', 'start_episode', 'end_episode', 'target_grip', 'target_robot_position'],
-                input_props=['robot_data'])
-class DatasetDumper(ControlSystem):
-    def __init__(self, world: World, directory: str):
-        super().__init__(world)
+@ir.ironic_system(
+    input_ports=['image', 'start_episode', 'end_episode', 'target_grip', 'target_robot_position'],
+    input_props=['robot_data'])
+class DatasetDumper(ir.ControlSystem):
+    def __init__(self,  directory: str):
+        super().__init__()
         self.dumper = SerialDumper(directory)
+
+        self.tracked = False
+        self.episode_start = None
+        self.target_grip, self.target_robot_position, self.target_ts = None, None, None
 
     def dump_episode(self):
         self.dumper.dump_episode()
 
-    def run(self):
-        tracked = False
-        episode_start = None
-        target_grip, target_robot_position, img, target_ts = None, None, None, None
+    @ir.on_message('start_episode')
+    async def on_start_episode(self, _message: ir.Message):
+        self.tracked = True
+        self.episode_start = ir.system_clock()
+        print(f"Episode {self.dumper.episode_count} started")
+        self.dumper.start_episode()
 
-        for name, ts, data in self.ins.read():
-            if name == 'start_episode':
-                tracked = True
-                print(f"Episode {self.dumper.episode_count} started")
-                episode_start = self.world.now_ts
-                self.dumper.start_episode()
-            elif name == 'end_episode':
-                assert tracked, "end_episode without start_episode"
-                if data is not None:
-                    self.dumper.end_episode(metadata=data)
-                else:
-                    self.dumper.end_episode()
-                episode_start = None
-                tracked = False
-            elif tracked and name == 'target_grip':
-                target_grip, target_ts = data, ts
-            elif tracked and name == 'target_robot_position':
-                target_robot_position = data
-            elif tracked and name == 'image' and target_ts is not None:
-                ep_dict = {}
-                now_ts = self.world.now_ts
+    @ir.on_message('end_episode')
+    async def on_end_episode(self, message: ir.Message):
+        assert self.tracked, "end_episode without start_episode"
+        self.tracked = False
+        self.dumper.end_episode(metadata=message.data)
+        print(f"Episode {self.dumper.episode_count} ended")
 
-                img = data.image if hasattr(data, 'image') else data
-                ep_dict['image'] = img
-                ep_dict['target_grip'] = target_grip
-                ep_dict['target_robot_position.translation'] = target_robot_position.translation
-                ep_dict['target_robot_position.quaternion'] = target_robot_position.quaternion
+    @ir.on_message('target_grip')
+    async def on_target_grip(self, message: ir.Message):
+        self.target_grip, self.target_ts = message.data, message.ts
 
-                data, robot_ts = self.ins.robot_data()
-                for name, value in data.items():
-                    ep_dict[name] = value
+    @ir.on_message('target_robot_position')
+    async def on_target_robot_position(self, message: ir.Message):
+        self.target_robot_position = message.data
 
-                ep_dict['time'] = (now_ts - episode_start) / 1000
-                ep_dict['time/robot'] = robot_ts
-                ep_dict['delay/image'] = (now_ts - ts) / 1000
-                ep_dict['delay/robot'] = (now_ts - robot_ts) / 1000
-                ep_dict['delay/target'] = (now_ts - target_ts) / 1000
+    @ir.on_message('image')
+    async def on_image(self, message: ir.Message):
+        if not self.tracked:
+            return
 
-                self.dumper.write(ep_dict)
+        ep_dict = {}
+        now_ts = ir.system_clock()
+
+        ep_dict['image'] = message.data
+        ep_dict['target_grip'] = self.target_grip
+        ep_dict['target_robot_position.translation'] = self.target_robot_position.translation
+        ep_dict['target_robot_position.quaternion'] = self.target_robot_position.quaternion
+
+        robot_message = await self.ins.robot_data()
+        for name, value in robot_message.data.items():
+            ep_dict[name] = value
+
+        # HACK: Here we use knowledge that time is in nanoseconds
+        ep_dict['time'] = (now_ts - self.episode_start) / 1e9
+        ep_dict['delay/image'] = (now_ts - message.ts) / 1e9
+        ep_dict['delay/robot'] = (now_ts - robot_message.ts) / 1e9
+        ep_dict['delay/target'] = (now_ts - self.target_ts) / 1e9
+
+        self.dumper.write(ep_dict)

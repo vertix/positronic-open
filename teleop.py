@@ -111,8 +111,7 @@ async def main_async(cfg: DictConfig):
 
     gripper = None
     if 'dh_gripper' in cfg:
-        gripper = DHGripper(cfg.dh_gripper)
-        gripper.bind(grip=teleop.outs.gripper_target_grasp)
+        gripper = DHGripper(cfg.dh_gripper).bind(grip=teleop.outs.gripper_target_grasp)
         components.append(gripper)
 
     cam = sl_camera.SLCamera(
@@ -123,22 +122,23 @@ async def main_async(cfg: DictConfig):
     components.append(cam)
 
     if cfg.data_output_dir is not None:
-        properties_to_dump = utils.properties_dict(
+        properties_to_dump = ir.utils.properties_dict(
             robot_joints=franka.outs.joint_positions,
-            robot_position_translation=utils.map_prop(lambda t: t.translation)(franka.outs.position),
-            robot_position_quaternion=utils.map_prop(lambda t: t.quaternion)(franka.outs.position),
+            robot_position_translation=ir.utils.map_property(lambda t: t.translation, franka.outs.position),
+            robot_position_quaternion=ir.utils.map_property(lambda t: t.quaternion, franka.outs.position),
             ext_force_ee=franka.outs.ext_force_ee,
             ext_force_base=franka.outs.ext_force_base,
             grip=gripper.outs.grip if gripper else None
         )
 
-        data_dumper = DatasetDumper(world, cfg.data_output_dir)
-        data_dumper.ins.image = cam.outs.record
-        data_dumper.ins.start_episode = teleop.outs.start_tracking
-        data_dumper.ins.end_episode = teleop.outs.stop_tracking
-        data_dumper.ins.target_grip = teleop.outs.gripper_target_grasp
-        data_dumper.ins.target_robot_position = teleop.outs.robot_target_position
-        data_dumper.ins.robot_data = properties_to_dump
+        components.append(DatasetDumper(cfg.data_output_dir).bind(
+            image=cam.outs.record,
+            start_episode=teleop.outs.start_tracking,
+            end_episode=teleop.outs.stop_tracking,
+            target_grip=teleop.outs.gripper_target_grasp,
+            target_robot_position=teleop.outs.robot_target_position,
+            robot_data=properties_to_dump
+        ))
 
     if cfg.profile:
         yappi.set_clock_type("cpu")
@@ -152,6 +152,7 @@ async def main_async(cfg: DictConfig):
             with open("thread.ystat", "w") as f:
                 yappi.get_thread_stats().print_all(out=f)
 
+    system = ir.compose(*components)
     await ir.utils.run_gracefully(system, extra_cleanup_fn=profile_cleanup)
 
 
