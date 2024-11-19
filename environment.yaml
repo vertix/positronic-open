@@ -33,5 +33,4 @@ dependencies:
     - hydra-core
     - hydra-colorlog
     - dearpygui
-
 # python /usr/local/zed/get_python_api.py

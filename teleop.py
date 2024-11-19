@@ -109,6 +109,7 @@ async def main_async(cfg: DictConfig):
     )
     franka.bind(target_position=teleop.outs.robot_target_position)
 
+    gripper = None
     if 'dh_gripper' in cfg:
         gripper = DHGripper(cfg.dh_gripper)
         gripper.bind(grip=teleop.outs.gripper_target_grasp)
@@ -122,24 +123,22 @@ async def main_async(cfg: DictConfig):
     components.append(cam)
 
     if cfg.data_output_dir is not None:
-        # TODO: Move dataset dumper to the ironic
-        data_dumper = DatasetDumper(cfg.data_output_dir)
-        data_dumper.bind(
-            image=cam.outs.record,
+        properties_to_dump = utils.properties_dict(
             robot_joints=franka.outs.joint_positions,
-            robot_position=franka.outs.position,
+            robot_position_translation=utils.map_prop(lambda t: t.translation)(franka.outs.position),
+            robot_position_quaternion=utils.map_prop(lambda t: t.quaternion)(franka.outs.position),
             ext_force_ee=franka.outs.ext_force_ee,
             ext_force_base=franka.outs.ext_force_base,
-            start_episode=teleop.outs.start_tracking,
-            end_episode=teleop.outs.stop_tracking,
-            target_grip=teleop.outs.gripper_target_grasp,
-            target_robot_position=teleop.outs.robot_target_position
+            grip=gripper.outs.grip if gripper else None
         )
-        if 'dh_gripper' in cfg:
-            data_dumper.bind(grip=gripper.outs.grip)
-        components.append(data_dumper)
 
-    system = ir.compose(*components)
+        data_dumper = DatasetDumper(world, cfg.data_output_dir)
+        data_dumper.ins.image = cam.outs.record
+        data_dumper.ins.start_episode = teleop.outs.start_tracking
+        data_dumper.ins.end_episode = teleop.outs.stop_tracking
+        data_dumper.ins.target_grip = teleop.outs.gripper_target_grasp
+        data_dumper.ins.target_robot_position = teleop.outs.robot_target_position
+        data_dumper.ins.robot_data = properties_to_dump
 
     if cfg.profile:
         yappi.set_clock_type("cpu")

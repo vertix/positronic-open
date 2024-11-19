@@ -1,11 +1,8 @@
-import logging
 import time
 from typing import Any, Callable, List, Optional
 
-from control.world import World
 from .system import ControlSystem, control_system
 from .ports import OutputPort
-from .ports import InputPort
 
 
 def map_port(fn: Callable[[Any], Any]):
@@ -19,6 +16,16 @@ def map_port(fn: Callable[[Any], Any]):
             super().write(fn(value), timestamp)
 
     return _MapPort
+
+
+def map_prop(fn: Callable[[Any], Any]):
+    def _wrapper(original):
+        def _internal():
+            value, ts = original()
+            return fn(value), ts
+        return _internal
+    return _wrapper
+
 
 def control_system_fn(*, inputs: List[str] = None, outputs: List[str] = None, input_props: List[str] = None):
     def decorator(fn):
@@ -51,3 +58,55 @@ class FPSCounter:
         self.frame_count += 1
         if time.monotonic() - self.last_report_time >= self.report_every_sec:
             self.report()
+
+def properties_dict(**properties):
+    def result():
+        prop_times = {}
+        prop_values = {}
+        for name, fn in properties.items():
+            value, ts = fn()
+            prop_values[name] = value
+            prop_times[name] = ts
+
+        time_list = list(prop_times.values())
+        # warn if time range is too large
+        if len(time_list) > 0:
+            time_range = max(time_list) - min(time_list)
+            if time_range > 10:
+                print(f"Warning: time range for prop_values is {time_range} ms")
+
+        return prop_values, min(time_list)
+    return result
+
+
+class Throttler:
+    def __init__(self, every_sec: float):
+        """
+        A callable that returns the number of times the function should be called since the last check.
+
+        Args:
+            interval: time in seconds between calls
+            time_fn: function to get the current time
+        """
+        self.interval = every_sec
+        self.last_time_checked = None
+
+    def __call__(self) -> int:
+        """
+        Returns the number of times the function should be called since the last check.
+        """
+        current_time = self.time_fn()
+
+        if self.last_time_checked is None:
+            self.last_time_checked = current_time
+            return 1
+
+        num_calls = int((current_time - self.last_time_checked) / self.interval)
+        if num_calls > 0:
+            self.last_time_checked = current_time
+
+        return num_calls
+
+
+    def time_fn(self) -> float:
+        return time.time()

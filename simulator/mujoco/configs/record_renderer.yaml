@@ -1,0 +1,6 @@
+defaults:
+  - mujoco: franka.yaml
+  - _self_
+
+episode_path: null
+data_output_dir: null
