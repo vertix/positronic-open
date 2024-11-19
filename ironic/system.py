@@ -34,6 +34,10 @@ class OutputPort:
     def __init__(self, name: str):
         self._name = name
         self._handlers = []
+        self._logging = False
+
+    def enable_logging(self):
+        self._logging = True
 
     def subscribe(self, handler):
         """Subscribe a handler to this port. Handler must be an async function."""
@@ -46,6 +50,8 @@ class OutputPort:
         """
         # We use asyncio.gather and sacrifice reproducibility of results.
         # If you want reproducibility, run handlers sequentially.
+        if self._logging:
+            print(f"Writing to {self._name}: {message.data}")
         await asyncio.gather(*[handler(message) for handler in self._handlers])
 
 

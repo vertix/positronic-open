@@ -105,7 +105,7 @@ def map_property(function: Callable[[Any], Any], property: Callable[[], Message]
     return result
 
 
-async def properties_dict(**properties):
+def properties_dict(**properties):
     """Creates a property that returns a dictionary of multiple property values.
 
     Args:

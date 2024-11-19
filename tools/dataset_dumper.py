@@ -90,21 +90,25 @@ class DatasetDumper(ir.ControlSystem):
 
     @ir.on_message('target_grip')
     async def on_target_grip(self, message: ir.Message):
-        self.target_grip, self.target_ts = message.data, message.ts
+        self.target_grip, self.target_ts = message.data, message.timestamp
 
     @ir.on_message('target_robot_position')
     async def on_target_robot_position(self, message: ir.Message):
         self.target_robot_position = message.data
 
     @ir.on_message('image')
-    async def on_image(self, message: ir.Message):
+    async def on_image(self, image_message: ir.Message):
         if not self.tracked:
+            return
+
+        if self.target_robot_position is None:
+            print("No target robot position")
             return
 
         ep_dict = {}
         now_ts = ir.system_clock()
 
-        ep_dict['image'] = message.data
+        ep_dict['image'] = image_message.data
         ep_dict['target_grip'] = self.target_grip
         ep_dict['target_robot_position.translation'] = self.target_robot_position.translation
         ep_dict['target_robot_position.quaternion'] = self.target_robot_position.quaternion
@@ -115,8 +119,8 @@ class DatasetDumper(ir.ControlSystem):
 
         # HACK: Here we use knowledge that time is in nanoseconds
         ep_dict['time'] = (now_ts - self.episode_start) / 1e9
-        ep_dict['delay/image'] = (now_ts - message.ts) / 1e9
-        ep_dict['delay/robot'] = (now_ts - robot_message.ts) / 1e9
+        ep_dict['delay/image'] = (now_ts - image_message.timestamp) / 1e9
+        ep_dict['delay/robot'] = (now_ts - robot_message.timestamp) / 1e9
         ep_dict['delay/target'] = (now_ts - self.target_ts) / 1e9
 
         self.dumper.write(ep_dict)

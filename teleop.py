@@ -80,13 +80,13 @@ class TeleopSystem(ir.ControlSystem):
             if not self.is_tracking:
                 logging.info('Started tracking')
                 self.is_tracking = True
-                await self.outs.start_tracking.write(ir.Message(True, message.timestamp))
+                await self.outs.start_tracking.write(ir.Message(None, message.timestamp))
         elif untrack_but:
             if self.is_tracking:
                 logging.info('Stopped tracking')
                 self.is_tracking = False
                 self.offset = None
-                await self.outs.stop_tracking.write(ir.Message(True, message.timestamp))
+                await self.outs.stop_tracking.write(ir.Message(None, message.timestamp))
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="teleop")
@@ -132,7 +132,7 @@ async def main_async(cfg: DictConfig):
         )
 
         components.append(DatasetDumper(cfg.data_output_dir).bind(
-            image=cam.outs.record,
+            image=cam.outs.frame,
             start_episode=teleop.outs.start_tracking,
             end_episode=teleop.outs.stop_tracking,
             target_grip=teleop.outs.gripper_target_grasp,
