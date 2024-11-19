@@ -1,9 +1,9 @@
 import asyncio
 import time
 import signal
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
-from ironic.system import ControlSystem
+from ironic.system import ControlSystem, Message
 
 class FPSCounter:
     """Utility class for tracking and reporting frames per second (FPS).
@@ -36,6 +36,26 @@ class FPSCounter:
 
 
 async def run_gracefully(system: ControlSystem, extra_cleanup_fn: Optional[Callable[[], None]] = None):
+    """Runs a control system with graceful shutdown handling.
+
+    This function manages the lifecycle of a ControlSystem, handling setup, continuous operation,
+    and cleanup. It sets up signal handlers to catch interrupts (Ctrl+C) and ensures proper
+    cleanup of resources when shutting down.
+
+    Args:
+        system (ControlSystem): The control system instance to run
+        extra_cleanup_fn (Optional[Callable[[], None]]): Optional callback function to perform
+            additional cleanup tasks after the system cleanup
+
+    Example:
+        ```python
+        system = MyControlSystem()
+        def cleanup():
+            print("Performing extra cleanup...")
+
+        await run_gracefully(system, extra_cleanup_fn=cleanup)
+        ```
+    """
     shutdown_event = asyncio.Event()
     def signal_handler(signal, frame):
         print("Program interrupted by user, exiting...")
@@ -53,3 +73,65 @@ async def run_gracefully(system: ControlSystem, extra_cleanup_fn: Optional[Calla
         if extra_cleanup_fn:
             extra_cleanup_fn()
             print('Extra cleanup finished')
+
+
+def map_property(function: Callable[[Any], Any], property: Callable[[], Message]):
+    """Creates a new property that transforms the data of another property using a mapping function.
+
+    This utility is useful for connecting systems that expect different data formats. It preserves
+    the timestamp of the original message while transforming its data content.
+
+    Args:
+        function: A function that transforms the data from one format to another
+        property: The source property function that returns Messages
+
+    Returns:
+        An async function that returns a Message with transformed data and original timestamp
+
+    Example:
+        ```python
+        # Connect two systems with different position formats
+        robot.bind(
+            target_position=map_property(
+                lambda pos: transform_coordinates(pos),
+                inference.outs.target_robot_position
+            )
+        )
+        ```
+    """
+    async def result():
+        original_message = await property()
+        return Message(data=function(original_message.data), timestamp=original_message.timestamp)
+    return result
+
+
+async def properties_dict(**properties):
+    """Creates a property that returns a dictionary of multiple property values.
+
+    Args:
+        **properties: Keyword arguments mapping property names to property functions
+            that return Messages
+
+    Returns:
+        An async function that returns a Message containing a dictionary of property values
+    """
+    async def result():
+        # Gather all property values concurrently
+        messages = await asyncio.gather(*(prop_fn() for prop_fn in properties.values()))
+
+        # Build the dictionaries
+        prop_values = {
+            name: messages[i].data
+            for i, name in enumerate(properties.keys())
+        }
+        timestamps = [msg.timestamp for msg in messages]
+
+        # Warn if time range is too large
+        if timestamps:
+            time_range = (max(timestamps) - min(timestamps)) / 1e6  # Convert ns to ms
+            if time_range > 10:
+                print(f"Warning: time range for property values is {time_range:.1f} ms")
+
+        return Message(data=prop_values, timestamp=min(timestamps))
+
+    return result

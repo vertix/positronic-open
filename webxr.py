@@ -83,7 +83,7 @@ class WebXR(ir.ControlSystem):
 
         self.data_queue = multiprocessing.Queue(maxsize=10)
         self.server_process = None
-        self.fps = ir.utils.FPSCounter("WebXR ")
+        self.fps = ir.utils.FPSCounter("WebXR")
 
     async def setup(self):
         """Start the WebXR server process"""

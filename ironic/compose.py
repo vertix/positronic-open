@@ -7,19 +7,19 @@ Example usage:
     sink = DataSink()
 
     # Simple composition with internal connections and properties
-    system = compose([
+    system = compose(
         source,
         processor.bind(counter=source.outs.counter,
                       in_data=source.outs.data),
         sink.bind(data=processor.outs.processed,
                  counter_accumulated=processor.outs.counter_accumulated)
-    ])
+    )
 
     # Or with explicit input/output mapping:
     system = compose(
         components=[processor, sink],
-        inputs={'data': processor.ins.in_data},  # Direct port reference
-        outputs={'result': processor.outs.processed}
+        inputs={'data': (processor, 'in_data')},
+        outputs={'result': (processor, 'processed')}
     )
 """
 
@@ -127,9 +127,9 @@ def compose(*components: ControlSystem,
         system = compose(
             source,
             processor.bind(counter=source.outs.counter,
-                         in_data=source.outs.data),
+                           in_data=source.outs.data),
             sink.bind(data=processor.outs.processed,
-                     counter_accumulated=processor.outs.counter_accumulated)
+                      counter_accumulated=processor.outs.counter_accumulated)
         )
 
         # Composition with exposed ports that can be bound to other systems:
