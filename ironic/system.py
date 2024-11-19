@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 import time
 from types import SimpleNamespace
@@ -43,9 +44,9 @@ class OutputPort:
         Write a message to the port. Implementations must check that the timestamp
         is in increasing order.
         """
-        # We can use asyncio.gather here but we may sacrifice reproducibility of results.
-        for handler in self._handlers:
-            await handler(message)
+        # We use asyncio.gather and sacrifice reproducibility of results.
+        # If you want reproducibility, run handlers sequentially.
+        await asyncio.gather(*[handler(message) for handler in self._handlers])
 
 
 def _validate_pythonic_name(name: str, context: str) -> None:

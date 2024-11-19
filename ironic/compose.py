@@ -23,6 +23,7 @@ Example usage:
     )
 """
 
+import asyncio
 from typing import Dict, Sequence, Any, Tuple, Optional
 from types import SimpleNamespace
 
@@ -79,8 +80,7 @@ class ComposedSystem(ControlSystem):
 
     async def step(self):
         """Step all components"""
-        for component in self._components:
-            await component.step()
+        await asyncio.gather(*[component.step() for component in self._components])
 
     def bind(self, **bindings):
         """Bind inputs to the appropriate components"""
