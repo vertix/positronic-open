@@ -10,7 +10,7 @@ from simulator.mujoco.sim import InverseKinematics, MujocoRenderer, MujocoSimula
 
 @control_system(
     inputs=["actuator_values", "target_grip", "reset", "target_robot_position"],
-    outputs=["images"],  
+    outputs=["images"],
     output_props=[
         "robot_position",
         "grip",
@@ -86,7 +86,7 @@ class MujocoSimulatorCS(ControlSystem):
 
     def _init_position(self):
         self.simulator.reset()
-    
+
     def _init_renderer(self):
         if self.renderer is not None:
             self.renderer.initialize()
@@ -118,15 +118,15 @@ class MujocoSimulatorCS(ControlSystem):
         self._init_position()
         self._init_renderer()
 
-        while not self.world.should_stop:           
+        while not self.world.should_stop:
             self._handle_inputs()
 
             for _ in range(self.do_simulation()):
                 self.simulate()
-            
+
             if self.do_render():
                 self.render()
-                
+
 
         if self.renderer is not None:
             self.renderer.close()

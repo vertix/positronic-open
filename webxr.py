@@ -1,16 +1,16 @@
 # System that starts a webserver that collects tracking data from the WebXR page
 # and outputs it further.
 
-import queue
+import asyncio
 import multiprocessing
-import time
+
 from fastapi import FastAPI, WebSocket
 from starlette.responses import FileResponse
 import uvicorn
 import numpy as np
-import json
 
-from control import ControlSystem, World, control_system
+import ironic as ir
+
 from control.utils import FPSCounter
 from geom import Transform3D
 
@@ -34,7 +34,7 @@ def run_server(data_queue, port, ssl_keyfile, ssl_certfile):
             fps = FPSCounter("Websocket")
             while True:
                 data = await websocket.receive_json()
-                data_queue.put(data)
+                data_queue.put((data, ir.system_clock()))
                 fps.tick()
         except Exception as e:
             print(f"WebSocket error: {e}")
@@ -72,39 +72,30 @@ def run_server(data_queue, port, ssl_keyfile, ssl_certfile):
     server = uvicorn.Server(config)
     server.run()
 
-@control_system(outputs=["transform", "buttons"])
-class WebXR(ControlSystem):
-    def __init__(self, world: World, port: int, ssl_keyfile: str = "key.pem", ssl_certfile: str = "cert.pem"):
-        super().__init__(world)
+
+@ir.ironic_system(output_ports=["transform", "buttons"])
+class WebXR(ir.ControlSystem):
+    def __init__(self, port: int, ssl_keyfile: str = "key.pem", ssl_certfile: str = "cert.pem"):
+        super().__init__()
         self.port = port
         self.ssl_keyfile = ssl_keyfile
         self.ssl_certfile = ssl_certfile
 
         self.data_queue = multiprocessing.Queue(maxsize=10)
         self.server_process = None
+        self.fps = ir.utils.FPSCounter("WebXR")
 
-    def run(self):
+    async def setup(self):
+        """Start the WebXR server process"""
         self.server_process = multiprocessing.Process(
             target=run_server,
             args=(self.data_queue, self.port, self.ssl_keyfile, self.ssl_certfile)
         )
         self.server_process.start()
 
-        try:
-            fps = FPSCounter("WebXR ")
-            while not self.should_stop:
-                data = None
-                while not self.data_queue.empty():
-                    data = self.data_queue.get()
-                if data is None:
-                    time.sleep(0.1)
-                    continue
-                pos = np.array(data['position'])
-                quat = np.array(data['orientation'])
-                self.outs.buttons.write(data['buttons'])
-                self.outs.transform.write(Transform3D(pos, quat))
-                fps.tick()
-        finally:
+    async def cleanup(self):
+        """Clean up the server process"""
+        if self.server_process:
             print("Cancelling WebXR")
             self.server_process.terminate()
             self.server_process.join(timeout=5)
@@ -112,3 +103,25 @@ class WebXR(ControlSystem):
                 print("WebXR did not terminate in time, terminating forcefully")
                 self.server_process.kill()
             print("WebXR cancelled")
+
+    async def step(self):
+        """Process incoming WebXR data and publish to output ports"""
+        data = None
+        # Process all available data, keeping only the most recent
+        while not self.data_queue.empty():
+            data, timestamp = self.data_queue.get()
+
+        if data is None:
+            await asyncio.sleep(0.1)
+            return
+
+        # Write transform data
+        pos = np.array(data['position'])
+        quat = np.array(data['orientation'])
+        transform = Transform3D(pos, quat)
+        await self.outs.transform.write(ir.Message(transform, timestamp))
+
+        # Write button data
+        await self.outs.buttons.write(ir.Message(data['buttons'], timestamp))
+
+        self.fps.tick()

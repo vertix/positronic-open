@@ -18,3 +18,17 @@ It is important to keep the control systems pure and move all the sophisticated 
 inp_sys.ins.status = CachedProperty(out_sys.outs.status, every_sec=1.)
 inp_sys.ins.telemetry = ThrottledChannel(out_sys.outs.telemtry, rps=10)
 ```
+
+
+## Design goals and wishes
+- [ ] Ports can be closed, that means that there's no data will be written
+- [ ] Systems should have ability to clean-up before closing
+- [ ] If all input ports are closed, system should stop
+- [ ] You should be able easily work with ControlSystem without being a ControlSystem
+- [ ] The threading should be explicit. By default, all ControlSystems leave in one thread (coroutines?)
+- [ ] The execution flow should be as reproducable as possible.
+
+
+## Random thoughts
+- Only several control systems are trully generating data (Cameras, WebXR, MuJoCo GUI), all others are either responding to events, or just provide properties (like roboarms)
+- Should we give control systems ability to define the full coroutine (aka run()), or just making a step() is enough?

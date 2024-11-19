@@ -1,3 +1,5 @@
+import time
+
 from dataclasses import dataclass
 import hydra
 import mujoco
@@ -127,7 +129,7 @@ class DearpyguiUi(ControlSystem):
             self.outs.reset.write(True, self.world.now_ts)
             self._reset_desired_action()
             self.outs.start_episode.write(True, self.world.now_ts)
-            
+
         self.recording = not self.recording
 
     def move(self):
@@ -223,7 +225,7 @@ def main(cfg: DictConfig):
         'simulation_hz': cfg.mujoco.simulation_hz,
     }
     window = DearpyguiUi(world, width, height, episode_metadata, initial_position)
-    
+
     # wires
     simulator.ins.bind(target_grip=window.outs.target_grip,
                        target_robot_position=window.outs.target_robot_position,
@@ -242,7 +244,7 @@ def main(cfg: DictConfig):
         @utils.map_prop
         def get_quaternion(position):
             return position.quaternion
-        
+
         @utils.map_port
         def discard_images(images):
             # The idea is just to pass the pulse of images, not the data

@@ -301,13 +301,12 @@ class Kinova(ControlSystem):
         control_thread.start()
 
         try:
-            for input_name, _ts, value in self.ins.read(1 / 40):
-                if input_name == "target_position":
-                    target_joints = controller.inverse_kinematics(value)
-                    if target_joints is not None:
-                        with controller.target_lock:
-                            controller.target_joints = target_joints
-                            print(f"Target joints: {target_joints}")
+            for _ts, value in self.ins.target_position.read(1 / 40):
+                target_joints = controller.inverse_kinematics(value)
+                if target_joints is not None:
+                    with controller.target_lock:
+                        controller.target_joints = target_joints
+                        print(f"Target joints: {target_joints}")
 
                 with controller.output_lock:
                     if controller.output is not None:

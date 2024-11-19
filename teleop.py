@@ -7,21 +7,28 @@ import hydra
 from omegaconf import DictConfig
 import yappi
 
-from control import ControlSystem, utils, MainThreadWorld, control_system
+import ironic as ir
 from geom import Quaternion, Transform3D
 from hardware import Franka, DHGripper, sl_camera
 from tools.dataset_dumper import DatasetDumper
 from webxr import WebXR
 
 logging.basicConfig(level=logging.INFO,
-                     handlers=[logging.StreamHandler(),
-                               logging.FileHandler("teleop.log", mode="w")])
+                    handlers=[logging.StreamHandler(),
+                              logging.FileHandler("teleop.log", mode="w")])
 
 
-@control_system(inputs=["teleop_transform", "teleop_buttons"],
-                input_props=["robot_position"],
-                outputs=["robot_target_position", "gripper_target_grasp", "start_tracking", "stop_tracking"])
-class TeleopSystem(ControlSystem):
+@ir.ironic_system(input_ports=["teleop_transform", "teleop_buttons"],
+                  input_props=["robot_position"],
+                  output_ports=["robot_target_position", "gripper_target_grasp", "start_tracking", "stop_tracking"])
+class TeleopSystem(ir.ControlSystem):
+    def __init__(self):
+        super().__init__()
+        self.teleop_t = None
+        self.offset = None
+        self.is_tracking = False
+        self.fps = ir.utils.FPSCounter("Teleop")
+
     @classmethod
     def _parse_position(cls, value: Transform3D) -> Transform3D:
         pos = np.array([value.translation[2], value.translation[0], value.translation[1]])
@@ -43,100 +50,110 @@ class TeleopSystem(ControlSystem):
             but = 0., 0., 0.
         return but
 
-    def run(self):
-        track_but, untrack_but, grasp_but = 0., 0., 0.
-        teleop_t = None
-        offset = None
-        is_tracking = False
+    @ir.on_message("teleop_transform")
+    async def handle_teleop_transform(self, message: ir.Message):
+        self.teleop_t = self._parse_position(message.data)
+        self.fps.tick()
 
-        fps = utils.FPSCounter("Teleop")
-        for input_name, _ts, value in self.ins.read():
-            if input_name == "teleop_transform":
-                teleop_t = self._parse_position(value)
-                fps.tick()
-                if is_tracking and offset is not None:
-                    target = Transform3D(teleop_t.translation + offset.translation,
-                                         teleop_t.quaternion * offset.quaternion)
-                    self.outs.robot_target_position.write(target, self.world.now_ts)
-            elif input_name == "teleop_buttons":
-                track_but, untrack_but, grasp_but = self._parse_buttons(value)
+        if self.is_tracking and self.offset is not None:
+            target = Transform3D(
+                self.teleop_t.translation + self.offset.translation,
+                self.teleop_t.quaternion * self.offset.quaternion
+            )
+            await self.outs.robot_target_position.write(ir.Message(target, message.timestamp))
 
-                if is_tracking: self.outs.gripper_target_grasp.write(grasp_but, self.world.now_ts)
+    @ir.on_message("teleop_buttons")
+    async def handle_teleop_buttons(self, message: ir.Message):
+        track_but, untrack_but, grasp_but = self._parse_buttons(message.data)
 
-                if track_but:
-                    # Note that translation and rotation offsets are independent
-                    if teleop_t is not None:
-                        robot_t, _ts = self.ins.robot_position()
-                        offset = Transform3D(-teleop_t.translation + robot_t.translation,
-                                             teleop_t.quaternion.inv * robot_t.quaternion)
-                    if not is_tracking:
-                        logging.info('Started tracking')
-                        is_tracking = True
-                        self.outs.start_tracking.write(True, self.world.now_ts)
-                elif untrack_but:
-                    if is_tracking:
-                        logging.info('Stopped tracking')
-                        is_tracking = False
-                        offset = None
-                        self.outs.stop_tracking.write(True, self.world.now_ts)
+        if self.is_tracking:
+            await self.outs.gripper_target_grasp.write(ir.Message(grasp_but, message.timestamp))
+
+        if track_but:
+            # Note that translation and rotation offsets are independent
+            if self.teleop_t is not None:
+                robot_t = (await self.ins.robot_position()).data
+                self.offset = Transform3D(
+                    -self.teleop_t.translation + robot_t.translation,
+                    self.teleop_t.quaternion.inv * robot_t.quaternion
+                )
+            if not self.is_tracking:
+                logging.info('Started tracking')
+                self.is_tracking = True
+                await self.outs.start_tracking.write(ir.Message(None, message.timestamp))
+        elif untrack_but:
+            if self.is_tracking:
+                logging.info('Stopped tracking')
+                self.is_tracking = False
+                self.offset = None
+                await self.outs.stop_tracking.write(ir.Message(None, message.timestamp))
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="teleop")
 def main(cfg: DictConfig):
-    world = MainThreadWorld()
-    webxr = WebXR(world, port=cfg.webxr.port)
-    franka = Franka(world, cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
+    asyncio.run(main_async(cfg))
 
-    teleop = TeleopSystem(world)
 
-    teleop.ins.teleop_transform = webxr.outs.transform
-    teleop.ins.teleop_buttons = webxr.outs.buttons
-    teleop.ins.robot_position = franka.outs.position
-    franka.ins.target_position = teleop.outs.robot_target_position
+async def main_async(cfg: DictConfig):
+    webxr = WebXR(port=cfg.webxr.port)
+    franka = Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
+    teleop = TeleopSystem()
+
+    components = [webxr, franka, teleop]
+
+    # Connect teleop system
+    teleop.bind(
+        teleop_transform=webxr.outs.transform,
+        teleop_buttons=webxr.outs.buttons,
+        robot_position=franka.outs.position
+    )
+    franka.bind(target_position=teleop.outs.robot_target_position)
 
     gripper = None
     if 'dh_gripper' in cfg:
-        gripper = DHGripper(world, cfg.dh_gripper)
-        gripper.ins.grip = teleop.outs.gripper_target_grasp
+        gripper = DHGripper(cfg.dh_gripper).bind(grip=teleop.outs.gripper_target_grasp)
+        components.append(gripper)
 
-    cam = sl_camera.SLCamera(world, view=sl_camera.sl.VIEW.SIDE_BY_SIDE,
-                             fps=cfg.camera.fps, resolution=sl_camera.sl.RESOLUTION.VGA)
+    cam = sl_camera.SLCamera(
+        view=sl_camera.sl.VIEW.SIDE_BY_SIDE,
+        fps=cfg.camera.fps,
+        resolution=sl_camera.sl.RESOLUTION.VGA
+    )
+    components.append(cam)
 
     if cfg.data_output_dir is not None:
-        properties_to_dump = utils.properties_dict(
+        properties_to_dump = ir.utils.properties_dict(
             robot_joints=franka.outs.joint_positions,
-            robot_position_translation=utils.map_prop(lambda t: t.translation)(franka.outs.position),
-            robot_position_quaternion=utils.map_prop(lambda t: t.quaternion)(franka.outs.position),
+            robot_position_translation=ir.utils.map_property(lambda t: t.translation, franka.outs.position),
+            robot_position_quaternion=ir.utils.map_property(lambda t: t.quaternion, franka.outs.position),
             ext_force_ee=franka.outs.ext_force_ee,
             ext_force_base=franka.outs.ext_force_base,
             grip=gripper.outs.grip if gripper else None
         )
 
-        data_dumper = DatasetDumper(world, cfg.data_output_dir)
-        data_dumper.ins.image = cam.outs.record
-        data_dumper.ins.start_episode = teleop.outs.start_tracking
-        data_dumper.ins.end_episode = teleop.outs.stop_tracking
-        data_dumper.ins.target_grip = teleop.outs.gripper_target_grasp
-        data_dumper.ins.target_robot_position = teleop.outs.robot_target_position
-        data_dumper.ins.robot_data = properties_to_dump
+        components.append(DatasetDumper(cfg.data_output_dir).bind(
+            image=cam.outs.frame,
+            start_episode=teleop.outs.start_tracking,
+            end_episode=teleop.outs.stop_tracking,
+            target_grip=teleop.outs.gripper_target_grasp,
+            target_robot_position=teleop.outs.robot_target_position,
+            robot_data=properties_to_dump
+        ))
 
     if cfg.profile:
         yappi.set_clock_type("cpu")
         yappi.start(profile_threads=False)
 
-    try:
-        world.run()
-    finally:
-        print("Program interrupted by user, exiting...")
+    def profile_cleanup():
         if cfg.profile:
             yappi.stop()
             yappi.get_func_stats().save("func.pstat", type='pstat')
             yappi.get_func_stats().save("func.ystat")
             with open("thread.ystat", "w") as f:
                 yappi.get_thread_stats().print_all(out=f)
-            print("Program exited, stats saved")
-        else:
-            print("Program exited")
+
+    system = ir.compose(*components)
+    await ir.utils.run_gracefully(system, extra_cleanup_fn=profile_cleanup)
 
 
 if __name__ == "__main__":

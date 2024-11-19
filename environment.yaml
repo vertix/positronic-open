@@ -1,12 +1,14 @@
 name: positronic
 channels:
   - conda-forge
-  - nvidia
   - pytorch
+  - defaults
 dependencies:
   - python=3.11
-  - libstdcxx-ng>=12.1.0
+  # Build tools
+  - gcc_linux-64
   - gxx_linux-64
+  # Deps
   - jupyter
   - numpy
   - matplotlib
@@ -23,6 +25,7 @@ dependencies:
   - pip
   - pip:
     - pytest
+    - pytest-asyncio
     - lerobot
     - click
     - yappi

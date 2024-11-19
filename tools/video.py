@@ -1,44 +1,50 @@
 import av
-
-from control import ControlSystem, World, control_system
-from control.utils import FPSCounter
+import ironic as ir
 
 
-@control_system(inputs=['image'])
-class VideoDumper(ControlSystem):
-    def __init__(self, world: World, filename: str, fps: int, width: int = None, height: int = None, codec: str = 'libx264'):
-        super().__init__(world)
+@ir.ironic_system(
+    input_ports=['image']
+)
+class VideoDumper(ir.ControlSystem):
+    def __init__(self, filename: str, fps: int, width: int = None, height: int = None, codec: str = 'libx264'):
+        super().__init__()
         self.filename = filename
         self.fps = fps
         self.width = width
         self.height = height
         self.codec = codec
+        self.container = None
+        self.stream = None
+        self.fps_counter = ir.utils.FPSCounter("VideoDumper")
 
-    def run(self):
-        container = av.open(self.filename, mode='w', format='mp4')
-        stream = container.add_stream(self.codec, rate=self.fps)
-        stream.pix_fmt = 'yuv420p'
-        stream.options = {'crf': '27', 'g': '2', 'preset': 'ultrafast', 'tune': 'zerolatency'}
-        first_frame = True
+    async def setup(self):
+        self.container = av.open(self.filename, mode='w', format='mp4')
+        self.stream = self.container.add_stream(self.codec, rate=self.fps)
+        self.stream.pix_fmt = 'yuv420p'
+        self.stream.options = {
+            'crf': '27',
+            'g': '2',
+            'preset': 'ultrafast',
+            'tune': 'zerolatency'
+        }
 
-        try:
-            fps = None
-            for _, image in self.ins.image.read_until_stop():
-                if image is None:
-                    continue
+    async def cleanup(self):
+        if self.stream:
+            packet = self.stream.encode(None)
+            self.container.mux(packet)
+        if self.container:
+            self.container.close()
 
-                if first_frame:
-                    fps = FPSCounter("VideoDumper")
-                    first_frame = False
-                    stream.width = self.width or image.shape[1]
-                    stream.height = self.height or image.shape[0]
+    @ir.on_message('image')
+    async def handle_image(self, message: ir.Message):
+        if message.data is None:
+            return
 
-                frame = av.VideoFrame.from_ndarray(image, format='bgr24')
-                packet = stream.encode(frame)
-                container.mux(packet)
+        if self.stream.width is None:  # First frame
+            self.stream.width = self.width or message.data.shape[1]
+            self.stream.height = self.height or message.data.shape[0]
 
-                fps.tick()
-        finally:
-            packet = stream.encode(None)
-            container.mux(packet)
-            container.close()
+        frame = av.VideoFrame.from_ndarray(message.data, format='bgr24')
+        packet = self.stream.encode(frame)
+        self.container.mux(packet)
+        self.fps_counter.tick()

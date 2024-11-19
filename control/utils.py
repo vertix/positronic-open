@@ -42,16 +42,22 @@ class FPSCounter:
     def __init__(self, prefix: str, report_every_sec: float = 10.0):
         self.prefix = prefix
         self.report_every_sec = report_every_sec
+        self.reset()
+
+    def reset(self):
+        self.last_report_time = time.monotonic()
+        self.frame_count = 0
+
+    def report(self):
+        fps = self.frame_count / (time.monotonic() - self.last_report_time)
+        print(f"{self.prefix}: {fps:.2f} fps")
         self.last_report_time = time.monotonic()
         self.frame_count = 0
 
     def tick(self):
         self.frame_count += 1
         if time.monotonic() - self.last_report_time >= self.report_every_sec:
-            fps = self.frame_count / (time.monotonic() - self.last_report_time)
-            print(f"{self.prefix}: {fps:.2f} fps")
-            self.last_report_time = time.monotonic()
-            self.frame_count = 0
+            self.report()
 
 def properties_dict(**properties):
     def result():
@@ -78,13 +84,13 @@ class Throttler:
         """
         A callable that returns the number of times the function should be called since the last check.
 
-        Args:   
+        Args:
             interval: time in seconds between calls
             time_fn: function to get the current time
         """
         self.interval = every_sec
         self.last_time_checked = None
-    
+
     def __call__(self) -> int:
         """
         Returns the number of times the function should be called since the last check.
@@ -94,7 +100,7 @@ class Throttler:
         if self.last_time_checked is None:
             self.last_time_checked = current_time
             return 1
-        
+
         num_calls = int((current_time - self.last_time_checked) / self.interval)
         if num_calls > 0:
             self.last_time_checked = current_time

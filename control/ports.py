@@ -1,11 +1,13 @@
 from abc import ABC, abstractmethod
 from collections import deque
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ThreadPoolExecutor, wait
+from contextlib import contextmanager
 import queue
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, ContextManager, Dict, List, Optional
 import threading
 
+Empty = queue.Empty
 
 class OutputPort:
     """
@@ -41,28 +43,55 @@ class OutputPort:
 class InputPort(ABC):
     @abstractmethod
     def read(self, block: bool = True, timeout: Optional[float] = None):
+        """Read a value from the input port.
+
+        Returns:
+            tuple: A (timestamp, value) pair.
+
+        Raises:
+            Empty: If timeout is reached before a value is available.
+            StopIteration: If the world should stop.
+
+        Note:
+            - Blocks indefinitely if no timeout is specified
+            - Implementations must respect world.should_stop
         """
-        Returns (timestamp, value) or None if timeout is reached.
-        Blocking if no timeout. Implementations must respect world.should_stop.
+        pass
+
+    @abstractmethod
+    def subscribe(self, *callbacks: List[Callable]) -> ContextManager:
+        """Subscribe a callback function to be called when new data arrives.
+
+        Args:
+            callbacks: A list of callable that takes (value, timestamp) as arguments and will be called
+                     whenever new data arrives on this port.
+
+        Returns:
+            A context manager that will unsubscribe the callbacks when exited. Use with 'with' statement
+            to automatically unsubscribe when the block is exited.
         """
         pass
 
     def read_nowait(self, timeout: Optional[float] = None):
-        return self.read(block=False, timeout=timeout)
+        try:
+            return self.read(block=False, timeout=timeout)
+        except Empty:
+            return None
 
     def read_until_stop(self):
         """
-        Generator that continuously reads from the input port until the world should stop,
-        or until the port is closed.
+        Generator that continuously reads from the input port until the world should stop.
 
         This method blocks and yields (timestamp, value) tuples from the input port.
         It stops when the world's should_stop flag is set.
         """
         while not self.world.should_stop:
-            res = self.read(block=True, timeout=None)
-            if res is None:
-                break
-            yield res
+            try:
+                res = self.read(block=True, timeout=None)
+                if res is not None:  # Only yield if we got a value
+                    yield res
+            except StopIteration:
+                return
 
 
 class DirectWriteInputPort(InputPort):
@@ -71,35 +100,59 @@ class DirectWriteInputPort(InputPort):
         self.queue = deque()
         self._last_value = None
         self._last_value_lock = threading.Lock()
+        self.callbacks = {}  # Use dict to maintain order of subscriptions
 
     def write(self, value: Any, timestamp: Optional[int] = None):
-        # TODO: Change the order, value first, timestamp second
-        self.queue.append((timestamp, value))
+        with self._last_value_lock:
+            self._last_value = (timestamp, value)
+            self.queue.append(self._last_value)
+
+    @contextmanager
+    def subscribe(self, *callbacks: List[Callable]):
+        try:
+            self.callbacks.update({cb: None for cb in callbacks})
+            yield
+        finally:
+            for cb in callbacks:
+                self.callbacks.pop(cb)
 
     def read(self, block: bool = True, timeout: Optional[float] = None):
         start_time = time.time()
         while not self.world.should_stop:
             if self.queue:
                 with self._last_value_lock:
-                    self._last_value = self.queue.popleft()
-                return self._last_value
+                    value = self.queue.popleft()
+                    # Call callbacks when value is read
+                    for callback in self.callbacks.keys():
+                        callback(value[1], value[0])  # value, timestamp
+                    return value
             if not block:
-                return None
+                raise Empty
             if timeout is not None and (time.time() - start_time) >= timeout:
-                return None
+                raise Empty
             time.sleep(0.01)
-        return None
+        raise StopIteration
 
-
+# TODO: Imporve debugability of this class, in particular the queue size.
 class ThreadedInputPort(InputPort):
     def __init__(self, world, binded_to: OutputPort):
         self.queue = queue.Queue(maxsize=5)
         binded_to._bind(self._write)
         self.world = world
+        self.callbacks = {}  # Use dict to maintain order of subscriptions
 
     def _write(self, value: Any, timestamp: Optional[int] = None):
         # TODO: Change the order, value first, timestamp second
         self.queue.put((timestamp, value))
+
+    @contextmanager
+    def subscribe(self, *callbacks: List[Callable]):
+        try:
+            self.callbacks.update({cb: None for cb in callbacks})
+            yield
+        finally:
+            for cb in callbacks:
+                self.callbacks.pop(cb)  # TODO: This is not efficient, should we use a set?
 
     def read(self, block: bool = True, timeout: Optional[float] = None):
         TICK = 1
@@ -108,12 +161,14 @@ class ThreadedInputPort(InputPort):
                 t_o = min(TICK, timeout) if timeout is not None else TICK
                 timeout = max(timeout - TICK, 0) if timeout is not None else None
                 result = self.queue.get(block=block, timeout=t_o)
+                for callback in self.callbacks.keys():
+                    callback(result[1], result[0])  # TODO: Change the order when we change the order of the tuple
                 self.queue.task_done()
                 return result
             except queue.Empty:
                 if not block or (timeout is not None and timeout <= 0):
-                    return None
-        return None  # Stop is requested
+                    raise Empty
+        raise StopIteration
 
 
 class OutputPortContainer:
@@ -141,6 +196,21 @@ class InputPortContainer:
 
     def size(self):
         return len(self._ports) + len(self._props)
+
+    @contextmanager
+    def subscribe(self, **callbacks):
+        try:
+            context_managers = []
+            for name, callbacks in callbacks.items():
+                if not isinstance(callbacks, list):
+                    callbacks = [callbacks]
+                context_managers.append(self.__getattr__(name).subscribe(*callbacks))
+            for cm in context_managers:
+                cm.__enter__()
+            yield
+        finally:
+            for cm in reversed(context_managers):
+                cm.__exit__(None, None, None)
 
     def _create_port(self, output_port: OutputPort):
         return ThreadedInputPort(self._world, output_port)
@@ -212,11 +282,12 @@ class InputPortContainer:
 
                 for future in done:
                     name = futures.pop(future)
-                    result = future.result()
-                    if result is None: return  # Stop is requested
+                    try:
+                        result = future.result()
+                    except StopIteration:
+                        return
                     timestamp, value = result
                     yield name, timestamp, value
 
                     futures[executor.submit(self._ports[name].read)] = name
                     timeout_left = timeout
-
