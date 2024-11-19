@@ -1,6 +1,9 @@
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
+
 import mujoco
 import numpy as np
+from dm_control import mujoco as dm_mujoco
+from dm_control.utils import inverse_kinematics as ik
 
 from control.utils import FPSCounter
 from geom import Transform3D
@@ -10,6 +13,32 @@ def xmat_to_quat(xmat):
     site_quat = np.empty(4)
     mujoco.mju_mat2Quat(site_quat, xmat)
     return site_quat
+
+
+
+class InverseKinematics:
+    def __init__(self, data: mujoco.MjData):
+        super().__init__()
+        self.joints = [f'joint{i}' for i in range(1, 8)]
+        self.physics = dm_mujoco.Physics.from_model(data)
+
+    def recalculate_ik(self, target_robot_position: Transform3D) -> Optional[np.ndarray]:
+        """
+        Returns None if the IK calculation failed
+        """
+        result = ik.qpos_from_site_pose(
+            physics=self.physics,
+            site_name='end_effector',
+            target_pos=target_robot_position.translation,
+            target_quat=target_robot_position.quaternion,
+            joint_names=self.joints,
+            rot_weight=0.5,
+        )
+
+        if result.success:
+            return result.qpos[:7]
+        print(f"Failed to calculate IK for {target_robot_position}")
+        return None
 
 
 class MujocoSimulator:

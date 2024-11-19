@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import time
 import hydra
 import mujoco
 import numpy as np
@@ -29,18 +28,17 @@ class DesiredAction:
 
 @control_system(
     inputs=["images"],
-    input_props=["robot_position"],
-    outputs=["start_episode", "end_episode", "target_grip", "target_robot_position", "metadata", "reset"],
+    outputs=["start_episode", "end_episode", "target_grip", "target_robot_position", "reset"],
 )
 class DearpyguiUi(ControlSystem):
-    speed_units_per_second = 0.1
+    speed_meters_per_second = 0.1
     movement_vectors = {
-        'forward': np.array([speed_units_per_second, 0, 0]),
-        'backward': np.array([-speed_units_per_second, 0, 0]),
-        'left': np.array([0, speed_units_per_second, 0]),
-        'right': np.array([0, -speed_units_per_second, 0]),
-        'up': np.array([0, 0, speed_units_per_second]),
-        'down': np.array([0, 0, -speed_units_per_second]),
+        'forward': np.array([speed_meters_per_second, 0, 0]),
+        'backward': np.array([-speed_meters_per_second, 0, 0]),
+        'left': np.array([0, speed_meters_per_second, 0]),
+        'right': np.array([0, -speed_meters_per_second, 0]),
+        'up': np.array([0, 0, speed_meters_per_second]),
+        'down': np.array([0, 0, -speed_meters_per_second]),
     }
 
     key_map = {
@@ -58,15 +56,12 @@ class DearpyguiUi(ControlSystem):
         self.height = height
         self.episode_metadata = episode_metadata or {}
 
-        self.desired_action = None
-        self.actual_position = None
-        self.actual_orientation = None
         self.initial_position = DesiredAction(
             position=initial_position.translation.copy(),
             orientation=initial_position.quaternion.copy(),
             grip=0.0
         )
-        print(f"Initial position: {self.initial_position}")
+        self._reset_desired_action()
 
         self.recording = False
         self.last_move_ts = None
@@ -79,7 +74,6 @@ class DearpyguiUi(ControlSystem):
             'up': False,
             'down': False,
         }
-        self.grip_state = False
 
         self.raw_textures = {
             'top': np.zeros((self.height, self.width, 3), dtype=np.float32),
@@ -87,6 +81,13 @@ class DearpyguiUi(ControlSystem):
             'handcam_left': np.zeros((self.height, self.width, 3), dtype=np.float32),
             'handcam_right': np.zeros((self.height, self.width, 3), dtype=np.float32),
         }
+
+    def _reset_desired_action(self):
+        self.desired_action = DesiredAction(
+            position=self.initial_position.position.copy(),
+            orientation=self.initial_position.orientation.copy(),
+            grip=self.initial_position.grip,
+        )
 
     def update(self):
         images = self.ins.images.read_nowait()
@@ -97,21 +98,12 @@ class DearpyguiUi(ControlSystem):
             _set_image_uint8_to_float32(self.raw_textures['handcam_left'], images['handcam_left'])
             _set_image_uint8_to_float32(self.raw_textures['handcam_right'], images['handcam_right'])
 
-        # set real position
-        robot_position, _ts = self.ins.robot_position()
-        dpg.set_value("pos", f"Position: {robot_position}")
-        self.actual_position = robot_position.translation.copy()
-        self.actual_orientation = robot_position.quaternion.copy()
+        self.move()
 
-        time_since_last_move = self.world.now_ts - self.last_move_ts if self.last_move_ts is not None else 0
-        self.move(time_since_last_move / 1000)
-        self.last_move_ts = self.world.now_ts
+        target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
 
-        if self.desired_action is not None:
-            target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
-
-            self.outs.target_grip.write(self.desired_action.grip, self.world.now_ts)
-            self.outs.target_robot_position.write(target_pos, self.world.now_ts)
+        self.outs.target_grip.write(self.desired_action.grip, self.world.now_ts)
+        self.outs.target_robot_position.write(target_pos, self.world.now_ts)
 
     def key_down(self, sender, app_data):
         key = app_data[0]
@@ -126,36 +118,27 @@ class DearpyguiUi(ControlSystem):
             self.move_key_states[key] = False
 
     def grab(self):
-        self.grip_state = not self.grip_state
+        self.desired_action.grip = 1.0 - self.desired_action.grip
 
     def switch_recording(self):
         if self.recording:
-            self.outs.end_episode.write(True, self.world.now_ts)
+            self.outs.end_episode.write(self.episode_metadata, self.world.now_ts)
         else:
             self.outs.reset.write(True, self.world.now_ts)
-            self.desired_action = None
+            self._reset_desired_action()
             self.outs.start_episode.write(True, self.world.now_ts)
-            time.sleep(0.1)  # TODO: figure out the better way to chain events
-            self.outs.metadata.write(self.episode_metadata, self.world.now_ts)
             
         self.recording = not self.recording
 
-    def move(self, time_since_last_move: float):
-        if self.actual_position is None:
-            return
-        
-        if self.desired_action is None:
-            # initialize from current position
-            self.desired_action = DesiredAction(
-                position=self.initial_position.position.copy(),
-                orientation=self.initial_position.orientation.copy(),
-                grip=self.initial_position.grip,
-            )
+    def move(self):
+        time_since_last_move = self.world.now_ts - self.last_move_ts if self.last_move_ts is not None else 0
+        time_since_last_move /= 1000
 
-        self.desired_action.grip = 1.0 if self.grip_state else 0.0
         for key, vector in self.movement_vectors.items():
             if self.move_key_states.get(key, False):
                 self.desired_action.position += vector * time_since_last_move
+
+        self.last_move_ts = self.world.now_ts
 
         dpg.set_value("target",
                       f"Target Position: {self.desired_action.position}\n"
@@ -182,7 +165,6 @@ class DearpyguiUi(ControlSystem):
                     dpg.add_image("top")
                     dpg.add_image("side")
         with dpg.window(label="Info"):
-            dpg.add_text("", tag="pos")
             dpg.add_text("", tag="target")
 
         with dpg.handler_registry():
@@ -249,7 +231,6 @@ def main(cfg: DictConfig):
 
     window.ins.bind(
         images=simulator.outs.images,
-        robot_position=simulator.outs.robot_position,
     )
 
     if cfg.data_output_dir is not None:
@@ -264,6 +245,7 @@ def main(cfg: DictConfig):
         
         @utils.map_port
         def discard_images(images):
+            # The idea is just to pass the pulse of images, not the data
             return 0
 
         properties_to_dump = utils.properties_dict(
@@ -283,7 +265,6 @@ def main(cfg: DictConfig):
             target_robot_position=window.outs.target_robot_position,
             start_episode=window.outs.start_episode,
             end_episode=window.outs.end_episode,
-            metadata=window.outs.metadata,
             robot_data=properties_to_dump,
         )
 

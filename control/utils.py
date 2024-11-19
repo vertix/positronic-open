@@ -73,8 +73,8 @@ def properties_dict(**properties):
     return result
 
 
-class IntervalChecker:
-    def __init__(self, interval: float, time_fn: Callable[[], float]):
+class Throttler:
+    def __init__(self, every_sec: float):
         """
         A callable that returns the number of times the function should be called since the last check.
 
@@ -82,8 +82,7 @@ class IntervalChecker:
             interval: time in seconds between calls
             time_fn: function to get the current time
         """
-        self.interval = interval
-        self.time_fn = time_fn
+        self.interval = every_sec
         self.last_time_checked = None
     
     def __call__(self) -> int:
@@ -102,3 +101,6 @@ class IntervalChecker:
 
         return num_calls
 
+
+    def time_fn(self) -> float:
+        return time.time()

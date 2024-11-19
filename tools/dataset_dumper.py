@@ -18,10 +18,9 @@ class SerialDumper:
         Example:
             >>> dumper = SerialDumper("data")
             >>> dumper.start_episode()
-            >>> dumper.add_metadata({"robot_type": "franka"})
             >>> dumper.write({"position": np.array([1, 2, 3]), "time": 0.1})
             >>> dumper.write({"position": np.array([4, 5, 6]), "time": 0.2})
-            >>> dumper.end_episode()
+            >>> dumper.end_episode(metadata={"robot_type": "franka"})
         """
         self.directory = directory
         os.makedirs(self.directory, exist_ok=True)
@@ -38,8 +37,8 @@ class SerialDumper:
     def start_episode(self):
         self.episode_count += 1
 
-    def end_episode(self):
-        self.dump_episode()
+    def end_episode(self, metadata: dict = None):
+        self.dump_episode(metadata=metadata)
         self.data = defaultdict(list)
         self.episode_metadata = {}
         
@@ -47,22 +46,20 @@ class SerialDumper:
         for k, v in data.items():
             self.data[k].append(v)
 
-    def add_metadata(self, metadata: dict):
-        self.episode_metadata.update(metadata)
-
-    def dump_episode(self):
+    def dump_episode(self, metadata: dict = None):
         # Transform everything to torch tensors
         for k, v in self.data.items():
             self.data[k] = torch.tensor(np.array(v))
         
-        self.data.update(self.episode_metadata)
+        if metadata is not None:
+            self.data.update(metadata)
 
         fname = f"{self.directory}/{str(self.episode_count).zfill(3)}.pt"
         torch.save(dict(self.data), fname)
         print(f"Episode {self.episode_count} saved to {fname} with {len(self.data['time'])} frames")
 
 
-@control_system(inputs=['image', 'start_episode', 'end_episode', 'target_grip', 'target_robot_position', 'metadata'],
+@control_system(inputs=['image', 'start_episode', 'end_episode', 'target_grip', 'target_robot_position'],
                 input_props=['robot_data'])
 class DatasetDumper(ControlSystem):
     def __init__(self, world: World, directory: str):
@@ -85,16 +82,16 @@ class DatasetDumper(ControlSystem):
                 self.dumper.start_episode()
             elif name == 'end_episode':
                 assert tracked, "end_episode without start_episode"
-                self.dumper.end_episode()
+                if data is not None:
+                    self.dumper.end_episode(metadata=data)
+                else:
+                    self.dumper.end_episode()
                 episode_start = None
                 tracked = False
             elif tracked and name == 'target_grip':
                 target_grip, target_ts = data, ts
             elif tracked and name == 'target_robot_position':
                 target_robot_position = data
-            elif name == 'metadata':
-                assert tracked, "Metadata added, but no episode started"
-                self.dumper.add_metadata(data)
             elif tracked and name == 'image' and target_ts is not None:
                 ep_dict = {}
                 now_ts = self.world.now_ts
