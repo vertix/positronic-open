@@ -94,6 +94,7 @@ def main(cfg: DictConfig):
     teleop.ins.robot_position = franka.outs.position
     franka.ins.target_position = teleop.outs.robot_target_position
 
+    gripper = None
     if 'dh_gripper' in cfg:
         gripper = DHGripper(world, cfg.dh_gripper)
         gripper.ins.grip = teleop.outs.gripper_target_grasp
@@ -102,18 +103,22 @@ def main(cfg: DictConfig):
                              fps=cfg.camera.fps, resolution=sl_camera.sl.RESOLUTION.VGA)
 
     if cfg.data_output_dir is not None:
+        properties_to_dump = utils.properties_dict(
+            robot_joints=franka.outs.joint_positions,
+            robot_position_translation=utils.map_prop(lambda t: t.translation)(franka.outs.position),
+            robot_position_quaternion=utils.map_prop(lambda t: t.quaternion)(franka.outs.position),
+            ext_force_ee=franka.outs.ext_force_ee,
+            ext_force_base=franka.outs.ext_force_base,
+            grip=gripper.outs.grip if gripper else None
+        )
+
         data_dumper = DatasetDumper(world, cfg.data_output_dir)
         data_dumper.ins.image = cam.outs.record
-        data_dumper.ins.robot_joints = franka.outs.joint_positions
-        data_dumper.ins.robot_position = franka.outs.position
-        data_dumper.ins.ext_force_ee = franka.outs.ext_force_ee
-        data_dumper.ins.ext_force_base = franka.outs.ext_force_base
         data_dumper.ins.start_episode = teleop.outs.start_tracking
         data_dumper.ins.end_episode = teleop.outs.stop_tracking
         data_dumper.ins.target_grip = teleop.outs.gripper_target_grasp
         data_dumper.ins.target_robot_position = teleop.outs.robot_target_position
-        if 'dh_gripper' in cfg:
-            data_dumper.ins.grip = gripper.outs.grip
+        data_dumper.ins.robot_data = properties_to_dump
 
     if cfg.profile:
         yappi.set_clock_type("cpu")
