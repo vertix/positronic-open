@@ -34,10 +34,10 @@ def main(cfg):
             simulator.set_grip(data['target_grip'][event_idx])
             event_idx += 1
             tqdm_iter.update(1)
-        
+
         tqdm_iter.set_postfix(sim_ts=simulator.ts)
         simulator.step()
-        
+
         if simulator.ts - last_render_ts >= 1 / cfg.mujoco.observation_hz:
             last_render_ts = simulator.ts
             images = renderer.render_frames()
@@ -55,7 +55,6 @@ def main(cfg):
                 'target_robot_position.quaternion': data['target_robot_position.quaternion'][event_idx],
                 'target_robot_position.translation': data['target_robot_position.translation'][event_idx],
                 'time': data['time'][event_idx],
-                'time/robot': data['time/robot'][event_idx],
                 'delay/robot': data['delay/robot'][event_idx],
                 'delay/target': data['delay/target'][event_idx],
                 'delay/image': data['delay/image'][event_idx],

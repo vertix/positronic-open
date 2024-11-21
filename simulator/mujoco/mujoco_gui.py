@@ -106,7 +106,7 @@ class DearpyguiUi(ir.ControlSystem):
             orientation=self.initial_position.orientation.copy(),
             grip=self.initial_position.grip,
         )
-    @fps_counter("update", report_every_sec=10.0)
+
     async def update(self):
         self.move()
 
@@ -220,7 +220,6 @@ class DearpyguiUi(ir.ControlSystem):
 
     async def cleanup(self):
         self.ui_stop_event.set()
-        await asyncio.sleep(0.1)
         self.ui_thread.join()
         dpg.destroy_context()
 

@@ -56,6 +56,15 @@ class OutputPort:
 
 
     async def write_message(self, data: Any, timestamp: int = None):
+        """
+        Write a message to the port.
+
+        Shortcut for `port.write(Message(data, timestamp))`.
+
+        Args:
+            data: The data to write to the port
+            timestamp: The timestamp of the data
+        """
         await self.write(Message(data, timestamp=timestamp))
 
 
