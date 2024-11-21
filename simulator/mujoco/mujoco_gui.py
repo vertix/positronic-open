@@ -87,10 +87,10 @@ class DearpyguiUi(ir.ControlSystem):
         }
 
         self.raw_textures = {
-            'top': np.zeros((self.height, self.width, 3), dtype=np.float32),
-            'side': np.zeros((self.height, self.width, 3), dtype=np.float32),
-            'handcam_left': np.zeros((self.height, self.width, 3), dtype=np.float32),
-            'handcam_right': np.zeros((self.height, self.width, 3), dtype=np.float32),
+            'top': np.ones((self.height, self.width, 4), dtype=np.float32),
+            'side': np.ones((self.height, self.width, 4), dtype=np.float32),
+            'handcam_left': np.ones((self.height, self.width, 4), dtype=np.float32),
+            'handcam_right': np.ones((self.height, self.width, 4), dtype=np.float32),
         }
 
         self.second_buffer = {
@@ -175,10 +175,10 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.create_context()
         with dpg.texture_registry():
 
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="top", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['top'])
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="side", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['side'])
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_left", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['handcam_left'])
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_right", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['handcam_right'])
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="top", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['top'])
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="side", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['side'])
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_left", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['handcam_left'])
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_right", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['handcam_right'])
 
         with dpg.window(label="Robot"):
             with dpg.table(header_row=False):
@@ -211,7 +211,7 @@ class DearpyguiUi(ir.ControlSystem):
         while not self.ui_stop_event.is_set() and dpg.is_dearpygui_running():
             with self.swap_buffer_lock:
                 for key in self.raw_textures:
-                    self.raw_textures[key][:] = self.second_buffer[key]
+                    self.raw_textures[key][:, :, :3] = self.second_buffer[key]
             dpg.render_dearpygui_frame()
             fps_counter.tick()
 

@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass
 import time
 from types import SimpleNamespace
-from typing import Any, List, Union
+from typing import Any, List
 import re
 import inspect
 import warnings
