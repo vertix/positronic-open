@@ -59,6 +59,17 @@ class FPSCounter:
         if time.monotonic() - self.last_report_time >= self.report_every_sec:
             self.report()
 
+
+def fps_counter(prefix: str, report_every_sec: float = 10.0):
+    def decorator(fn):
+        fps_counter = FPSCounter(prefix, report_every_sec)
+        def wrapper(*args, **kwargs):
+            fps_counter.tick()
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 def properties_dict(**properties):
     def result():
         prop_times = {}

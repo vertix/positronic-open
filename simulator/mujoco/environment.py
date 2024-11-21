@@ -1,16 +1,14 @@
 from typing import Optional
 
-from control import ControlSystem, control_system
-from control.system import output_property_custom_time
 from control.utils import Throttler
-from control.world import World
+import ironic as ir
 from geom import Transform3D
 from simulator.mujoco.sim import InverseKinematics, MujocoRenderer, MujocoSimulator
 
 
-@control_system(
-    inputs=["actuator_values", "target_grip", "reset", "target_robot_position"],
-    outputs=["images"],
+@ir.ironic_system(
+    input_ports=["actuator_values", "gripper_target_grasp", "reset", "robot_target_position"],
+    output_ports=["images"],
     output_props=[
         "robot_position",
         "grip",
@@ -19,18 +17,16 @@ from simulator.mujoco.sim import InverseKinematics, MujocoRenderer, MujocoSimula
         "ext_force_base",
         "actuator_values",
     ])
-class MujocoSimulatorCS(ControlSystem):
+class MujocoSimulatorCS(ir.ControlSystem):
     def __init__(
             self,
-            world: World,
             simulator: MujocoSimulator,
             simulation_rate: float = 1 / 500,
             render_rate: float = 1 / 60,
             renderer: Optional[MujocoRenderer] = None,
             inverse_kinematics: Optional[InverseKinematics] = None,
-
     ):
-        super().__init__(world)
+        super().__init__()
         self.simulator = simulator
         self.do_simulation = Throttler(every_sec=simulation_rate)
         self.simulation_rate = simulation_rate
@@ -45,32 +41,35 @@ class MujocoSimulatorCS(ControlSystem):
 
         self.inverse_kinematics = inverse_kinematics
 
-    @output_property_custom_time('robot_position')
-    def robot_position(self):
-        return Transform3D(
-            translation=self.simulator.robot_position.translation,
-            quaternion=self.simulator.robot_position.quaternion
-        ), self.ts
+    @ir.out_property
+    async def robot_position(self):
+        return ir.Message(
+            Transform3D(
+                translation=self.simulator.robot_position.translation,
+                quaternion=self.simulator.robot_position.quaternion
+            ),
+            self.ts
+        )
 
-    @output_property_custom_time('grip')
-    def grip(self):
-        return self.simulator.grip, self.ts
+    @ir.out_property
+    async def grip(self):
+        return ir.Message(self.simulator.grip, self.ts)
 
-    @output_property_custom_time('joints')
-    def joints(self):
-        return self.simulator.joints, self.ts
+    @ir.out_property
+    async def joints(self):
+        return ir.Message(self.simulator.joints, self.ts)
 
-    @output_property_custom_time('ext_force_ee')
-    def ext_force_ee(self):
-        return self.simulator.ext_force_ee, self.ts
+    @ir.out_property
+    async def ext_force_ee(self):
+        return ir.Message(self.simulator.ext_force_ee, self.ts)
 
-    @output_property_custom_time('ext_force_base')
-    def ext_force_base(self):
-        return self.simulator.ext_force_base, self.ts
+    @ir.out_property
+    async def ext_force_base(self):
+        return ir.Message(self.simulator.ext_force_base, self.ts)
 
-    @output_property_custom_time('actuator_values')
-    def actuator_values(self):
-        return self.simulator.actuator_values, self.ts
+    @ir.out_property
+    async def actuator_values(self):
+        return ir.Message(self.simulator.actuator_values, self.ts)
 
     @property
     def ts(self):
@@ -79,10 +78,10 @@ class MujocoSimulatorCS(ControlSystem):
     def simulate(self):
         self.simulator.step()
 
-    def render(self):
+    async def render(self):
         if self.renderer is not None:
             images = self.renderer.render_frames()
-            self.outs.images.write(images, self.ts)
+            await self.outs.images.write_message(images)
 
     def _init_position(self):
         self.simulator.reset()
@@ -91,42 +90,36 @@ class MujocoSimulatorCS(ControlSystem):
         if self.renderer is not None:
             self.renderer.initialize()
 
-    def _handle_inputs(self):
-        result = self.ins.actuator_values.read_nowait()
-        if result is not None:
-            ts, values = result
-            if values is not None:
-                self.simulator.set_actuator_values(values)
+    @ir.on_message('reset')
+    async def on_reset(self, _message: ir.Message):
+        self._init_position()
 
-        grip = self.ins.target_grip.read_nowait()
-        if grip is not None:
-            ts, grip_value = grip
-            self.simulator.set_grip(grip_value)
+    @ir.on_message('gripper_target_grasp')
+    async def on_gripper_target_grasp(self, message: ir.Message):
+        self.simulator.set_grip(message.data)
 
-        reset = self.ins.reset.read_nowait()
-        if reset is not None:
-            self._init_position()
+    @ir.on_message('robot_target_position')
+    async def on_robot_target_position(self, message: ir.Message):
+        actuator_values = self.inverse_kinematics.recalculate_ik(message.data)
 
-        target_robot_position = self.ins.target_robot_position.read_nowait()
-        if target_robot_position is not None:
-            ts, target_robot_position_value = target_robot_position
-            actuator_values = self.inverse_kinematics.recalculate_ik(target_robot_position_value)
-            if actuator_values is not None:
-                self.simulator.set_actuator_values(actuator_values)
+        if actuator_values is not None:
+            self.simulator.set_actuator_values(actuator_values)
 
-    def run(self):
+    @ir.on_message('actuator_values')
+    async def on_actuator_values(self, message: ir.Message):
+        self.simulator.set_actuator_values(message.data)
+
+    async def setup(self):
         self._init_position()
         self._init_renderer()
 
-        while not self.world.should_stop:
-            self._handle_inputs()
+    async def step(self):
+        for _ in range(self.do_simulation()):
+            self.simulate()
 
-            for _ in range(self.do_simulation()):
-                self.simulate()
+        if self.do_render():
+            await self.render()
 
-            if self.do_render():
-                self.render()
-
-
+    async def cleanup(self):
         if self.renderer is not None:
             self.renderer.close()

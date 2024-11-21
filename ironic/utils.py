@@ -3,7 +3,7 @@ import time
 import signal
 from typing import Any, Callable, Optional
 
-from ironic.system import ControlSystem, Message
+from ironic.system import ControlSystem, Message, OutputPort
 
 class FPSCounter:
     """Utility class for tracking and reporting frames per second (FPS).
@@ -105,6 +105,22 @@ def map_property(function: Callable[[Any], Any], property: Callable[[], Message]
     return result
 
 
+def map_port(function: Callable[[Any], Any], port: OutputPort) -> OutputPort:
+    """Creates a new port that transforms the data of another port using a mapping function.
+
+    This utility is useful for connecting systems that expect different data formats. It preserves
+    the timestamp of the original message while transforming its data content.
+    """
+    mapped_port = OutputPort(f"mapped_{port._name}")
+
+    async def handler(message: Message):
+        transformed_data = function(message.data)
+        await mapped_port.write(Message(transformed_data, timestamp=message.timestamp))
+
+    port.subscribe(handler)
+    return mapped_port
+
+
 def properties_dict(**properties):
     """Creates a property that returns a dictionary of multiple property values.
 
@@ -118,6 +134,7 @@ def properties_dict(**properties):
     async def result():
         # Gather all property values concurrently
         messages = await asyncio.gather(*(prop_fn() for prop_fn in properties.values()))
+
 
         # Build the dictionaries
         prop_values = {

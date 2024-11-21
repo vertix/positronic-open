@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass
 import time
 from types import SimpleNamespace
-from typing import Any, List
+from typing import Any, List, Union
 import re
 import inspect
 import warnings
@@ -53,6 +53,10 @@ class OutputPort:
         if self._logging:
             print(f"Writing to {self._name}: {message.data}")
         await asyncio.gather(*[handler(message) for handler in self._handlers])
+
+
+    async def write_message(self, data: Any, timestamp: int = None):
+        await self.write(Message(data, timestamp=timestamp))
 
 
 def _validate_pythonic_name(name: str, context: str) -> None:
@@ -268,4 +272,3 @@ class ControlSystem:
         to perform blocking operations, do them in a separate thread or asyncio.run_coroutine_threadsafe.
         """
         pass
-
