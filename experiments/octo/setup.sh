@@ -45,4 +45,17 @@ sudo reboot
 cd octo
 PYTHONPATH=$PYTHONPATH:$(pwd)/../act python examples/02_finetune_new_observation_action.py --pretrained_path=hf://rail-berkeley/octo-small-1.5 --data_dir=../aloha_sim_dataset --save_dir=$(pwd)/../octo_finetuning
 
+sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+sudo apt-get update
 
+# Install newer GCC and libstdc++
+sudo apt-get install -y gcc-11 g++-11 libstdc++6
+
+# Run evaluation
+export DISPLAY=:0
+Xvfb :0 -screen 0 1024x768x24 &
+sleep 2
+
+export MUJOCO_GL="egl"
+export PYOPENGL_PLATFORM="egl"
+PYTHONPATH=$PYTHONPATH:$(pwd)/../act python examples/03_eval_finetuned.py --finetuned_path=$(pwd)/../octo_finetuning/
