@@ -81,7 +81,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
     async def render(self):
         if self.renderer is not None:
             images = self.renderer.render_frames()
-            await self.outs.images.write_message(images)
+            await self.outs.images.write(ir.Message(images, self.ts))
 
     def _init_position(self):
         self.simulator.reset()

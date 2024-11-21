@@ -54,18 +54,9 @@ class OutputPort:
             print(f"Writing to {self._name}: {message.data}")
         await asyncio.gather(*[handler(message) for handler in self._handlers])
 
-
-    async def write_message(self, data: Any, timestamp: int = None):
-        """
-        Write a message to the port.
-
-        Shortcut for `port.write(Message(data, timestamp))`.
-
-        Args:
-            data: The data to write to the port
-            timestamp: The timestamp of the data
-        """
-        await self.write(Message(data, timestamp=timestamp))
+    @property
+    def name(self):
+        return self._name
 
 
 def _validate_pythonic_name(name: str, context: str) -> None:

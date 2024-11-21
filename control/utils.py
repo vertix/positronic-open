@@ -60,27 +60,6 @@ class FPSCounter:
             self.report()
 
 
-def fps_counter(prefix: str, report_every_sec: float = 10.0):
-    """
-    A decorator that prints the FPS of the decorated function.
-
-    Args:
-        prefix: prefix for the FPS report
-        report_every_sec: time in seconds between reports
-    Example:
-        >>> @fps_counter("render")
-        >>> def render(self):
-        >>>     pass
-    """
-    def decorator(fn):
-        fps_counter = FPSCounter(prefix, report_every_sec)
-        def wrapper(*args, **kwargs):
-            fps_counter.tick()
-            return fn(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
 def properties_dict(**properties):
     def result():
         prop_times = {}

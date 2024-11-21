@@ -5,7 +5,7 @@ import numpy as np
 from dm_control import mujoco as dm_mujoco
 from dm_control.utils import inverse_kinematics as ik
 
-from control.utils import FPSCounter
+from ironic.utils import FPSCounter
 from geom import Transform3D
 
 
@@ -78,7 +78,7 @@ class MujocoSimulator:
     @property
     def ts(self):
         return self.data.time
-    
+
     @property
     def ext_force_ee(self):
         return np.zeros(6)  # TODO: implement
@@ -86,7 +86,7 @@ class MujocoSimulator:
     @property
     def ext_force_base(self):
         return np.zeros(6)  # TODO: implement
-    
+
     @property
     def initial_position(self):
         return self._initial_position
@@ -139,7 +139,7 @@ class MujocoRenderer:
 
         self.observation_fps_counter.tick()
         return views
-    
+
     def initialize(self):
         """
         Initialize the renderer. This must be called before calling render().

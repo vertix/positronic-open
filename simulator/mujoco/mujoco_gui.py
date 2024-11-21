@@ -9,7 +9,6 @@ import numpy as np
 from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
 
-from control.utils import fps_counter
 import ironic as ir
 from geom import Transform3D
 from ironic.utils import FPSCounter
@@ -112,10 +111,12 @@ class DearpyguiUi(ir.ControlSystem):
 
         target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
 
-        await self.outs.gripper_target_grasp.write_message(self.desired_action.grip)
-        await self.outs.robot_target_position.write_message(target_pos)
+        _, _, robot_position = await asyncio.gather(
+            self.outs.gripper_target_grasp.write(ir.Message(self.desired_action.grip)),
+            self.outs.robot_target_position.write(ir.Message(target_pos)),
+            self.ins.robot_position()
+        )
 
-        robot_position = await self.ins.robot_position()
         dpg.set_value("robot_position", f"Robot Translation: {robot_position.data.translation}\n"
                                       f"Robot Quaternion: {robot_position.data.quaternion}")
 
@@ -139,17 +140,17 @@ class DearpyguiUi(ir.ControlSystem):
 
     async def _switch_recording(self):
         if self.recording:
-            await self.outs.stop_tracking.write_message(self.episode_metadata)
+            await self.outs.stop_tracking.write(ir.Message(self.episode_metadata))
         else:
-            await self.outs.reset.write_message(True)
+            await self.outs.reset.write(ir.Message(True))
             self._reset_desired_action()
-            await self.outs.start_tracking.write_message(True)
+            await self.outs.start_tracking.write(ir.Message(True))
 
         self.recording = not self.recording
 
     def move(self):
         time_since_last_move = ir.system_clock() - self.last_move_ts if self.last_move_ts is not None else 0
-        time_since_last_move /= 1000000000
+        time_since_last_move /= 10 ** 9
 
         for key, vector in self.movement_vectors.items():
             if self.move_key_states.get(key, False):
@@ -212,6 +213,7 @@ class DearpyguiUi(ir.ControlSystem):
             with self.swap_buffer_lock:
                 for key in self.raw_textures:
                     self.raw_textures[key][:, :, :3] = self.second_buffer[key]
+
             dpg.render_dearpygui_frame()
             fps_counter.tick()
 
@@ -255,6 +257,19 @@ async def _main(cfg: DictConfig):
         'simulation_hz': cfg.mujoco.simulation_hz,
     }
     window = DearpyguiUi(width, height, episode_metadata, initial_position)
+
+    systems = [
+        simulator.bind(
+            gripper_target_grasp=window.outs.gripper_target_grasp,
+            robot_target_position=window.outs.robot_target_position,
+            reset=window.outs.reset,
+        ),
+        window.bind(
+            images=simulator.outs.images,
+            robot_position=simulator.outs.robot_position,
+        ),
+    ]
+
     if cfg.data_output_dir is not None:
 
         def get_translation(position):
@@ -278,25 +293,19 @@ async def _main(cfg: DictConfig):
         )
 
         data_dumper = DatasetDumper(cfg.data_output_dir)
-    composed = ir.compose(
-        simulator.bind(
-            gripper_target_grasp=window.outs.gripper_target_grasp,
-            robot_target_position=window.outs.robot_target_position,
-            reset=window.outs.reset,
-        ),
-        window.bind(
-            images=simulator.outs.images,
-            robot_position=simulator.outs.robot_position,
-        ),
-        data_dumper.bind(
-            image=ir.utils.map_port(discard_images, simulator.outs.images),
-            target_grip=window.outs.gripper_target_grasp,
-            target_robot_position=window.outs.robot_target_position,
-            start_episode=window.outs.start_tracking,
-            end_episode=window.outs.stop_tracking,
-            robot_data=properties_to_dump,
-        ),
-    )
+        systems.append(
+            data_dumper.bind(
+                image=ir.utils.map_port(discard_images, simulator.outs.images),
+                target_grip=window.outs.gripper_target_grasp,
+                target_robot_position=window.outs.robot_target_position,
+                start_episode=window.outs.start_tracking,
+                end_episode=window.outs.stop_tracking,
+                robot_data=properties_to_dump,
+            )
+        )
+
+    composed = ir.compose(*systems)
+
     await ir.utils.run_gracefully(composed)
 
 
