@@ -1,3 +1,5 @@
+import asyncio
+import threading
 import time
 
 from dataclasses import dataclass
@@ -7,17 +9,17 @@ import numpy as np
 from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
 
-from control import MainThreadWorld, ControlSystem, control_system, utils
+import ironic as ir
 from geom import Transform3D
+from ironic.utils import FPSCounter
 from simulator.mujoco.environment import MujocoSimulatorCS, InverseKinematics
 from simulator.mujoco.sim import MujocoRenderer, MujocoSimulator
 from tools.dataset_dumper import DatasetDumper
 
 
 def _set_image_uint8_to_float32(target, source):
-    target[:] = source.astype(np.float32)
+    target[:] = source
     target[:] /= 255
-
 
 
 @dataclass
@@ -28,11 +30,12 @@ class DesiredAction:
 
 
 
-@control_system(
-    inputs=["images"],
-    outputs=["start_episode", "end_episode", "target_grip", "target_robot_position", "reset"],
+@ir.ironic_system(
+    input_ports=["images"],
+    input_props=["robot_position"],
+    output_ports=["start_tracking", "stop_tracking", "gripper_target_grasp", "robot_target_position", "reset"],
 )
-class DearpyguiUi(ControlSystem):
+class DearpyguiUi(ir.ControlSystem):
     speed_meters_per_second = 0.1
     movement_vectors = {
         'forward': np.array([speed_meters_per_second, 0, 0]),
@@ -52,11 +55,17 @@ class DearpyguiUi(ControlSystem):
         dpg.mvKey_LShift: 'up',
     }
 
-    def __init__(self, world, width, height, episode_metadata: dict = None, initial_position: Transform3D = None):
-        super().__init__(world)
+    def __init__(self, width, height, episode_metadata: dict = None, initial_position: Transform3D = None):
+        super().__init__()
         self.width = width
         self.height = height
         self.episode_metadata = episode_metadata or {}
+
+        self.ui_thread = threading.Thread(target=self.ui_thread_main, daemon=True)
+        self.ui_stop_event = threading.Event()
+        self.render_lock = threading.Lock()
+        self.swap_buffer_lock = threading.Lock()
+        self.loop = asyncio.get_running_loop()
 
         self.initial_position = DesiredAction(
             position=initial_position.translation.copy(),
@@ -64,7 +73,6 @@ class DearpyguiUi(ControlSystem):
             grip=0.0
         )
         self._reset_desired_action()
-
         self.recording = False
         self.last_move_ts = None
 
@@ -78,6 +86,13 @@ class DearpyguiUi(ControlSystem):
         }
 
         self.raw_textures = {
+            'top': np.ones((self.height, self.width, 4), dtype=np.float32),
+            'side': np.ones((self.height, self.width, 4), dtype=np.float32),
+            'handcam_left': np.ones((self.height, self.width, 4), dtype=np.float32),
+            'handcam_right': np.ones((self.height, self.width, 4), dtype=np.float32),
+        }
+
+        self.second_buffer = {
             'top': np.zeros((self.height, self.width, 3), dtype=np.float32),
             'side': np.zeros((self.height, self.width, 3), dtype=np.float32),
             'handcam_left': np.zeros((self.height, self.width, 3), dtype=np.float32),
@@ -91,21 +106,19 @@ class DearpyguiUi(ControlSystem):
             grip=self.initial_position.grip,
         )
 
-    def update(self):
-        images = self.ins.images.read_nowait()
-        if images is not None:
-            ts, images = images
-            _set_image_uint8_to_float32(self.raw_textures['top'], images['top'])
-            _set_image_uint8_to_float32(self.raw_textures['side'], images['side'])
-            _set_image_uint8_to_float32(self.raw_textures['handcam_left'], images['handcam_left'])
-            _set_image_uint8_to_float32(self.raw_textures['handcam_right'], images['handcam_right'])
-
+    async def update(self):
         self.move()
 
         target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
 
-        self.outs.target_grip.write(self.desired_action.grip, self.world.now_ts)
-        self.outs.target_robot_position.write(target_pos, self.world.now_ts)
+        _, _, robot_position = await asyncio.gather(
+            self.outs.gripper_target_grasp.write(ir.Message(self.desired_action.grip)),
+            self.outs.robot_target_position.write(ir.Message(target_pos)),
+            self.ins.robot_position()
+        )
+
+        dpg.set_value("robot_position", f"Robot Translation: {robot_position.data.translation}\n"
+                                      f"Robot Quaternion: {robot_position.data.quaternion}")
 
     def key_down(self, sender, app_data):
         key = app_data[0]
@@ -123,38 +136,50 @@ class DearpyguiUi(ControlSystem):
         self.desired_action.grip = 1.0 - self.desired_action.grip
 
     def switch_recording(self):
+        self.loop.create_task(self._switch_recording())
+
+    async def _switch_recording(self):
         if self.recording:
-            self.outs.end_episode.write(self.episode_metadata, self.world.now_ts)
+            await self.outs.stop_tracking.write(ir.Message(self.episode_metadata))
         else:
-            self.outs.reset.write(True, self.world.now_ts)
+            await self.outs.reset.write(ir.Message(True))
             self._reset_desired_action()
-            self.outs.start_episode.write(True, self.world.now_ts)
+            await self.outs.start_tracking.write(ir.Message(True))
 
         self.recording = not self.recording
 
     def move(self):
-        time_since_last_move = self.world.now_ts - self.last_move_ts if self.last_move_ts is not None else 0
-        time_since_last_move /= 1000
+        time_since_last_move = ir.system_clock() - self.last_move_ts if self.last_move_ts is not None else 0
+        time_since_last_move /= 10 ** 9
 
         for key, vector in self.movement_vectors.items():
             if self.move_key_states.get(key, False):
                 self.desired_action.position += vector * time_since_last_move
 
-        self.last_move_ts = self.world.now_ts
+        self.last_move_ts = ir.system_clock()
 
         dpg.set_value("target",
                       f"Target Position: {self.desired_action.position}\n"
                       f"Target Quat: {self.desired_action.orientation}\n"
                       f"Target Grip: {self.desired_action.grip}")
 
-    def run(self):
+    @ir.on_message('images')
+    async def on_images(self, message: ir.Message):
+        images = message.data
+        with self.swap_buffer_lock:
+            _set_image_uint8_to_float32(self.second_buffer['top'], images['top'])
+            _set_image_uint8_to_float32(self.second_buffer['side'], images['side'])
+            _set_image_uint8_to_float32(self.second_buffer['handcam_left'], images['handcam_left'])
+            _set_image_uint8_to_float32(self.second_buffer['handcam_right'], images['handcam_right'])
+
+    def ui_thread_main(self):
         dpg.create_context()
         with dpg.texture_registry():
 
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="top", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['top'])
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="side", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['side'])
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_left", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['handcam_left'])
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_right", format=dpg.mvFormat_Float_rgb, default_value=self.raw_textures['handcam_right'])
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="top", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['top'])
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="side", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['side'])
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_left", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['handcam_left'])
+            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_right", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['handcam_right'])
 
         with dpg.window(label="Robot"):
             with dpg.table(header_row=False):
@@ -168,6 +193,7 @@ class DearpyguiUi(ControlSystem):
                     dpg.add_image("side")
         with dpg.window(label="Info"):
             dpg.add_text("", tag="target")
+            dpg.add_text("", tag="robot_position")
 
         with dpg.handler_registry():
             dpg.add_key_down_handler(callback=self.key_down)
@@ -179,22 +205,31 @@ class DearpyguiUi(ControlSystem):
             title='Custom Title', width=800, height=600
         )
         dpg.setup_dearpygui()
-        dpg.show_viewport()
-        dpg.maximize_viewport()
+        dpg.show_viewport(maximized=True)
 
-        while dpg.is_dearpygui_running():
-            if self.world.should_stop:
-                break
+        fps_counter = FPSCounter("UI")
 
-            self.update()
+        while not self.ui_stop_event.is_set() and dpg.is_dearpygui_running():
+            with self.swap_buffer_lock:
+                for key in self.raw_textures:
+                    self.raw_textures[key][:, :, :3] = self.second_buffer[key]
+
             dpg.render_dearpygui_frame()
+            fps_counter.tick()
 
+    async def setup(self):
+        self.ui_thread.start()
+
+    async def cleanup(self):
+        self.ui_stop_event.set()
+        self.ui_thread.join()
         dpg.destroy_context()
-        self.world.stop_event.set()
+
+    async def step(self):
+        await self.update()
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="mujoco_gui")
-def main(cfg: DictConfig):
+async def _main(cfg: DictConfig):
     width = cfg.mujoco.camera_width
     height = cfg.mujoco.camera_height
 
@@ -208,11 +243,8 @@ def main(cfg: DictConfig):
     simulator.reset()
     initial_position = simulator.initial_position
 
-    world = MainThreadWorld()
-
     # systems
     simulator = MujocoSimulatorCS(
-        world=world,
         simulator=simulator,
         simulation_rate=1 / cfg.mujoco.simulation_hz,
         render_rate=1 / cfg.mujoco.observation_hz,
@@ -224,54 +256,62 @@ def main(cfg: DictConfig):
         'mujoco_model_path': cfg.mujoco.model_path,
         'simulation_hz': cfg.mujoco.simulation_hz,
     }
-    window = DearpyguiUi(world, width, height, episode_metadata, initial_position)
+    window = DearpyguiUi(width, height, episode_metadata, initial_position)
 
-    # wires
-    simulator.ins.bind(target_grip=window.outs.target_grip,
-                       target_robot_position=window.outs.target_robot_position,
-                       reset=window.outs.reset)
-
-    window.ins.bind(
-        images=simulator.outs.images,
-    )
+    systems = [
+        simulator.bind(
+            gripper_target_grasp=window.outs.gripper_target_grasp,
+            robot_target_position=window.outs.robot_target_position,
+            reset=window.outs.reset,
+        ),
+        window.bind(
+            images=simulator.outs.images,
+            robot_position=simulator.outs.robot_position,
+        ),
+    ]
 
     if cfg.data_output_dir is not None:
 
-        @utils.map_prop
         def get_translation(position):
             return position.translation
 
-        @utils.map_prop
         def get_quaternion(position):
             return position.quaternion
 
-        @utils.map_port
         def discard_images(images):
             # The idea is just to pass the pulse of images, not the data
             return 0
 
-        properties_to_dump = utils.properties_dict(
+        properties_to_dump = ir.utils.properties_dict(
             robot_joints=simulator.outs.joints,
-            robot_position_translation=get_translation(simulator.outs.robot_position),
-            robot_position_quaternion=get_quaternion(simulator.outs.robot_position),
+            robot_position_translation=ir.utils.map_property(get_translation, simulator.outs.robot_position),
+            robot_position_quaternion=ir.utils.map_property(get_quaternion, simulator.outs.robot_position),
             ext_force_ee=simulator.outs.ext_force_ee,
             ext_force_base=simulator.outs.ext_force_base,
             grip=simulator.outs.grip,
             actuator_values=simulator.outs.actuator_values,
         )
 
-        data_dumper = DatasetDumper(world, cfg.data_output_dir)
-        data_dumper.ins.bind(
-            image=discard_images(simulator.outs.images),  # TODO: allow dumper to dump on any port
-            target_grip=window.outs.target_grip,
-            target_robot_position=window.outs.target_robot_position,
-            start_episode=window.outs.start_episode,
-            end_episode=window.outs.end_episode,
-            robot_data=properties_to_dump,
+        data_dumper = DatasetDumper(cfg.data_output_dir)
+        systems.append(
+            data_dumper.bind(
+                image=ir.utils.map_port(discard_images, simulator.outs.images),
+                target_grip=window.outs.gripper_target_grasp,
+                target_robot_position=window.outs.robot_target_position,
+                start_episode=window.outs.start_tracking,
+                end_episode=window.outs.stop_tracking,
+                robot_data=properties_to_dump,
+            )
         )
 
+    composed = ir.compose(*systems)
 
-    world.run()
+    await ir.utils.run_gracefully(composed)
+
+
+@hydra.main(version_base=None, config_path="configs", config_name="mujoco_gui")
+def main(cfg: DictConfig):
+    asyncio.run(_main(cfg))
 
 if __name__ == "__main__":
     main()

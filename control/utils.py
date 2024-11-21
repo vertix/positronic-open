@@ -38,6 +38,7 @@ def control_system_fn(*, inputs: List[str] = None, outputs: List[str] = None, in
 
     return decorator
 
+
 class FPSCounter:
     def __init__(self, prefix: str, report_every_sec: float = 10.0):
         self.prefix = prefix
@@ -58,6 +59,7 @@ class FPSCounter:
         self.frame_count += 1
         if time.monotonic() - self.last_report_time >= self.report_every_sec:
             self.report()
+
 
 def properties_dict(**properties):
     def result():
