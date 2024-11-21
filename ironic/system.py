@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass
 import time
 from types import SimpleNamespace
-from typing import Any, List
+from typing import Any, Awaitable, Callable, List
 import re
 import inspect
 import warnings
@@ -71,12 +71,18 @@ def _validate_pythonic_name(name: str, context: str) -> None:
             "and contain only letters, numbers, and underscores"
         )
 
-def out_property(method):
+def out_property(method: Callable[..., Awaitable[Message]]) -> Callable[..., Awaitable[Message]]:
     """
     Decorator for declaring that the method is an output property.
 
-    The decorated method must be an async method that returns a tuple of (value, timestamp).
+    The decorated method must be an async method that returns an `ir.Message`.
     The method name must be listed in output_props of the ironic_system decorator.
+
+    Args:
+        method: The async method to decorate
+
+    Returns:
+        The decorated method
 
     Raises:
         ValueError: If the decorated method is not async
@@ -86,12 +92,11 @@ def out_property(method):
             f"Output property '{method.__name__}' must be an async method"
         )
 
-    async def wrapper(self, *args, **kwargs):
+    async def wrapper(self, *args, **kwargs) -> Message:
         return await method(self, *args, **kwargs)
     wrapper.__is_output_property__ = True
     wrapper.__output_property_name__ = method.__name__
     return wrapper
-
 
 def on_message(name: str):
     """
