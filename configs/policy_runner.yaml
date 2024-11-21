@@ -1,6 +1,7 @@
 defaults:
   - state: tqg_352x192
   - action: baseline
+  - camera: sl_vga15
   - _self_
 
 franka:

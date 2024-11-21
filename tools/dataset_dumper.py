@@ -106,9 +106,10 @@ class DatasetDumper(ir.ControlSystem):
             return
 
         ep_dict = {}
-        now_ts = ir.system_clock()
 
-        ep_dict['image'] = image_message.data
+        for key, image in image_message.data.items():
+            name = f'image_{key}' if key else 'image'
+            ep_dict[name] = image
         ep_dict['target_grip'] = self.target_grip
         ep_dict['target_robot_position.translation'] = self.target_robot_position.translation
         ep_dict['target_robot_position.quaternion'] = self.target_robot_position.quaternion
@@ -118,6 +119,7 @@ class DatasetDumper(ir.ControlSystem):
             ep_dict[name] = value
 
         # HACK: Here we use knowledge that time is in nanoseconds
+        now_ts = ir.system_clock()
         ep_dict['time'] = (now_ts - self.episode_start) / 1e9
         ep_dict['delay/image'] = (now_ts - image_message.timestamp) / 1e9
         ep_dict['delay/robot'] = (now_ts - robot_message.timestamp) / 1e9

@@ -43,6 +43,10 @@ class OutputPort:
         """Subscribe a handler to this port. Handler must be an async function."""
         self._handlers.append(handler)
 
+    @property
+    def name(self):
+        return self._name
+
     async def write(self, message: Message):
         """
         Write a message to the port. Implementations must check that the timestamp

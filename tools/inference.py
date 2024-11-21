@@ -30,6 +30,12 @@ class StateEncoder:
     def __init__(self, cfg: StateEncodingConfig):
         self.cfg = cfg
 
+    # TODO: Rework this to support new format of images, see dataset_dumper.py:
+    # ```python
+    # for key, image in image_message.data.items():
+    #     name = f'image_{key}' if key else 'image'
+    #     ep_dict[name] = image
+    # ```
     def encode_episode(self, episode_data):
         obs = {}
         image = episode_data['image']

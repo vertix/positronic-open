@@ -6,6 +6,7 @@ import hydra
 from omegaconf import DictConfig
 import rerun as rr
 
+import hardware
 import ironic as ir
 from hardware import Franka, DHGripper, sl_camera
 from tools.inference import Inference
@@ -74,11 +75,8 @@ async def async_main(cfg: DictConfig):
 
     franka = Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
     policy_runner = PolicyRunnerSystem()
-    cam = sl_camera.SLCamera(
-        view=sl_camera.sl.VIEW.SIDE_BY_SIDE,
-        fps=15,
-        resolution=sl_camera.sl.RESOLUTION.VGA
-    )
+    cam = hardware.from_config.sl_camera(cfg.camera)
+
     inference = Inference(cfg.inference)
     gripper = DHGripper("/dev/ttyUSB0")
 

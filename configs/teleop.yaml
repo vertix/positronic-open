@@ -1,3 +1,7 @@
+defaults:
+  - camera: sl_vga15
+  - _self_
+
 webxr:
   port: 5005
 
@@ -8,10 +12,6 @@ franka:
 
 dh_gripper: "/dev/ttyUSB0"
 
-camera:
-  fps: 15
-
 data_output_dir: null
 
 profile: false
-
