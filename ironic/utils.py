@@ -136,7 +136,6 @@ def properties_dict(**properties):
         # Gather all property values concurrently
         messages = await asyncio.gather(*(prop_fn() for prop_fn in properties.values()))
 
-
         # Build the dictionaries
         prop_values = {
             name: messages[i].data

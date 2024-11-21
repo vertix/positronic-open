@@ -38,6 +38,7 @@ def control_system_fn(*, inputs: List[str] = None, outputs: List[str] = None, in
 
     return decorator
 
+
 class FPSCounter:
     def __init__(self, prefix: str, report_every_sec: float = 10.0):
         self.prefix = prefix

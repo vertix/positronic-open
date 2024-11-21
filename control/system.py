@@ -82,6 +82,7 @@ def output_property(name: str):
         return wrapper
     return decorator
 
+
 def output_property_custom_time(name: str):
     """
     Function decorator for defining output properties on a control system.

@@ -71,6 +71,7 @@ def _validate_pythonic_name(name: str, context: str) -> None:
             "and contain only letters, numbers, and underscores"
         )
 
+
 def out_property(method: Callable[..., Awaitable[Message]]) -> Callable[..., Awaitable[Message]]:
     """
     Decorator for declaring that the method is an output property.
@@ -97,6 +98,7 @@ def out_property(method: Callable[..., Awaitable[Message]]) -> Callable[..., Awa
     wrapper.__is_output_property__ = True
     wrapper.__output_property_name__ = method.__name__
     return wrapper
+
 
 def on_message(name: str):
     """
