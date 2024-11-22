@@ -5,7 +5,5 @@
 .vscode/
 .idea/
 .DS_Store
-_dataset/
-_old_ds/
-_lerobot_*/
+**.code-workspace
 outputs/

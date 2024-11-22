@@ -27,7 +27,7 @@ import asyncio
 from typing import Dict, Sequence, Any, Tuple, Optional
 from types import SimpleNamespace
 
-from .system import ControlSystem, ironic_system, OutputPort
+from .system import ControlSystem, ironic_system, State
 
 
 class CompositionError(Exception):
@@ -80,7 +80,8 @@ class ComposedSystem(ControlSystem):
 
     async def step(self):
         """Step all components"""
-        await asyncio.gather(*[component.step() for component in self._components])
+        results = await asyncio.gather(*[component.step() for component in self._components])
+        return State.ALIVE if all(result == State.ALIVE for result in results) else State.FINISHED
 
     def bind(self, **bindings):
         """Bind inputs to the appropriate components"""

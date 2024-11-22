@@ -1,6 +1,6 @@
 from typing import Optional
 
-from control.utils import Throttler
+from ironic.utils import Throttler
 import ironic as ir
 from geom import Transform3D
 from simulator.mujoco.sim import InverseKinematics, MujocoRenderer, MujocoSimulator
@@ -119,6 +119,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
 
         if self.do_render():
             await self.render()
+        return ir.State.ALIVE
 
     async def cleanup(self):
         if self.renderer is not None:

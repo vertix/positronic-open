@@ -54,6 +54,7 @@ class SLCamera(ir.ControlSystem):
             self.fps.tick()
         except Empty:
             await asyncio.sleep(0)
+        return ir.State.ALIVE
 
     def _camera_process(self, queue: Queue):
         zed = sl.Camera()

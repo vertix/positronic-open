@@ -19,6 +19,7 @@ class DataSource(ir.ControlSystem):
     async def step(self):
         await self.outs.data.write(ir.Message(self._counter))
         self._counter += 1
+        return ir.State.ALIVE
 
 
 @ir.ironic_system(input_ports=['in_data'],

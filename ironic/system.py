@@ -1,11 +1,18 @@
 import asyncio
-from dataclasses import dataclass
+import inspect
+import re
 import time
+import warnings
+
+from dataclasses import dataclass
+from enum import Enum
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, List
-import re
-import inspect
-import warnings
+
+
+class State(Enum):
+    ALIVE = 0
+    FINISHED = 1
 
 
 @dataclass
@@ -272,14 +279,24 @@ class ControlSystem:
         """Cleanup the control system."""
         pass
 
-    async def step(self):
+    async def step(self) -> State:
         """
-        Perform periodic work. This method is called repeatedly while the system is running.
+        Perform periodic work and return the system's state. Every step may be your last,
+        so write the code accordingly.
 
-        By default does nothing. Override this method to implement active behavior.
+        This method is called repeatedly while the system is running. The returned State
+        indicates whether the system should continue running (State.ALIVE) or has finished
+        its work (State.FINISHED).
+
+        By default does nothing and returns State.ALIVE. Override this method to implement
+        active behavior.
 
         IMPORTANT: If you run your system with other systems (which is what you are here for),
         the step must be non-blocking and return back as soon as possible. If you really need
         to perform blocking operations, do them in a separate thread or asyncio.run_coroutine_threadsafe.
+
+        Returns:
+            State: The current state of the system - either State.ALIVE to continue running
+                  or State.FINISHED to signal completion.
         """
-        pass
+        return State.ALIVE

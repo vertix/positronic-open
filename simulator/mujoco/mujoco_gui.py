@@ -227,6 +227,7 @@ class DearpyguiUi(ir.ControlSystem):
 
     async def step(self):
         await self.update()
+        return ir.State.ALIVE if self.ui_thread.is_alive() else ir.State.FINISHED
 
 
 async def _main(cfg: DictConfig):
