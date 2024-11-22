@@ -286,75 +286,75 @@ class KinovaController:
             self.base.Stop()
 
 
-@control_system(inputs=["target_position"], outputs=["position", "joint_positions"])
-class Kinova(ControlSystem):
-    def __init__(self, world: World, ip: str):
-        super().__init__(world)
-        self.ip = ip
+# @control_system(inputs=["target_position"], outputs=["position", "joint_positions"])
+# class Kinova(ControlSystem):
+#     def __init__(self, world: World, ip: str):
+#         super().__init__(world)
+#         self.ip = ip
 
-    def run(self):
-        # TODO: If we ever return to working with Kinova, merge the controller into this class
-        controller = KinovaController(self.ip)
+#     def run(self):
+#         # TODO: If we ever return to working with Kinova, merge the controller into this class
+#         controller = KinovaController(self.ip)
 
-        pos, joints = None, None
-        control_thread = threading.Thread(target=controller.run)
-        control_thread.start()
+#         pos, joints = None, None
+#         control_thread = threading.Thread(target=controller.run)
+#         control_thread.start()
 
-        try:
-            for _ts, value in self.ins.target_position.read(1 / 40):
-                target_joints = controller.inverse_kinematics(value)
-                if target_joints is not None:
-                    with controller.target_lock:
-                        controller.target_joints = target_joints
-                        print(f"Target joints: {target_joints}")
+#         try:
+#             for _ts, value in self.ins.target_position.read(1 / 40):
+#                 target_joints = controller.inverse_kinematics(value)
+#                 if target_joints is not None:
+#                     with controller.target_lock:
+#                         controller.target_joints = target_joints
+#                         print(f"Target joints: {target_joints}")
 
-                with controller.output_lock:
-                    if controller.output is not None:
-                        joints, pos = controller.output
-                        joints = np.array(joints)
-                        controller.output = None
+#                 with controller.output_lock:
+#                     if controller.output is not None:
+#                         joints, pos = controller.output
+#                         joints = np.array(joints)
+#                         controller.output = None
 
-                if joints is not None:
-                    pos = controller.forward_kinematics(joints)
-                    # print(f"Joints: {np.array2string(joints, precision=3, suppress_small=True)} - Position: {pos}")
-                    self.outs.position.write(pos)
-                    self.outs.joint_positions.write(degrees_to_radians(joints))
-                    joints = None
-        finally:
-            controller.stop_event.set()
-            control_thread.join()
+#                 if joints is not None:
+#                     pos = controller.forward_kinematics(joints)
+#                     # print(f"Joints: {np.array2string(joints, precision=3, suppress_small=True)} - Position: {pos}")
+#                     self.outs.position.write(pos)
+#                     self.outs.joint_positions.write(degrees_to_radians(joints))
+#                     joints = None
+#         finally:
+#             controller.stop_event.set()
+#             control_thread.join()
 
 
-def _main():
-    world = MainThreadWorld()
+# def _main():
+#     world = MainThreadWorld()
 
-    kinova = Kinova(world, '192.168.1.10')
+#     kinova = Kinova(world, '192.168.1.10')
 
-    @control_system_fn(inputs=["robot_pos", "joints"], outputs=["target_pos"])
-    def controller(ins, outs):
-        _, robot_pos = ins.robot_pos.read()
-        start_time = time.time()
-        last_command_time = None
-        for input_name, _ts, value in ins.joints.read(1 / 50):
-            # if input_name == "robot_pos":
-            #     print(robot_pos)
+#     @control_system_fn(inputs=["robot_pos", "joints"], outputs=["target_pos"])
+#     def controller(ins, outs):
+#         _, robot_pos = ins.robot_pos.read()
+#         start_time = time.time()
+#         last_command_time = None
+#         for input_name, _ts, value in ins.joints.read(1 / 50):
+#             # if input_name == "robot_pos":
+#             #     print(robot_pos)
 
-            if last_command_time is None or time.time() - last_command_time > 0.2:
-                t = (time.time() - start_time) / 8 * 2 * np.pi      # One period every 10 seconds
-                delta = np.array([0., np.cos(t), np.sin(t)]) * 0.20  # Radius of 20 cm
-                target = Transform3D(robot_pos.translation + delta, robot_pos.quaternion)
-                last_command_time = time.time()
-                outs.target_pos.write(target)
+#             if last_command_time is None or time.time() - last_command_time > 0.2:
+#                 t = (time.time() - start_time) / 8 * 2 * np.pi      # One period every 10 seconds
+#                 delta = np.array([0., np.cos(t), np.sin(t)]) * 0.20  # Radius of 20 cm
+#                 target = Transform3D(robot_pos.translation + delta, robot_pos.quaternion)
+#                 last_command_time = time.time()
+#                 outs.target_pos.write(target)
 
-            if time.time() - start_time > 30:
-                break
+#             if time.time() - start_time > 30:
+#                 break
 
-    manager = controller(world)
-    manager.ins.robot_pos = kinova.outs.position
-    manager.ins.joints = kinova.outs.joint_positions
-    kinova.ins.target_position = manager.outs.target_pos
+#     manager = controller(world)
+#     manager.ins.robot_pos = kinova.outs.position
+#     manager.ins.joints = kinova.outs.joint_positions
+#     kinova.ins.target_position = manager.outs.target_pos
 
-    world.run()
+#     world.run()
 
 
 if __name__ == "__main__":
