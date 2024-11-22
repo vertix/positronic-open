@@ -121,6 +121,27 @@ class ActionDecoder:
         return outputs
 
 
+def _log_observation(ts, obs):
+    rr.set_time_seconds('time', ts)
+
+    def log_image(name, tensor):
+        tensor = tensor.squeeze(0)
+        tensor = (tensor * 255).type(torch.uint8)
+        tensor = tensor.permute(1, 2, 0).cpu().numpy()
+        rr.log(name, rr.Image(tensor))
+
+    log_image("observation.images.left", obs['observation.images.left'])
+    log_image("observation.images.right", obs['observation.images.right'])
+    for i, state in enumerate(obs['observation.state'].squeeze(0)):
+        rr.log(f"observation/state/{i}", rr.Scalar(state.item()))
+
+def _log_action(ts, action):
+    rr.set_time_seconds('time', ts)
+    for i, action in enumerate(action):
+        rr.log(f"action/{i}", rr.Scalar(action))
+
+
+
 @ir.ironic_system(
     input_ports=['frame', 'start', 'stop'],
     input_props=['robot_data'],
@@ -129,6 +150,7 @@ class ActionDecoder:
 class Inference(ir.ControlSystem):
     def __init__(self, cfg: DictConfig):
         super().__init__()
+
         self.policy_factory = lambda: ACTPolicy.from_pretrained(cfg.checkpoint_path)
         self.cfg = cfg
         self.state_encoder = StateEncoder(hydra.utils.instantiate(cfg.state))
@@ -170,8 +192,8 @@ class Inference(ir.ControlSystem):
         action_dict = self.action_decoder.decode(action, robot_data)
 
         if self.cfg.rerun:
-            self._log_observation(message.timestamp, obs)
-            self._log_action(message.timestamp, action)
+            _log_observation(message.timestamp, obs)
+            _log_action(message.timestamp, action)
 
         write_ops = []
         for key, value in action_dict.items():
@@ -181,21 +203,3 @@ class Inference(ir.ControlSystem):
         await asyncio.gather(*write_ops)
         self.fps.tick()
 
-    def _log_observation(self, ts, obs):
-        rr.set_time_seconds('time', ts / 1000)
-
-        def log_image(name, tensor):
-            tensor = tensor.squeeze(0)
-            tensor = (tensor * 255).type(torch.uint8)
-            tensor = tensor.permute(1, 2, 0).cpu().numpy()
-            rr.log(name, rr.Image(tensor))
-
-        log_image("observation.images.left", obs['observation.images.left'])
-        log_image("observation.images.right", obs['observation.images.right'])
-        for i, state in enumerate(obs['observation.state'].squeeze(0)):
-            rr.log(f"observation/state/{i}", rr.Scalar(state.item()))
-
-    def _log_action(self, ts, action):
-        rr.set_time_seconds('time', ts / 1000)
-        for i, action in enumerate(action):
-            rr.log(f"action/{i}", rr.Scalar(action))

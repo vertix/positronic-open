@@ -1,4 +1,7 @@
 import asyncio
+import glob
+import os
+import multiprocessing
 import threading
 import time
 
@@ -24,6 +27,30 @@ def _set_image_uint8_to_float32(target, source):
     target[:] /= 255
 
 
+def generate_scene(output_dir: str):
+    assert output_dir is not None, "data_output_dir must be specified to build the scene"
+
+    scene_dir = os.path.join(output_dir, "scenes")
+    os.makedirs(scene_dir, exist_ok=True)
+
+    next_scene_idx = len(glob.glob(f"{scene_dir}/*.xml"))
+    new_model_path = os.path.join(scene_dir, f"scene_{next_scene_idx:04d}.xml")
+
+    print(f"Building scene to {new_model_path}")
+
+
+    def _gen_fn():
+        # TODO: robosuite's OpenGL is conflicting with dearpygui's OpenGL, so we need to run this in a separate process
+        from simulator.mujoco.scene_builder import construct_scene
+        construct_scene(new_model_path)
+
+    process = multiprocessing.Process(target=_gen_fn)
+    process.start()
+    process.join()
+
+    return new_model_path
+
+
 @dataclass
 class DesiredAction:
     position: np.ndarray
@@ -31,9 +58,10 @@ class DesiredAction:
     grip: float
 
 
+
 @ir.ironic_system(
     input_ports=["images", "robot_state"],
-    input_props=["robot_position", "robot_grip"],
+    input_props=["robot_position", "actuator_values", "robot_grip"],
     output_ports=["start_tracking", "stop_tracking", "gripper_target_grasp", "robot_target_position", "reset"],
 )
 class DearpyguiUi(ir.ControlSystem):
@@ -61,6 +89,7 @@ class DearpyguiUi(ir.ControlSystem):
         self.width = None
         self.height = None
         self.camera_names = camera_names
+        self.episode_metadata = episode_metadata or {}
 
         self.ui_thread = threading.Thread(target=self.ui_thread_main, daemon=True)
         self.ui_stop_event = threading.Event()
@@ -93,6 +122,7 @@ class DearpyguiUi(ir.ControlSystem):
             await self._reset_desired_action()
 
         target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
+
         _, _, robot_position = await asyncio.gather(
             self.outs.gripper_target_grasp.write(ir.Message(self.desired_action.grip)),
             self.outs.robot_target_position.write(ir.Message(target_pos)),
@@ -105,6 +135,10 @@ class DearpyguiUi(ir.ControlSystem):
                         f"Target Position: {self.desired_action.position}\n"
                         f"Target Quat: {self.desired_action.orientation}\n"
                         f"Target Grip: {self.desired_action.grip}")
+
+        actuator_values = await self.ins.actuator_values()
+        values_str = "[" + ", ".join(map(lambda x: f"{x:.4f}", actuator_values.data)) + "]"
+        dpg.set_value("actuator_values", values_str)
 
 
     def key_down(self, sender, app_data):
@@ -234,9 +268,9 @@ class DearpyguiUi(ir.ControlSystem):
             self._configure_image_grid()
 
         with dpg.window(label="Info"):
-            print("Creating text fields")
             dpg.add_text("", tag="target")
             dpg.add_text("", tag="robot_position")
+            dpg.add_input_text(label="actuator_values", tag="actuator_values", auto_select_all=True)
 
         def reset_callback():
             self.loop.create_task(self.outs.reset.write(ir.Message(True)))
@@ -274,8 +308,8 @@ class DearpyguiUi(ir.ControlSystem):
 
     async def cleanup(self):
         self.ui_stop_event.set()
-        if self.ui_thread.is_alive():
-            self.ui_thread.join()
+        self.ui_thread.join()
+        dpg.destroy_context()
 
     async def step(self):
         if self.width is not None and self.height is not None and not self.ui_thread.is_alive():
@@ -292,6 +326,8 @@ async def _main(cfg: DictConfig):
     width = cfg.mujoco.camera_width
     height = cfg.mujoco.camera_height
 
+    if cfg.mujoco.model_path is None:
+        cfg.mujoco.model_path = generate_scene(cfg.data_output_dir)
     model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
     data = mujoco.MjData(model)
 
@@ -319,7 +355,8 @@ async def _main(cfg: DictConfig):
         window.bind(
             images=simulator.outs.images,
             robot_position=simulator.outs.robot_position,
-            robot_grip=simulator.outs.grip
+            robot_grip=simulator.outs.grip,
+            actuator_values=simulator.outs.actuator_values,
         ),
     ]
 

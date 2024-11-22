@@ -1,5 +1,6 @@
+import os
+
 from tqdm import tqdm
-import numpy as np
 import hydra
 import mujoco
 import torch
@@ -9,9 +10,8 @@ from simulator.mujoco.sim import MujocoSimulator
 from tools.dataset_dumper import SerialDumper
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="record_renderer")
-def main(cfg):
-    data = torch.load(cfg.episode_path)
+def process_episode(episode_path, cfg, output_dir):
+    data = torch.load(episode_path)
     n_frames = len(data['image_timestamp'])
 
     mj_model = mujoco.MjModel.from_xml_path(data['mujoco_model_path'])
@@ -22,11 +22,13 @@ def main(cfg):
 
     simulator.reset()
     renderer.initialize()
+    dataset_writer = SerialDumper(output_dir)
+
     dataset_writer.start_episode()
 
     event_idx = 0
-    last_render_ts = 0
-    tqdm_iter = tqdm(total=n_frames)
+    tqdm_iter = tqdm(total=n_frames, desc=f"Processing {os.path.basename(episode_path)}")
+    frames_rendered = 0
 
     while event_idx < n_frames:
         if data['image_timestamp'][event_idx] <= simulator.ts_ns:
@@ -38,9 +40,11 @@ def main(cfg):
         tqdm_iter.set_postfix(sim_ts=simulator.ts_sec)
         simulator.step()
 
-        if simulator.ts_ns - last_render_ts >= 1e9 / cfg.mujoco.observation_hz:
-            last_render_ts = simulator.ts_ns
+        if simulator.ts_sec >= frames_rendered / cfg.mujoco.observation_hz:
+            frames_rendered += 1
             images = renderer.render_frames()
+
+            actual_event_idx = max(0, event_idx - 1)
 
             dataset_writer.write({
                 **{f'image.{mapped_name}': images[orig_name] for mapped_name, orig_name in cfg.image_name_mapping.items()},
@@ -51,16 +55,30 @@ def main(cfg):
                 'ext_force_ee': simulator.ext_force_ee,
                 'ext_force_base': simulator.ext_force_base,
                 'robot_joints': simulator.joints,
-                'target_grip': data['target_grip'][event_idx],
-                'target_robot_position_quaternion': data['target_robot_position_quaternion'][event_idx],
-                'target_robot_position_translation': data['target_robot_position_translation'][event_idx],
-                'image_timestamp': data['image_timestamp'][event_idx],
-                'robot_timestamp': data['robot_timestamp'][event_idx],
-                'target_timestamp': data['target_timestamp'][event_idx],
+                'target_grip': data['target_grip'][actual_event_idx],
+                'target_robot_position_quaternion': data['target_robot_position_quaternion'][actual_event_idx],
+                'target_robot_position_translation': data['target_robot_position_translation'][actual_event_idx],
+                'image_timestamp': simulator.ts_sec,
+                'robot_timestamp': simulator.ts_sec,
+                'target_timestamp': simulator.ts_sec,
             })
 
-    dataset_writer.end_episode()
+
     tqdm_iter.close()
+    dataset_writer.end_episode()
+
+
+@hydra.main(version_base=None, config_path="configs", config_name="record_renderer")
+def main(cfg):
+    # Get all episode files from input directory
+    input_files = [f for f in os.listdir(cfg.input_dir) if f.endswith('.pt')]
+    input_files.sort()  # Process files in order
+
+    print(f"Found {len(input_files)} episodes to process")
+
+    for episode_file in tqdm(input_files, desc="Processing episodes"):
+        episode_path = os.path.join(cfg.input_dir, episode_file)
+        process_episode(episode_path, cfg, cfg.data_output_dir)
 
 
 
