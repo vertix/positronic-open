@@ -8,6 +8,7 @@ from dm_control.utils import inverse_kinematics as ik
 
 from ironic.utils import FPSCounter
 from geom import Transform3D
+from simulator.mujoco.scene.loaders import MujocoSceneLoader, load_xml_string
 
 
 def xmat_to_quat(xmat):
@@ -93,6 +94,7 @@ class InverseKinematics:
             target_quat=target_robot_position.quaternion,
             joint_names=self.joints,
             rot_weight=0.5,
+            # inplace=True,
         )
 
         if result.success:
@@ -177,6 +179,25 @@ class MujocoSimulator:
     def set_grip(self, grip: float):
         self.data.actuator('actuator8').ctrl = grip
 
+    @staticmethod
+    def load_from_xml_path(model_path: str, loaders: Sequence[MujocoSceneLoader] = (), **kwargs) -> 'MujocoSimulator':
+        with open(model_path, 'r') as f:
+            model_string = f.read()
+
+        model_string = load_xml_string(model_string, loaders)
+        model = mujoco.MjModel.from_xml_string(model_string)
+        data = mujoco.MjData(model)
+
+        return MujocoSimulator(model, data, **kwargs)
+
+    @staticmethod
+    def load_from_xml_string(model_string: str, loaders: Sequence[MujocoSceneLoader] = (), **kwargs) -> 'MujocoSimulator':
+        model_string = load_xml_string(model_string, loaders)
+        model = mujoco.MjModel.from_xml_string(model_string)
+        data = mujoco.MjData(model)
+
+        return MujocoSimulator(model, data, **kwargs)
+
 
 class MujocoRenderer:
     def __init__(
@@ -210,6 +231,7 @@ class MujocoRenderer:
         """
         # in case we have other code which works with OpenGL, we need to initialize the renderer in a separate thread to avoid conflicts
         self.renderer = mujoco.Renderer(self.model, height=self.render_resolution[1], width=self.render_resolution[0])
+
 
     def render(self) -> Dict[str, np.ndarray]:
         assert self.renderer is not None, "You must call initialize() before calling render()"

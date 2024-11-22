@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 
 import fire
 import numpy as np
+
 import robosuite
 import robosuite.models
 import robosuite.models.arenas
@@ -92,10 +93,7 @@ def generate_scene(
 
         box_pos.extend([tabletop_x, tabletop_y, tabletop_z, 1, 0, 0, 0])
 
-    with open(path, "w") as f:
-        f.write(world.get_xml())
-
-    tree = ET.parse(path)
+    tree = ET.ElementTree(ET.fromstring(world.get_xml()))
     root = tree.getroot()
 
     # add robot to scene

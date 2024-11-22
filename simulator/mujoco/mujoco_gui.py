@@ -27,6 +27,11 @@ def _set_image_uint8_to_float32(target, source):
     target[:] = source
     target[:] /= 255
 
+def gen_fn(model_path):
+    # TODO: robosuite's OpenGL is conflicting with dearpygui's OpenGL, so we need to run this in a separate process
+    from simulator.mujoco.scene_builder import construct_scene
+    construct_scene(model_path)
+
 
 def generate_scene(output_dir: str):
     assert output_dir is not None, "data_output_dir must be specified to build the scene"
@@ -39,13 +44,7 @@ def generate_scene(output_dir: str):
 
     print(f"Building scene to {new_model_path}")
 
-
-    def _gen_fn():
-        # TODO: robosuite's OpenGL is conflicting with dearpygui's OpenGL, so we need to run this in a separate process
-        from simulator.mujoco.scene_builder import construct_scene
-        construct_scene(new_model_path)
-
-    process = multiprocessing.Process(target=_gen_fn)
+    process = multiprocessing.Process(target=gen_fn, args=(new_model_path,))
     process.start()
     process.join()
 
@@ -337,20 +336,45 @@ async def _main(cfg: DictConfig):
 
     if cfg.mujoco.model_path is None:
         cfg.mujoco.model_path = generate_scene(cfg.data_output_dir)
-    model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
-    data = mujoco.MjData(model)
 
-    # TODO: make this configurable
+
+    loaders = hydra.utils.instantiate(cfg.mujoco.loaders)
+    simulator = MujocoSimulator.load_from_xml_path(cfg.mujoco.model_path, simulation_rate=1 / cfg.mujoco.simulation_hz, loaders=loaders)
+    renderer = MujocoRenderer(
+        model=simulator.model,
+        data=simulator.data,
+        render_resolution=(width, height),
+        camera_names=cfg.mujoco.camera_names,
+    )
+    inverse_kinematics = InverseKinematics(data=simulator.data)
+
     metrics = [
-        metric_calculators.ObjectMovedCalculator(model=model, data=data, object_name='box_1_main', threshold=0.01),
-        metric_calculators.ObjectDistanceCalculator(model=model, data=data, object_1='box_0_main', object_2='box_1_main'),
-        metric_calculators.ObjectLiftedTimeCalculator(model=model, data=data, object_name='box_1_main', threshold=0.01),
-        metric_calculators.ObjectsStackedCalculator(model=model, data=data, object_1='box_0_main', object_2='box_1_main', velocity_threshold=0.01),
+        metric_calculators.ObjectMovedCalculator(
+            model=simulator.model,
+            data=simulator.data,
+            object_name='box_1_main',
+            threshold=0.01,
+        ),
+        metric_calculators.ObjectDistanceCalculator(
+            model=simulator.model,
+            data=simulator.data,
+            object_1='box_0_main',
+            object_2='box_1_main',
+        ),
+        metric_calculators.ObjectLiftedTimeCalculator(
+            model=simulator.model,
+            data=simulator.data,
+            object_name='box_1_main',
+            threshold=0.01,
+        ),
+        metric_calculators.ObjectsStackedCalculator(
+            model=simulator.model,
+            data=simulator.data,
+            object_1='box_0_main',
+            object_2='box_1_main',
+            velocity_threshold=0.01,
+        ),
     ]
-
-    simulator = MujocoSimulator(model=model, data=data, simulation_rate=1 / cfg.mujoco.simulation_hz)
-    renderer = MujocoRenderer(model=model, data=data, render_resolution=(width, height), camera_names=cfg.mujoco.camera_names)
-    inverse_kinematics = InverseKinematics(data=data)
 
 
     # systems

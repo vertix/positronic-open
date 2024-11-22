@@ -11,7 +11,6 @@ images:
     resize:
       - 352
       - 192
-
 state:
   - robot_position_translation
   - robot_position_quaternion
