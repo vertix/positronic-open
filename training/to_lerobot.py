@@ -63,6 +63,7 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
                 img_path = temp_dir / f"frame_{i:06d}.png"
                 if img.shape[0] == 3:  # If RGB image in CHW format
                     img = np.transpose(img, (1, 2, 0))  # CHW to HWC
+                    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
                 elif img.shape[0] == 1:  # If depth image in CHW format
                     img = np.transpose(img, (1, 2, 0))  # CHW to HWC
                 else:

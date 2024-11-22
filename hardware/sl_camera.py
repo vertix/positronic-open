@@ -72,18 +72,19 @@ class SLCamera(ir.ControlSystem):
                 image = sl.Mat()
                 ts_ms = zed.get_timestamp(TIME_REF_IMAGE).get_nanoseconds()
                 if zed.retrieve_image(image, self.view) == SUCCESS:
-                    np_image = image.get_data()[:, :, [0, 1, 2]]
+                    # The images are in BGRA format
+                    np_image = image.get_data()[:, :, [2, 1, 0]]
 
                     if self.view == sl.VIEW.SIDE_BY_SIDE:
                         w = np_image.shape[1] // 2
-                        frame['left'] = np_image[:, :w, :3]
-                        frame['right'] = np_image[:, w:, :3]
+                        frame['left'] = np_image[:, :w, :]
+                        frame['right'] = np_image[:, w:, :]
                     elif self.view == sl.VIEW.LEFT:
-                        frame['left'] = np_image[:, :, :3]
+                        frame['left'] = np_image[:, :, :]
                     elif self.view == sl.VIEW.RIGHT:
-                        frame['right'] = np_image[:, :, :3]
+                        frame['right'] = np_image[:, :, :]
                     else:
-                        frame['image'] = np_image[:, :, :3]
+                        frame['image'] = np_image[:, :, :]
 
                     if self.init_params.depth_mode != sl.DEPTH_MODE.NONE:
                         depth = sl.Mat()
