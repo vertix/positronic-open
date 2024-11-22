@@ -280,7 +280,7 @@ async def _main(cfg: DictConfig):
 
         def discard_images(images):
             # The idea is just to pass the pulse of images, not the data
-            return 0
+            return {}
 
         properties_to_dump = ir.utils.properties_dict(
             robot_joints=simulator.outs.joints,

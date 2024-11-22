@@ -1,12 +1,12 @@
   fields:
     translation:
-      input_key: target_robot_position.translation
+      value: '${input:target_robot_position_translation}'
       length: 3
     quaternion:
-      input_key: target_robot_position.quaternion
+      value: '${input:target_robot_position_quaternion}'
       length: 4
     gripper_width:
-      input_key: target_grip
+      value: '${input:target_grip}'
       length: 1
 
   outputs:

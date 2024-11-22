@@ -17,7 +17,9 @@ class SLCamera(ir.ControlSystem):
                  view=sl.VIEW.LEFT,
                  resolution=sl.RESOLUTION.AUTO,
                  depth_mode=sl.DEPTH_MODE.NONE,
-                 coordinate_units=sl.UNIT.METER):
+                 coordinate_units=sl.UNIT.METER,
+                 max_depth=10,  # Depth NaNs and +Inf will be set to this distance. -Inf will be set to 0. All values above this will be set to max_depth.
+                 depth_mask=False):  # If True, will also generate image with 0 set to NaNs pixels, and 1 set to valid pixels
         super().__init__()
         self.init_params = sl.InitParameters()
         self.init_params.camera_resolution = resolution
@@ -31,6 +33,9 @@ class SLCamera(ir.ControlSystem):
         self.frame_queue = Queue(maxsize=5)
         self.process = None
         self.fps = None
+
+        self.max_depth = max_depth
+        self.depth_mask = depth_mask
 
     async def setup(self):
         self.process = mp.Process(target=self._camera_process, args=(self.frame_queue,))
@@ -83,7 +88,16 @@ class SLCamera(ir.ControlSystem):
                     if self.init_params.depth_mode != sl.DEPTH_MODE.NONE:
                         depth = sl.Mat()
                         if zed.retrieve_measure(depth, sl.MEASURE.DEPTH) == SUCCESS:
-                            frame['depth'] = depth.get_data()
+                            data = depth.get_data()
+                            if self.depth_mask:
+                                depth_mask = np.nan_to_num(data, nan=0, posinf=0, neginf=0)
+                                depth_mask[depth_mask != 0] = 255
+                                frame['depth_mask'] = depth_mask.astype(np.uint8)[..., np.newaxis]
+
+                            data = np.nan_to_num(data, copy=False, nan=self.max_depth, posinf=self.max_depth, neginf=0)
+                            data = data.clip(max=self.max_depth) / self.max_depth * 255
+                            # Adding last axis so that it has same number of dimensions as normal image
+                            frame['depth'] = data.astype(np.uint8)[..., np.newaxis]
                 queue.put((frame, ts_ms), block=True)
         except Full:
             pass  # Skip frame if queue is full

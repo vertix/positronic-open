@@ -106,13 +106,12 @@ class DatasetDumper(ir.ControlSystem):
             return
 
         ep_dict = {}
-
         for key, image in image_message.data.items():
             name = f'image_{key}' if key else 'image'
             ep_dict[name] = image
         ep_dict['target_grip'] = self.target_grip
-        ep_dict['target_robot_position.translation'] = self.target_robot_position.translation
-        ep_dict['target_robot_position.quaternion'] = self.target_robot_position.quaternion
+        ep_dict['target_robot_position_translation'] = self.target_robot_position.translation
+        ep_dict['target_robot_position_quaternion'] = self.target_robot_position.quaternion
 
         robot_message = await self.ins.robot_data()
         for name, value in robot_message.data.items():

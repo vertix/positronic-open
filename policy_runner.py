@@ -83,8 +83,9 @@ async def async_main(cfg: DictConfig):
     franka.bind(target_position=inference.outs.target_robot_position)
     gripper.bind(grip=inference.outs.target_grip)
 
+    # TODO: Rework this according to new DatasetDumper, that uses properties_dict
     inference.bind(
-        image=cam.outs.frame,
+        frame=cam.outs.frame,
         robot_joints=franka.outs.joint_positions,
         robot_position=franka.outs.position,
         ext_force_ee=franka.outs.ext_force_ee,
