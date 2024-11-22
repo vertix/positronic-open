@@ -50,7 +50,7 @@ class StateEncoder:
         obs = {}
         for key in images:
             side = key.split('_')[-1]
-            image = torch.tensor(images[key], dtype=torch.float32).permute(2, 1, 0).contiguous().unsqueeze(0) / 255
+            image = torch.tensor(images[key], dtype=torch.float32).permute(2, 1, 0).unsqueeze(0) / 255
             if self.cfg.resize is not None:
                 # Bilinear might be better, but due to NaNs in depth, we use nearest
                 image = F.interpolate(image, size=tuple(self.cfg.resize), mode='nearest')
