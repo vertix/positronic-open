@@ -1,7 +1,7 @@
 from .system import (
     Message, OutputPort, ControlSystem,
     ironic_system, on_message, out_property,
-    system_clock
+    system_clock, State
 )
 from .compose import compose
 from . import utils

@@ -3,7 +3,7 @@ import time
 import signal
 from typing import Any, Callable, Optional
 
-from ironic.system import ControlSystem, Message, OutputPort
+from ironic.system import ControlSystem, Message, OutputPort, State
 
 class FPSCounter:
     """Utility class for tracking and reporting frames per second (FPS).
@@ -65,8 +65,8 @@ async def run_gracefully(system: ControlSystem, extra_cleanup_fn: Optional[Calla
 
     try:
         await system.setup()
-        while not shutdown_event.is_set():
-            await system.step()
+        while (await system.step()) == State.ALIVE and not shutdown_event.is_set():
+            await asyncio.sleep(0)  # Yield to allow other tasks to run, if any
     finally:
         await system.cleanup()
         print('System cleanup finished')
@@ -174,3 +174,35 @@ def fps_counter(prefix: str, report_every_sec: float = 10.0):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+class Throttler:
+    def __init__(self, every_sec: float):
+        """
+        A callable that returns the number of times the function should be called since the last check.
+        Args:
+            interval: time in seconds between calls
+            time_fn: function to get the current time
+        """
+        self.interval = every_sec
+        self.last_time_checked = None
+
+    def __call__(self) -> int:
+        """
+        Returns the number of times the function should be called since the last check.
+        """
+        current_time = self.time_fn()
+
+        if self.last_time_checked is None:
+            self.last_time_checked = current_time
+            return 1
+
+        num_calls = int((current_time - self.last_time_checked) / self.interval)
+        if num_calls > 0:
+            self.last_time_checked = current_time
+
+        return num_calls
+
+
+    def time_fn(self) -> float:
+        return time.time()

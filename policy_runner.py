@@ -53,6 +53,7 @@ class PolicyRunnerSystem(ir.ControlSystem):
                         logging.info('Stopped policy execution')
         except Exception as e:
             logging.error(f"Error reading input: {e}")
+        return ir.State.ALIVE
 
     async def cleanup(self):
         """Restore terminal settings"""

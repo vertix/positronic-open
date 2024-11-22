@@ -105,23 +105,20 @@ class WebXR(ir.ControlSystem):
             print("WebXR cancelled")
 
     async def step(self):
-        """Process incoming WebXR data and publish to output ports"""
         data = None
         # Process all available data, keeping only the most recent
         while not self.data_queue.empty():
             data, timestamp = self.data_queue.get()
 
         if data is None:
-            await asyncio.sleep(0.1)
-            return
+            return ir.State.ALIVE
 
-        # Write transform data
         pos = np.array(data['position'])
         quat = np.array(data['orientation'])
         transform = Transform3D(pos, quat)
-        await self.outs.transform.write(ir.Message(transform, timestamp))
-
-        # Write button data
-        await self.outs.buttons.write(ir.Message(data['buttons'], timestamp))
+        write_ops = [self.outs.transform.write(ir.Message(transform, timestamp))]
+        write_ops.append(self.outs.buttons.write(ir.Message(data['buttons'], timestamp)))
+        await asyncio.gather(*write_ops)
 
         self.fps.tick()
+        return ir.State.ALIVE

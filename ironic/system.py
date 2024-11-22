@@ -281,7 +281,8 @@ class ControlSystem:
 
     async def step(self) -> State:
         """
-        Perform periodic work and return the system's state.
+        Perform periodic work and return the system's state. Every step may be your last,
+        so write the code accordingly.
 
         This method is called repeatedly while the system is running. The returned State
         indicates whether the system should continue running (State.ALIVE) or has finished
