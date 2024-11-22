@@ -1,0 +1,5 @@
+fps: 15
+view: SIDE_BY_SIDE
+resolution: VGA
+depth_mode: ULTRA
+max_depth: 3  # 3 meters

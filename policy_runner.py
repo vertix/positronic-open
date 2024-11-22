@@ -6,6 +6,7 @@ import hydra
 from omegaconf import DictConfig
 import rerun as rr
 
+import hardware
 import ironic as ir
 from hardware import Franka, DHGripper, sl_camera
 from tools.inference import Inference
@@ -74,26 +75,28 @@ async def async_main(cfg: DictConfig):
 
     franka = Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
     policy_runner = PolicyRunnerSystem()
-    cam = sl_camera.SLCamera(
-        view=sl_camera.sl.VIEW.SIDE_BY_SIDE,
-        fps=15,
-        resolution=sl_camera.sl.RESOLUTION.VGA
-    )
+    cam = hardware.from_config.sl_camera(cfg.camera)
+
     inference = Inference(cfg.inference)
     gripper = DHGripper("/dev/ttyUSB0")
 
     franka.bind(target_position=inference.outs.target_robot_position)
     gripper.bind(grip=inference.outs.target_grip)
 
-    inference.bind(
-        image=cam.outs.frame,
+    properties_to_dump = ir.utils.properties_dict(
         robot_joints=franka.outs.joint_positions,
-        robot_position=franka.outs.position,
+        robot_position_translation=ir.utils.map_property(lambda t: t.translation, franka.outs.position),
+        robot_position_quaternion=ir.utils.map_property(lambda t: t.quaternion, franka.outs.position),
         ext_force_ee=franka.outs.ext_force_ee,
         ext_force_base=franka.outs.ext_force_base,
+        grip=gripper.outs.grip if gripper else None
+    )
+
+    inference.bind(
+        frame=cam.outs.frame,
+        robot_data=properties_to_dump,
         start=policy_runner.outs.start_policy,
         stop=policy_runner.outs.stop_policy,
-        grip=gripper.outs.grip
     )
 
     system = ir.compose(

@@ -64,8 +64,8 @@
             "request": "launch",
             "module": "training.to_lerobot",
             "args": [
-                "input_dir=_dataset1/",
-                "output_dir=_lerobot_ds/"
+                "input_dir=/tmp/dataset/",
+                "output_dir=/tmp/lerobot_ds/"
             ],
             "console": "integratedTerminal",
             "justMyCode": true

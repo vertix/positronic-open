@@ -34,7 +34,11 @@ pip install -e .
 
 ## How to convert teleoperated dataset into LeRobot format (ready for training)
 ```python
-python training/to_lerobot.py output_dir=_lerobot_ds/
+python -m training.to_lerobot output_dir=_lerobot_ds/
 ```
 
 By default, this reads data from `_dataset` directory. Use `input_dir=your_dir` to control inputs. Please refer to [configs/to_lerobot.yaml](../configs/to_lerobot.yaml) for more details.
+
+
+## Train the model
+DATA_DIR=/tmp/ python lerobot/scripts/train.py dataset_repo_id=lerobot_ds policy=positronic env=positronic hydra.run.dir=outputs/train/positronic hydra.job.name=positronic device=cuda wandb.enable=true resume=false wandb.disable_artifact=true env.state_dim=8

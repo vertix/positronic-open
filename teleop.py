@@ -7,9 +7,10 @@ import hydra
 from omegaconf import DictConfig
 import yappi
 
+import hardware
 import ironic as ir
 from geom import Quaternion, Transform3D
-from hardware import Franka, DHGripper, sl_camera
+from hardware import Franka, DHGripper
 from tools.dataset_dumper import DatasetDumper
 from webxr import WebXR
 
@@ -114,11 +115,7 @@ async def main_async(cfg: DictConfig):
         gripper = DHGripper(cfg.dh_gripper).bind(grip=teleop.outs.gripper_target_grasp)
         components.append(gripper)
 
-    cam = sl_camera.SLCamera(
-        view=sl_camera.sl.VIEW.SIDE_BY_SIDE,
-        fps=cfg.camera.fps,
-        resolution=sl_camera.sl.RESOLUTION.VGA
-    )
+    cam = hardware.from_config.sl_camera(cfg.camera)
     components.append(cam)
 
     if cfg.data_output_dir is not None:
