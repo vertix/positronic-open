@@ -1,7 +1,13 @@
 _target_: tools.inference.StateEncodingConfig
-resize:
-  - 352
-  - 192
+images:
+  - key: left
+    resize:
+      - 352
+      - 192
+  - key: right
+    resize:
+      - 352
+      - 192
 state:
   - robot_position_translation
   - robot_position_quaternion

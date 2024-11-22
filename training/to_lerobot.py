@@ -77,8 +77,7 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
             temp_dir.rmdir()
             ep_dict[f"observation.images.{side}"] = [{"path": f"videos/{video_filename}", "timestamp": i / fps} for i in range(len(images))]
 
-        num_frames = len(episode_data['time'])  # TODO: Check if we really need a timestamp and not seconds
-
+        num_frames = len(episode_data['time'])
         ep_dict['observation.state'] = obs['observation.state']
 
         # Concatenate all the data as specified in the config

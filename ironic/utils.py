@@ -104,24 +104,6 @@ def map_property(function: Callable[[Any], Any], property: Callable[[], Message]
         return Message(data=function(original_message.data), timestamp=original_message.timestamp)
     return result
 
-def map_port(function: Callable[[Any], Any], port: OutputPort):
-    """Creates a new port that transforms the data of another port using a mapping function.
-
-    This utility is useful for connecting systems that expect different data formats. It preserves
-    the timestamp of the original message while transforming its data content.
-    """
-    class MappedPort(OutputPort):
-        def __init__(self, function: Callable[[Any], Any], port: OutputPort):
-            self.function = function
-            fn_name = function.__name__ if hasattr(function, '__name__') else 'mapped'
-            name = f"{port.name}_{fn_name}"
-            super().__init__(name)
-
-        async def write(self, message: Message):
-            await super().write(Message(data=self.function(message.data), timestamp=message.timestamp))
-
-    return MappedPort(function, port)
-
 
 def map_port(function: Callable[[Any], Any], port: OutputPort) -> OutputPort:
     """Creates a new port that transforms the data of another port using a mapping function.

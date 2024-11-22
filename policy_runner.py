@@ -83,16 +83,20 @@ async def async_main(cfg: DictConfig):
     franka.bind(target_position=inference.outs.target_robot_position)
     gripper.bind(grip=inference.outs.target_grip)
 
-    # TODO: Rework this according to new DatasetDumper, that uses properties_dict
-    inference.bind(
-        frame=cam.outs.frame,
+    properties_to_dump = ir.utils.properties_dict(
         robot_joints=franka.outs.joint_positions,
-        robot_position=franka.outs.position,
+        robot_position_translation=ir.utils.map_property(lambda t: t.translation, franka.outs.position),
+        robot_position_quaternion=ir.utils.map_property(lambda t: t.quaternion, franka.outs.position),
         ext_force_ee=franka.outs.ext_force_ee,
         ext_force_base=franka.outs.ext_force_base,
+        grip=gripper.outs.grip if gripper else None
+    )
+
+    inference.bind(
+        frame=cam.outs.frame,
+        robot_data=properties_to_dump,
         start=policy_runner.outs.start_policy,
         stop=policy_runner.outs.stop_policy,
-        grip=gripper.outs.grip
     )
 
     system = ir.compose(

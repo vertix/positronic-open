@@ -75,9 +75,9 @@ class DatasetDumper(ir.ControlSystem):
         self.dumper.dump_episode()
 
     @ir.on_message('start_episode')
-    async def on_start_episode(self, _message: ir.Message):
+    async def on_start_episode(self, message: ir.Message):
         self.tracked = True
-        self.episode_start = ir.system_clock()
+        self.episode_start = message.timestamp
         print(f"Episode {self.dumper.episode_count} started")
         self.dumper.start_episode()
 
@@ -107,7 +107,7 @@ class DatasetDumper(ir.ControlSystem):
 
         ep_dict = {}
         for key, image in image_message.data.items():
-            name = f'image_{key}' if key else 'image'
+            name = f'image.{key}' if key else 'image'
             ep_dict[name] = image
         ep_dict['target_grip'] = self.target_grip
         ep_dict['target_robot_position_translation'] = self.target_robot_position.translation
@@ -117,9 +117,9 @@ class DatasetDumper(ir.ControlSystem):
         for name, value in robot_message.data.items():
             ep_dict[name] = value
 
-        # HACK: Here we use knowledge that time is in nanoseconds
+        # HACK: Here we use knowledge that time is in nanoseconds. Is it a problem?
+        ep_dict['time'] = (image_message.timestamp - self.episode_start) / 1e9
         now_ts = ir.system_clock()
-        ep_dict['time'] = (now_ts - self.episode_start) / 1e9
         ep_dict['delay/image'] = (now_ts - image_message.timestamp) / 1e9
         ep_dict['delay/robot'] = (now_ts - robot_message.timestamp) / 1e9
         ep_dict['delay/target'] = (now_ts - self.target_ts) / 1e9

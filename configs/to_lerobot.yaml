@@ -7,6 +7,6 @@ input_dir: _dataset/
 output_dir: ???
 
 dataset:
-  fps: 30
+  fps: 15
   video: true
   run_compute_stats: true
