@@ -336,7 +336,7 @@ async def _main(cfg: DictConfig):
     await ir.utils.run_gracefully(composed)
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="mujoco_gui")
+@hydra.main(version_base=None, config_path="../../configs", config_name="mujoco_gui")
 def main(cfg: DictConfig):
     asyncio.run(_main(cfg))
 
