@@ -72,8 +72,8 @@ class MujocoSimulatorCS(ir.ControlSystem):
         return ir.Message(self.simulator.actuator_values, self.ts)
 
     @property
-    def ts(self):
-        return self.simulator.ts
+    def ts(self) -> int:
+        return self.simulator.ts_ns
 
     def simulate(self):
         self.simulator.step()

@@ -12,7 +12,7 @@ from tools.dataset_dumper import SerialDumper
 @hydra.main(version_base=None, config_path="configs", config_name="record_renderer")
 def main(cfg):
     data = torch.load(cfg.episode_path)
-    n_frames = len(data['time'])
+    n_frames = len(data['image_timestamp'])
 
     mj_model = mujoco.MjModel.from_xml_path(data['mujoco_model_path'])
     mj_data = mujoco.MjData(mj_model)
@@ -29,35 +29,35 @@ def main(cfg):
     tqdm_iter = tqdm(total=n_frames)
 
     while event_idx < n_frames:
-        if data['time'][event_idx] <= simulator.ts:
+        if data['image_timestamp'][event_idx] <= simulator.ts_ns:
             simulator.set_actuator_values(data['actuator_values'][event_idx])
             simulator.set_grip(data['target_grip'][event_idx])
             event_idx += 1
             tqdm_iter.update(1)
 
-        tqdm_iter.set_postfix(sim_ts=simulator.ts)
+        tqdm_iter.set_postfix(sim_ts=simulator.ts_sec)
         simulator.step()
 
-        if simulator.ts - last_render_ts >= 1 / cfg.mujoco.observation_hz:
-            last_render_ts = simulator.ts
+        if simulator.ts_ns - last_render_ts >= 1e9 / cfg.mujoco.observation_hz:
+            last_render_ts = simulator.ts_ns
             images = renderer.render_frames()
-            image = np.hstack([images['handcam_left'], images['handcam_right']])
+
             dataset_writer.write({
-                'image': image,
+                'image.left': images['handcam_left'],
+                'image.right': images['handcam_right'],
                 'actuator_values': simulator.actuator_values,
                 'grip': simulator.grip,
-                'robot_position.translation': simulator.robot_position.translation,
-                'robot_position.quaternion': simulator.robot_position.quaternion,
+                'robot_position_translation': simulator.robot_position.translation,
+                'robot_position_quaternion': simulator.robot_position.quaternion,
                 'ext_force_ee': simulator.ext_force_ee,
                 'ext_force_base': simulator.ext_force_base,
                 'robot_joints': simulator.joints,
                 'target_grip': data['target_grip'][event_idx],
-                'target_robot_position.quaternion': data['target_robot_position.quaternion'][event_idx],
-                'target_robot_position.translation': data['target_robot_position.translation'][event_idx],
-                'time': data['time'][event_idx],
-                'delay/robot': data['delay/robot'][event_idx],
-                'delay/target': data['delay/target'][event_idx],
-                'delay/image': data['delay/image'][event_idx],
+                'target_robot_position_quaternion': data['target_robot_position_quaternion'][event_idx],
+                'target_robot_position_translation': data['target_robot_position_translation'][event_idx],
+                'image_timestamp': data['image_timestamp'][event_idx],
+                'robot_timestamp': data['robot_timestamp'][event_idx],
+                'target_timestamp': data['target_timestamp'][event_idx],
             })
 
     dataset_writer.end_episode()

@@ -77,7 +77,7 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
             temp_dir.rmdir()
             ep_dict[f"observation.images.{side}"] = [{"path": f"videos/{video_filename}", "timestamp": i / fps} for i in range(len(images))]
 
-        num_frames = len(episode_data['time'])
+        num_frames = len(episode_data['image_timestamp'])
         ep_dict['observation.state'] = obs['observation.state']
 
         # Concatenate all the data as specified in the config
@@ -85,7 +85,7 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
 
         ep_dict["episode_index"] = torch.tensor([episode_idx] * num_frames)
         ep_dict["frame_index"] = torch.arange(0, num_frames, 1)
-        ep_dict["timestamp"] = torch.tensor(episode_data['time'])
+        ep_dict["timestamp"] = torch.tensor(episode_data['image_timestamp'])
 
         done = torch.zeros(num_frames, dtype=torch.bool)
         # done[-1] = True
