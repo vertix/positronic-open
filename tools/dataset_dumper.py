@@ -56,8 +56,16 @@ class SerialDumper:
 
     def dump_episode(self, metadata: dict = None):
         # Transform everything to torch tensors
+        n_frames, tensor_key = None, None
+
         for k, v in self.data.items():
-            self.data[k] = torch.tensor(np.array(v))
+            self.data[k] = torch.from_numpy(np.array(v))
+            if n_frames is None:
+                n_frames = len(self.data[k])
+                tensor_key = k
+            else:
+                # TODO: It's currently assumed, but in the future we might want to support different length tensors.
+                assert len(self.data[k]) == n_frames, f"All tensors must have the same length. Got {len(self.data[k])} and {n_frames} for {k} and {tensor_key}."
 
         if metadata is not None:
             for k in metadata.keys():
@@ -67,7 +75,7 @@ class SerialDumper:
 
         fname = f"{self.directory}/{str(self.episode_count).zfill(3)}.pt"
         torch.save(dict(self.data), fname)
-        print(f"Episode {self.episode_count} saved to {fname} with {len(self.data['time'])} frames")
+        print(f"Episode {self.episode_count} saved to {fname} with {n_frames} frames")
 
 
 @ir.ironic_system(
@@ -96,7 +104,11 @@ class DatasetDumper(ir.ControlSystem):
     async def on_end_episode(self, message: ir.Message):
         assert self.tracked, "end_episode without start_episode"
         self.tracked = False
-        self.dumper.end_episode(metadata=message.data)
+        metadata = {
+            "episode_start": self.episode_start,
+            **message.data,
+        }
+        self.dumper.end_episode(metadata=metadata)
         print(f"Episode {self.dumper.episode_count} ended")
 
     @ir.on_message('target_grip')
@@ -128,11 +140,8 @@ class DatasetDumper(ir.ControlSystem):
         for name, value in robot_message.data.items():
             ep_dict[name] = value
 
-        # HACK: Here we use knowledge that time is in nanoseconds. Is it a problem?
-        ep_dict['time'] = (image_message.timestamp - self.episode_start) / 1e9
-        now_ts = ir.system_clock()
-        ep_dict['delay/image'] = (now_ts - image_message.timestamp) / 1e9
-        ep_dict['delay/robot'] = (now_ts - robot_message.timestamp) / 1e9
-        ep_dict['delay/target'] = (now_ts - self.target_ts) / 1e9
+        ep_dict['image_timestamp'] = image_message.timestamp
+        ep_dict['robot_timestamp'] = robot_message.timestamp
+        ep_dict['target_timestamp'] = self.target_ts
 
         self.dumper.write(ep_dict)

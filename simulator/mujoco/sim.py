@@ -76,8 +76,12 @@ class MujocoSimulator:
         return self.data.ctrl.copy()
 
     @property
-    def ts(self):
+    def ts_sec(self):
         return self.data.time
+
+    @property
+    def ts_ns(self):
+        return int(self.ts_sec * 1e9)
 
     @property
     def ext_force_ee(self):
