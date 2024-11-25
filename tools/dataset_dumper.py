@@ -4,8 +4,8 @@ import os
 import numpy as np
 import torch
 
-
 import ironic as ir
+
 
 class SerialDumper:
     def __init__(self, directory: str):
@@ -25,12 +25,11 @@ class SerialDumper:
         self.directory = directory
         os.makedirs(self.directory, exist_ok=True)
         self.data = defaultdict(list)
-        self.episode_metadata = {}
 
         episode_files = [f for f in os.listdir(directory) if f.endswith('.pt')]
         if episode_files:
             episode_numbers = [int(f.split('.')[0]) for f in episode_files]
-            self.episode_count = max(episode_numbers) + 1
+            self.episode_count = max(episode_numbers)
         else:
             self.episode_count = 0
 
@@ -40,11 +39,20 @@ class SerialDumper:
     def end_episode(self, metadata: dict = None):
         self.dump_episode(metadata=metadata)
         self.data = defaultdict(list)
-        self.episode_metadata = {}
 
     def write(self, data: dict):
         for k, v in data.items():
-            self.data[k].append(v)
+            if isinstance(v, np.ndarray):
+                self.data[k].append(v.copy())
+            elif isinstance(v, torch.Tensor):
+                self.data[k].append(v.clone())
+            elif isinstance(v, list):
+                self.data[k].append(v.copy())
+            elif isinstance(v, (int, float, str)):
+                self.data[k].append(v)
+            else:
+                print(f"Appending {k} of type {type(v)}. Please check if you need to make a copy.")
+                self.data[k].append(v)
 
     def dump_episode(self, metadata: dict = None):
         # Transform everything to torch tensors
@@ -52,6 +60,9 @@ class SerialDumper:
             self.data[k] = torch.tensor(np.array(v))
 
         if metadata is not None:
+            for k in metadata.keys():
+                assert k not in self.data, f"Metadata key {k} intersects with data key."
+
             self.data.update(metadata)
 
         fname = f"{self.directory}/{str(self.episode_count).zfill(3)}.pt"
