@@ -65,7 +65,6 @@ class DearpyguiUi(ir.ControlSystem):
 
         self.ui_thread = threading.Thread(target=self.ui_thread_main, daemon=True)
         self.ui_stop_event = threading.Event()
-        self.render_lock = threading.Lock()
         self.swap_buffer_lock = threading.Lock()
         self.loop = asyncio.get_running_loop()
 
@@ -88,17 +87,11 @@ class DearpyguiUi(ir.ControlSystem):
         }
 
         self.raw_textures = {
-            'top': np.ones((self.height, self.width, 4), dtype=np.float32),
-            'side': np.ones((self.height, self.width, 4), dtype=np.float32),
-            'handcam_left': np.ones((self.height, self.width, 4), dtype=np.float32),
-            'handcam_right': np.ones((self.height, self.width, 4), dtype=np.float32),
+            cam_name: np.ones((self.height, self.width, 4), dtype=np.float32) for cam_name in self.camera_names
         }
 
         self.second_buffer = {
-            'top': np.zeros((self.height, self.width, 3), dtype=np.float32),
-            'side': np.zeros((self.height, self.width, 3), dtype=np.float32),
-            'handcam_left': np.zeros((self.height, self.width, 3), dtype=np.float32),
-            'handcam_right': np.zeros((self.height, self.width, 3), dtype=np.float32),
+            cam_name: np.zeros((self.height, self.width, 3), dtype=np.float32) for cam_name in self.camera_names
         }
 
     def _reset_desired_action(self):
