@@ -17,7 +17,7 @@ def main(cfg):
     mj_model = mujoco.MjModel.from_xml_path(data['mujoco_model_path'])
     mj_data = mujoco.MjData(mj_model)
     simulator = MujocoSimulator(mj_model, mj_data, simulation_rate=1 / cfg.mujoco.simulation_hz)
-    renderer = MujocoRenderer(mj_model, mj_data, render_resolution=(cfg.mujoco.camera_width, cfg.mujoco.camera_height))
+    renderer = MujocoRenderer(mj_model, mj_data, camera_names=cfg.mujoco.camera_names, render_resolution=(cfg.mujoco.camera_width, cfg.mujoco.camera_height))
     dataset_writer = SerialDumper(cfg.data_output_dir)
 
     simulator.reset()
@@ -43,8 +43,7 @@ def main(cfg):
             images = renderer.render_frames()
 
             dataset_writer.write({
-                'image.left': images['handcam_left'],
-                'image.right': images['handcam_right'],
+                **{f'image.{mapped_name}': images[orig_name] for mapped_name, orig_name in cfg.image_name_mapping.items()},
                 'actuator_values': simulator.actuator_values,
                 'grip': simulator.grip,
                 'robot_position_translation': simulator.robot_position.translation,

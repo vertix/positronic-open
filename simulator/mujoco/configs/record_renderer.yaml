@@ -2,5 +2,9 @@ defaults:
   - mujoco: franka.yaml
   - _self_
 
+image_name_mapping:
+  left: handcam_left
+  right: handcam_right
+
 episode_path: null
 data_output_dir: null

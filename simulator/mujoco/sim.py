@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import mujoco
 import numpy as np
@@ -124,6 +124,7 @@ class MujocoRenderer:
             self,
             model: mujoco.MjModel,
             data: mujoco.MjData,
+            camera_names: Sequence[str],
             render_resolution: Tuple[int, int] = (320, 240),
     ):
         super().__init__()
@@ -132,12 +133,12 @@ class MujocoRenderer:
         self.renderer = None
         self.render_resolution = render_resolution
         self.observation_fps_counter = FPSCounter('Renderer')
+        self.camera_names = camera_names
 
     def render_frames(self):
         views = {}
-
         # TODO: make cameras configurable
-        for cam_name in ['top', 'side', 'handcam_left', 'handcam_right']:
+        for cam_name in self.camera_names:
             self.renderer.update_scene(self.data, camera=cam_name)
             views[cam_name] = self.renderer.render()
 

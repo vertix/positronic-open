@@ -3,6 +3,7 @@ import threading
 import time
 
 from dataclasses import dataclass
+from typing import Sequence
 import hydra
 import mujoco
 import numpy as np
@@ -55,10 +56,11 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.mvKey_LShift: 'up',
     }
 
-    def __init__(self, width, height, episode_metadata: dict = None, initial_position: Transform3D = None):
+    def __init__(self, width, height, camera_names: Sequence[str], episode_metadata: dict = None, initial_position: Transform3D = None):
         super().__init__()
         self.width = width
         self.height = height
+        self.camera_names = camera_names
         self.episode_metadata = episode_metadata or {}
 
         self.ui_thread = threading.Thread(target=self.ui_thread_main, daemon=True)
@@ -163,34 +165,59 @@ class DearpyguiUi(ir.ControlSystem):
                       f"Target Quat: {self.desired_action.orientation}\n"
                       f"Target Grip: {self.desired_action.grip}")
 
+    def _configure_image_grid(self):
+        n_images = len(self.camera_names)
+        n_cols = int(np.ceil(np.sqrt(n_images)))
+        n_rows = int(np.ceil(n_images / n_cols))
+
+        with dpg.table(header_row=False):
+            for _ in range(n_cols):
+                dpg.add_table_column()
+
+            for i in range(n_rows):
+                with dpg.table_row():
+                    for j in range(n_cols):
+                        idx = i * n_cols + j
+                        if idx < n_images:
+                            cam_name = self.camera_names[idx]
+                            dpg.add_image(texture_tag=cam_name, tag=f"image_{cam_name}")
+
+    def _configure_image_sizes(self):
+        n_images = len(self.camera_names)
+        n_cols = int(np.ceil(np.sqrt(n_images)))
+        n_rows = int(np.ceil(n_images / n_cols))
+
+        width = dpg.get_item_width("image_grid")
+        height = dpg.get_item_height("image_grid")
+
+        for key in self.camera_names:
+            dpg.set_item_width(f"image_{key}", int(width / n_cols))
+            dpg.set_item_height(f"image_{key}", int(height / n_rows))
+
+    def _viewport_resize(self):
+        width = dpg.get_viewport_width()
+        height = dpg.get_viewport_height()
+
+        dpg.set_item_width("image_grid", width)
+        dpg.set_item_height("image_grid", height)
+
+
     @ir.on_message('images')
     async def on_images(self, message: ir.Message):
         images = message.data
         with self.swap_buffer_lock:
-            _set_image_uint8_to_float32(self.second_buffer['top'], images['top'])
-            _set_image_uint8_to_float32(self.second_buffer['side'], images['side'])
-            _set_image_uint8_to_float32(self.second_buffer['handcam_left'], images['handcam_left'])
-            _set_image_uint8_to_float32(self.second_buffer['handcam_right'], images['handcam_right'])
+            for cam_name in self.camera_names:
+                _set_image_uint8_to_float32(self.second_buffer[cam_name], images[cam_name])
 
     def ui_thread_main(self):
         dpg.create_context()
         with dpg.texture_registry():
+            for cam_name in self.camera_names:
+                dpg.add_raw_texture(width=self.width, height=self.height, tag=cam_name, format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures[cam_name])
 
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="top", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['top'])
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="side", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['side'])
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_left", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['handcam_left'])
-            dpg.add_raw_texture(width=self.width, height=self.height, tag="handcam_right", format=dpg.mvFormat_Float_rgba, default_value=self.raw_textures['handcam_right'])
+        with dpg.window(tag="image_grid", label="Cameras", no_scrollbar=True, no_scroll_with_mouse=True):
+            self._configure_image_grid()
 
-        with dpg.window(label="Robot"):
-            with dpg.table(header_row=False):
-                dpg.add_table_column()
-                dpg.add_table_column()
-                with dpg.table_row():
-                    dpg.add_image("handcam_left")
-                    dpg.add_image("handcam_right")
-                with dpg.table_row():
-                    dpg.add_image("top")
-                    dpg.add_image("side")
         with dpg.window(label="Info"):
             dpg.add_text("", tag="target")
             dpg.add_text("", tag="robot_position")
@@ -201,9 +228,15 @@ class DearpyguiUi(ir.ControlSystem):
             dpg.add_key_press_handler(key=dpg.mvKey_G, callback=self.grab)
             dpg.add_key_press_handler(key=dpg.mvKey_R, callback=self.switch_recording)
 
+        with dpg.item_handler_registry(tag="adjust_images"):
+            dpg.add_item_resize_handler(callback=self._configure_image_sizes)
+
+        dpg.bind_item_handler_registry("image_grid", "adjust_images")
+
         dpg.create_viewport(
             title='Custom Title', width=800, height=600
         )
+        dpg.set_viewport_resize_callback(callback=self._viewport_resize)
         dpg.setup_dearpygui()
         dpg.show_viewport(maximized=True)
 
@@ -238,7 +271,7 @@ async def _main(cfg: DictConfig):
     data = mujoco.MjData(model)
 
     simulator = MujocoSimulator(model=model, data=data, simulation_rate=1 / cfg.mujoco.simulation_hz)
-    renderer = MujocoRenderer(model=model, data=data, render_resolution=(width, height))
+    renderer = MujocoRenderer(model=model, data=data, render_resolution=(width, height), camera_names=cfg.mujoco.camera_names)
     inverse_kinematics = InverseKinematics(data=data)
 
     simulator.reset()
@@ -257,7 +290,7 @@ async def _main(cfg: DictConfig):
         'mujoco_model_path': cfg.mujoco.model_path,
         'simulation_hz': cfg.mujoco.simulation_hz,
     }
-    window = DearpyguiUi(width, height, episode_metadata, initial_position)
+    window = DearpyguiUi(width, height, cfg.mujoco.camera_names, episode_metadata, initial_position)
 
     systems = [
         simulator.bind(
