@@ -1,0 +1,10 @@
+type: physical
+
+franka:
+  ip: "172.168.0.2"
+  relative_dynamics_factor: 0.2
+  gripper_force: 0.4
+
+dh_gripper: "/dev/ttyUSB0"
+
+camera: sl_vga15

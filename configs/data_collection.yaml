@@ -1,36 +1,7 @@
 defaults:
-  - camera: sl_vga15
+  - hardware: franka_dh
+  - interface: teleop
   - _self_
 
-# Either 'physical' or 'mujoco'
-robot: mujoco
-
-# Either 'gui' or 'teleop'
-control: gui
-
-# Whether to use physical camera even with simulator
-extra_camera: false
-
-# MuJoCo specific settings
-mujoco:
-  camera_width: 320
-  camera_height: 240
-  model_path: "models/franka_emika_panda/scene.xml"
-  simulation_hz: 500
-  observation_hz: 60
-
-# Physical robot specific settings
-franka:
-  ip: "172.168.0.2"
-  relative_dynamics_factor: 0.2
-  gripper_force: 0.4
-
-dh_gripper: "/dev/ttyUSB0"
-
-# WebXR settings (for teleop)
-webxr:
-  port: 5005
-
-# Optional data collection directory
 data_output_dir: null
 

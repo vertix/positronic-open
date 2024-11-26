@@ -10,6 +10,7 @@ import ironic as ir
 from hardware import Franka, DHGripper
 from simulator.mujoco.environment import MujocoSimulatorCS
 from simulator.mujoco.sim import MujocoSimulator, MujocoRenderer, InverseKinematics
+from teleop import TeleopSystem
 from tools.dataset_dumper import DatasetDumper
 from webxr import WebXR
 from simulator.mujoco.mujoco_gui import DearpyguiUi
@@ -19,70 +20,111 @@ logging.basicConfig(level=logging.INFO,
                    handlers=[logging.StreamHandler(),
                              logging.FileHandler("data_collection.log", mode="w")])
 
-async def setup_mujoco(cfg: DictConfig):
-    """Setup and return MuJoCo simulator components"""
-    width = cfg.mujoco.camera_width
-    height = cfg.mujoco.camera_height
 
-    model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
-    data = mujoco.MjData(model)
+def setup_hardware(cfg: DictConfig):
+    """Setup and returns control system with the following interface:
+    inputs:
+        target_position: Target position for the robot
+        target_grip: Target grip for the gripper
+    outputs:
+        robot_position: Current position of the robot
+        grip: Current gripper state
+        frame: Current camera frame
+    """
+    components, inputs, outputs = [], {}, {}
+    if cfg.type == 'physical':
+        franka = Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
+        components.append(franka)
+        outputs['robot_position'] = (franka, 'position')
+        inputs['target_position'] = (franka, 'target_position')
 
-    simulator = MujocoSimulator(model=model, data=data, simulation_rate=1/cfg.mujoco.simulation_hz)
-    renderer = MujocoRenderer(model=model, data=data, render_resolution=(width, height))
-    inverse_kinematics = InverseKinematics(data=data)
+        if 'dh_gripper' in cfg:
+            gripper = DHGripper(cfg.dh_gripper)
+            components.append(gripper)
+            outputs['grip'] = (gripper, 'grip')
+            inputs['target_grip'] = (gripper, 'target_grip')
+        else:
+            outputs['grip'] = (franka, 'grip')
+            inputs['target_grip'] = (franka, 'target_grip')
 
-    simulator.reset()
-    initial_position = simulator.initial_position
+        camera = hardware.from_config.sl_camera(cfg.camera)
+        components.append(camera)
+        outputs['frame'] = (camera, 'frame')
+    elif cfg.type == 'mujoco':
+        model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
+        data = mujoco.MjData(model)
 
-    simulator_cs = MujocoSimulatorCS(
-        simulator=simulator,
-        simulation_rate=1/cfg.mujoco.simulation_hz,
-        render_rate=1/cfg.mujoco.observation_hz,
-        renderer=renderer,
-        inverse_kinematics=inverse_kinematics,
-    )
-
-    if cfg.control == 'gui':
-        episode_metadata = {
-            'mujoco_model_path': cfg.mujoco.model_path,
-            'simulation_hz': cfg.mujoco.simulation_hz,
-        }
-        control = DearpyguiUi(width, height, episode_metadata, initial_position)
-    else:
-        control = WebXR(port=cfg.webxr.port)
-
-    return simulator_cs, control
-
-async def setup_robot(cfg: DictConfig):
-    """Setup and return physical robot components"""
-    franka = Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
-
-    if cfg.control == 'gui':
-        # Create GUI control for physical robot
-        initial_position = Transform3D(
-            translation=franka.robot.current_pose.end_effector_pose.translation,
-            quaternion=franka.robot.current_pose.end_effector_pose.quaternion
+        simulator = MujocoSimulator(
+            model=model,
+            data=data,
+            simulation_rate=1/cfg.mujoco.simulation_hz
         )
-        control = DearpyguiUi(
-            width=cfg.camera.width if hasattr(cfg.camera, 'width') else 320,
-            height=cfg.camera.height if hasattr(cfg.camera, 'height') else 240,
-            initial_position=initial_position
+        renderer = MujocoRenderer(
+            model=model,
+            data=data,
+            camera_names=cfg.mujoco.camera_names,
+            render_resolution=(cfg.mujoco.camera_width, cfg.mujoco.camera_height)
         )
+        inverse_kinematics = InverseKinematics(data=data)
+
+        simulator.reset()
+
+        # Create MujocoSimulatorCS
+        simulator_cs = MujocoSimulatorCS(
+            simulator=simulator,
+            simulation_rate=1/cfg.mujoco.simulation_hz,
+            render_rate=1/cfg.mujoco.observation_hz,
+            renderer=renderer,
+            inverse_kinematics=inverse_kinematics,
+        )
+        components.append(simulator_cs)
+
+        # Map the interface
+        inputs['target_position'] = (simulator_cs, 'robot_target_position')
+        inputs['target_grip'] = (simulator_cs, 'gripper_target_grasp')
+        outputs['robot_position'] = (simulator_cs, 'robot_position')
+        outputs['grip'] = (simulator_cs, 'grip')
+        outputs['frame'] = (simulator_cs, 'images')
     else:
-        control = WebXR(port=cfg.webxr.port)
+        raise ValueError(f"Invalid robot type: {cfg.type}")
 
-    gripper = None
-    if 'dh_gripper' in cfg:
-        gripper = DHGripper(cfg.dh_gripper)
+    return ir.compose(*components, inputs=inputs, outputs=outputs)
 
-    return franka, gripper, control
+
+
+def setup_interface(cfg: DictConfig):
+    if cfg.control == 'teleop':
+        components, inputs, outputs = [], {}, {}
+        webxr = WebXR(port=cfg.webxr.port)
+        components.append(webxr)
+
+        teleop = TeleopSystem()
+        components.append(teleop)
+
+        teleop.bind(
+            teleop_transform=webxr.outs.transform,
+            teleop_buttons=webxr.outs.buttons,
+        )
+
+        inputs['robot_position'] = (teleop, 'robot_position')
+        outputs['robot_target_position'] = (teleop, 'robot_target_position')
+        outputs['gripper_target_grasp'] = (teleop, 'gripper_target_grasp')
+        outputs['start_tracking'] = (teleop, 'start_tracking')
+        outputs['stop_tracking'] = (teleop, 'stop_tracking')
+
+        return ir.compose(*components, inputs=inputs, outputs=outputs)
+    elif cfg.control == 'gui':
+        pass
+    else:
+        raise ValueError(f"Invalid control type: {cfg.control}")
+
 
 async def main_async(cfg: DictConfig):
     components: List[ir.ControlSystem] = []
 
     # Setup robot/simulator and control method
     if cfg.robot == 'mujoco':
-        simulator, control = await setup_mujoco(cfg)
+        simulator, control = setup_mujoco(cfg)
         components.extend([simulator, control])
 
         # Connect control to simulator

@@ -6,7 +6,7 @@ import ironic as ir
 
 
 @ir.ironic_system(
-    input_ports=['grip', 'force', 'speed'],
+    input_ports=['target_grip', 'force', 'speed'],
     output_props=['grip']
 )
 class DHGripper(ir.ControlSystem):
@@ -38,8 +38,8 @@ class DHGripper(ir.ControlSystem):
         await self.handle_grip(ir.Message(data=0))     # Open gripper
         time.sleep(0.5)
 
-    @ir.on_message('grip')
-    async def handle_grip(self, message: ir.Message):
+    @ir.on_message('target_grip')
+    async def handle_target_grip(self, message: ir.Message):
         """Message data should be in range [0, 1]. 0 means fully open, 1 means fully closed."""
         width = round((1 - max(0, min(message.data, 1))) * 1000)
         self.client.write_register(0x103, c_uint16(width).value, slave=1)
@@ -67,8 +67,8 @@ if __name__ == "__main__":
 
     async def _main():
         gripper = DHGripper("/dev/ttyUSB0")
-        grip_port = ir.OutputPort('grip')
-        gripper.bind(grip=grip_port)
+        grip_port = ir.OutputPort('target_grip')
+        gripper.bind(target_grip=grip_port)
 
         await gripper.setup()
         await gripper.handle_speed(ir.Message(data=20))

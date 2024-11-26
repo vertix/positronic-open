@@ -33,7 +33,7 @@ class DesiredAction:
 
 @ir.ironic_system(
     input_ports=["images"],
-    input_props=["robot_position"],
+    input_props=["robot_position", "robot_grip"],
     output_ports=["start_tracking", "stop_tracking", "gripper_target_grasp", "robot_target_position", "reset"],
 )
 class DearpyguiUi(ir.ControlSystem):
@@ -56,7 +56,7 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.mvKey_LShift: 'up',
     }
 
-    def __init__(self, width, height, camera_names: Sequence[str], episode_metadata: dict = None, initial_position: Transform3D = None):
+    def __init__(self, width, height, camera_names: Sequence[str], episode_metadata: dict = None):
         super().__init__()
         self.width = width
         self.height = height
@@ -68,12 +68,8 @@ class DearpyguiUi(ir.ControlSystem):
         self.swap_buffer_lock = threading.Lock()
         self.loop = asyncio.get_running_loop()
 
-        self.initial_position = DesiredAction(
-            position=initial_position.translation.copy(),
-            orientation=initial_position.quaternion.copy(),
-            grip=0.0
-        )
-        self._reset_desired_action()
+        # self._should_reset = False
+
         self.recording = False
         self.last_move_ts = None
 
@@ -93,13 +89,6 @@ class DearpyguiUi(ir.ControlSystem):
         self.second_buffer = {
             cam_name: np.zeros((self.height, self.width, 3), dtype=np.float32) for cam_name in self.camera_names
         }
-
-    def _reset_desired_action(self):
-        self.desired_action = DesiredAction(
-            position=self.initial_position.position.copy(),
-            orientation=self.initial_position.orientation.copy(),
-            grip=self.initial_position.grip,
-        )
 
     async def update(self):
         self.move()
@@ -137,8 +126,12 @@ class DearpyguiUi(ir.ControlSystem):
         if self.recording:
             await self.outs.stop_tracking.write(ir.Message(self.episode_metadata))
         else:
-            await self.outs.reset.write(ir.Message(True))
-            self._reset_desired_action()
+            pos_msg, grip_msg = await asyncio.gather(self.ins.robot_position(), self.ins.robot_grip())
+            self.desired_action = DesiredAction(
+                position=pos_msg.data.translation.copy(),
+                orientation=pos_msg.data.quaternion.copy(),
+                grip=grip_msg.data
+            )
             await self.outs.start_tracking.write(ir.Message(True))
 
         self.recording = not self.recording
@@ -220,6 +213,7 @@ class DearpyguiUi(ir.ControlSystem):
             dpg.add_key_release_handler(callback=self.key_release)
             dpg.add_key_press_handler(key=dpg.mvKey_G, callback=self.grab)
             dpg.add_key_press_handler(key=dpg.mvKey_R, callback=self.switch_recording)
+            dpg.add_key_press_handler(key=dpg.mvKey_Space, callback=lambda: self.loop.create_task(self.outs.reset.write(ir.Message(True))))
 
         with dpg.item_handler_registry(tag="adjust_images"):
             dpg.add_item_resize_handler(callback=self._configure_image_sizes)
@@ -252,6 +246,10 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.destroy_context()
 
     async def step(self):
+        # if self._should_reset:
+        #     await self.outs.reset.write(ir.Message(True))
+        #     self._should_reset = False
+
         await self.update()
         return ir.State.ALIVE if self.ui_thread.is_alive() else ir.State.FINISHED
 
@@ -294,6 +292,7 @@ async def _main(cfg: DictConfig):
         window.bind(
             images=simulator.outs.images,
             robot_position=simulator.outs.robot_position,
+            robot_grip=simulator.outs.grip
         ),
     ]
 

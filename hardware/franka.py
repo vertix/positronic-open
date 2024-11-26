@@ -3,12 +3,13 @@ from typing import Optional
 
 import franky
 import ironic as ir
+from .state import RobotState
 from geom import Transform3D
 
 
 @ir.ironic_system(
-    input_ports=['target_position', 'gripper_grasped'],
-    output_props=['position', 'gripper_grasped', 'joint_positions', 'ext_force_base', 'ext_force_ee']
+    input_ports=['target_position', 'target_grip', 'reset'],
+    output_props=['position', 'grip', 'joint_positions', 'ext_force_base', 'ext_force_ee', 'state']
 )
 class Franka(ir.ControlSystem):
     def __init__(self, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
@@ -26,6 +27,7 @@ class Franka(ir.ControlSystem):
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
         )
+        self._state = RobotState.INVALID  # One must call setup() first
         self.target_fps = ir.utils.FPSCounter("Franka target position")
 
         try:
@@ -39,14 +41,7 @@ class Franka(ir.ControlSystem):
             self._gripper_grasped = None
 
     async def setup(self):
-        self.robot.recover_from_errors()
-        self.robot.move(franky.JointWaypointMotion([
-            franky.JointWaypoint([0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785])
-        ]))
-
-        if self.gripper:
-            self.gripper.homing()
-            self._gripper_grasped = False
+        await self.handle_reset(ir.Message(True))
 
     async def cleanup(self):
         print("Franka stopping")
@@ -71,8 +66,21 @@ class Franka(ir.ControlSystem):
             self.robot.recover_from_errors()
             print(f"IK failed for {message.data}: {e}")
 
-    @ir.on_message('gripper_grasped')
-    async def handle_gripper_grasped(self, message: ir.Message):
+    @ir.on_message('reset')
+    async def handle_reset(self, message: ir.Message):
+        self.robot.recover_from_errors()
+        self.robot.move(franky.JointWaypointMotion([
+            franky.JointWaypoint([0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785])
+        ]), asynchronous=True)
+
+        if self.gripper:
+            self.gripper.homing()  # This might be a blocking call, so ideally it should run in a separate thread.
+            self._gripper_grasped = False
+
+        self._state = RobotState.RESETTING
+
+    @ir.on_message('target_grip')
+    async def handle_target_grip(self, message: ir.Message):
         if self._gripper_grasped:
             if message.data < 0.33:
                 self.gripper.open(self.gripper_speed)
@@ -99,7 +107,7 @@ class Franka(ir.ControlSystem):
         return ir.Message(data=self.robot.current_joint_state.position)
 
     @ir.out_property
-    async def gripper_grasped(self):
+    async def grip(self):
         return ir.Message(
             data=self._gripper_grasped if self.gripper else None,
             timestamp=ir.system_clock()
@@ -118,6 +126,16 @@ class Franka(ir.ControlSystem):
             data=self.robot.state.K_F_ext_hat_K,
             timestamp=ir.system_clock()
         )
+
+    @ir.out_property
+    async def state(self):
+        return ir.Message(data=self._state)
+
+    async def step(self) -> ir.State:
+        if self._state == RobotState.RESETTING:
+            if self.robot.is_in_control():
+                self._state = RobotState.AVAILABLE
+        return await super().step()
 
 
 if __name__ == "__main__":
