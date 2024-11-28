@@ -132,7 +132,7 @@ class Franka(ir.ControlSystem):
         )
 
     async def step(self) -> ir.State:
-        if self._resetting and self.robot.is_in_control():
+        if self._resetting and self.robot.is_in_control:
             self._resetting = False
             await self.outs.state.write(ir.Message(RobotState.AVAILABLE, ir.system_clock()))
 

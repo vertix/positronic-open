@@ -4,6 +4,7 @@ import time
 
 from dataclasses import dataclass
 from typing import Sequence
+import cv2
 import hydra
 import mujoco
 import numpy as np
@@ -20,7 +21,11 @@ from tools.dataset_dumper import DatasetDumper
 
 
 def _set_image_uint8_to_float32(target, source):
-    target[:] = source
+    if target.shape != source.shape:
+        resized = cv2.resize(source, (target.shape[1], target.shape[0]))
+        target[:] = resized
+    else:
+        target[:] = source
     target[:] /= 255
 
 
@@ -94,8 +99,10 @@ class DearpyguiUi(ir.ControlSystem):
     async def update(self):
         self.move()
 
-        target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
+        if self.desired_action is None:
+            await self._reset_desired_action()
 
+        target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
         _, _, robot_position = await asyncio.gather(
             self.outs.gripper_target_grasp.write(ir.Message(self.desired_action.grip)),
             self.outs.robot_target_position.write(ir.Message(target_pos)),
@@ -103,7 +110,7 @@ class DearpyguiUi(ir.ControlSystem):
         )
 
         dpg.set_value("robot_position", f"Robot Translation: {robot_position.data.translation}\n"
-                                      f"Robot Quaternion: {robot_position.data.quaternion}")
+                                    f"Robot Quaternion: {robot_position.data.quaternion}")
 
     def key_down(self, sender, app_data):
         key = app_data[0]
@@ -201,7 +208,11 @@ class DearpyguiUi(ir.ControlSystem):
         images = message.data
         with self.swap_buffer_lock:
             for cam_name in self.camera_names:
-                _set_image_uint8_to_float32(self.second_buffer[cam_name], images[cam_name])
+                try:
+                    _set_image_uint8_to_float32(self.second_buffer[cam_name], images[cam_name])
+                except KeyError:
+                    print(f"Camera {cam_name} not found among {images.keys()}")
+                    raise
 
     @ir.on_message('robot_state')
     async def on_robot_state(self, message: ir.Message):

@@ -12,6 +12,7 @@ import ironic as ir
 class DHGripper(ir.ControlSystem):
     def __init__(self, port: str):
         super().__init__()
+        # TODO: Rewrite to use AsyncModbusSerialClient
         self.client = ModbusClient.ModbusSerialClient(
             port=port,
             baudrate=115200,
@@ -35,7 +36,7 @@ class DHGripper(ir.ControlSystem):
         # Set initial values
         await self.handle_force(ir.Message(data=100))  # Set to maximum force
         await self.handle_speed(ir.Message(data=100))  # Set to maximum speed
-        await self.handle_grip(ir.Message(data=0))     # Open gripper
+        await self.handle_target_grip(ir.Message(data=0))     # Open gripper
         time.sleep(0.5)
 
     @ir.on_message('target_grip')

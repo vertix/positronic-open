@@ -66,7 +66,11 @@ class ComposedSystem(ControlSystem):
         # Connect outputs - direct assignment of OutputPort objects
         if outputs:
             for name, (component, port_name) in outputs.items():
-                setattr(self.outs, name, getattr(component.outs, port_name))
+                try:
+                    original_port = getattr(component.outs, port_name)
+                except AttributeError:
+                    raise CompositionError(f"Component {component} does not have output port '{port_name}'")
+                setattr(self.outs, name, original_port)
 
     async def setup(self):
         """Set up all components"""

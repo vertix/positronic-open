@@ -1,3 +1,7 @@
+defaults:
+  - ../camera/sl_vga15@camera
+  - _self_
+
 type: physical
 
 franka:
@@ -6,5 +10,3 @@ franka:
   gripper_force: 0.4
 
 dh_gripper: "/dev/ttyUSB0"
-
-camera: sl_vga15

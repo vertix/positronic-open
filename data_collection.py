@@ -38,7 +38,7 @@ def setup_hardware(cfg: DictConfig):
         outputs['joint_positions'] = (franka, 'joint_positions')
         outputs['ext_force_base'] = (franka, 'ext_force_base')
         outputs['ext_force_ee'] = (franka, 'ext_force_ee')
-        outputs['robot_state'] = (franka, 'robot_state')
+        outputs['robot_state'] = (franka, 'state')
         inputs['target_position'] = (franka, 'target_position')
         inputs['reset'] = (franka, 'reset')
 
