@@ -1,6 +1,6 @@
 defaults:
   - hardware: franka_dh
-  - interface: teleop
+  - control_ui: teleop
   - _self_
 
 data_output_dir: null

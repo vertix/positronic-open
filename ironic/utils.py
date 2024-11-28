@@ -1,9 +1,42 @@
 import asyncio
+from collections import namedtuple
 import time
 import signal
 from typing import Any, Callable, Optional
 
-from ironic.system import ControlSystem, Message, OutputPort, State
+from ironic.system import ControlSystem, Message, OutputPort, State, ironic_system
+
+Change = namedtuple('Change', ['prev', 'current'])
+
+
+# TODO: Write tests for this and control system
+class PropertyChangeDetector:
+    def __init__(self, input_prop: Callable[[], Message]):
+        self.input_prop = input_prop
+        self.last_input = None
+        self.initialized = False
+
+    async def get_change(self):
+        input_message = await self.input_prop()
+        if input_message.data != self.last_input or not self.initialized:
+            self.last_input = input_message.data
+            self.initialized = True
+            return Message(Change(self.last_input, input_message.data), input_message.timestamp)
+        return None
+
+
+@ironic_system(input_props=["input"], output_ports=["output"])
+class PropertyChangeDetectorSystem(ControlSystem):
+    def __init__(self):
+        super().__init__()
+        self._detector = PropertyChangeDetector()
+
+    async def step(self):
+        change = await self._detector.get_change()
+        if change is not None:
+            await self.outs.output.write(change)
+        return State.ALIVE
+
 
 class FPSCounter:
     """Utility class for tracking and reporting frames per second (FPS).

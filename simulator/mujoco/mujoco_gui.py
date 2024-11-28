@@ -10,6 +10,7 @@ import numpy as np
 from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
 
+import hardware
 import ironic as ir
 from geom import Transform3D
 from ironic.utils import FPSCounter
@@ -30,9 +31,8 @@ class DesiredAction:
     grip: float
 
 
-
 @ir.ironic_system(
-    input_ports=["images"],
+    input_ports=["images", "robot_state"],
     input_props=["robot_position", "robot_grip"],
     output_ports=["start_tracking", "stop_tracking", "gripper_target_grasp", "robot_target_position", "reset"],
 )
@@ -68,7 +68,8 @@ class DearpyguiUi(ir.ControlSystem):
         self.swap_buffer_lock = threading.Lock()
         self.loop = asyncio.get_running_loop()
 
-        # self._should_reset = False
+        self.desired_action = None
+        self.last_robot_state = None
 
         self.recording = False
         self.last_move_ts = None
@@ -122,19 +123,25 @@ class DearpyguiUi(ir.ControlSystem):
     def switch_recording(self):
         self.loop.create_task(self._switch_recording())
 
-    async def _switch_recording(self):
+    async def _reset_desired_action(self):
+        pos_msg, grip_msg = await asyncio.gather(self.ins.robot_position(), self.ins.robot_grip())
+        self.desired_action = DesiredAction(
+            position=pos_msg.data.translation.copy(),
+            orientation=pos_msg.data.quaternion.copy(),
+            grip=grip_msg.data
+        )
+
+    async def _stop_recording(self):
         if self.recording:
             await self.outs.stop_tracking.write(ir.Message(self.episode_metadata))
-        else:
-            pos_msg, grip_msg = await asyncio.gather(self.ins.robot_position(), self.ins.robot_grip())
-            self.desired_action = DesiredAction(
-                position=pos_msg.data.translation.copy(),
-                orientation=pos_msg.data.quaternion.copy(),
-                grip=grip_msg.data
-            )
-            await self.outs.start_tracking.write(ir.Message(True))
+            self.recording = False
 
-        self.recording = not self.recording
+    async def _switch_recording(self):
+        if self.recording:
+            await self._stop_recording()
+        else:
+            await self.outs.start_tracking.write(ir.Message(True))
+            self.recording = True
 
     def move(self):
         time_since_last_move = ir.system_clock() - self.last_move_ts if self.last_move_ts is not None else 0
@@ -146,10 +153,11 @@ class DearpyguiUi(ir.ControlSystem):
 
         self.last_move_ts = ir.system_clock()
 
-        dpg.set_value("target",
-                      f"Target Position: {self.desired_action.position}\n"
-                      f"Target Quat: {self.desired_action.orientation}\n"
-                      f"Target Grip: {self.desired_action.grip}")
+        if self.desired_action is not None:
+            dpg.set_value("target",
+                          f"Target Position: {self.desired_action.position}\n"
+                          f"Target Quat: {self.desired_action.orientation}\n"
+                          f"Target Grip: {self.desired_action.grip}")
 
     def _configure_image_grid(self):
         n_images = len(self.camera_names)
@@ -195,6 +203,15 @@ class DearpyguiUi(ir.ControlSystem):
             for cam_name in self.camera_names:
                 _set_image_uint8_to_float32(self.second_buffer[cam_name], images[cam_name])
 
+    @ir.on_message('robot_state')
+    async def on_robot_state(self, message: ir.Message):
+        if message.data == hardware.RobotState.RESETTING and self.last_robot_state != hardware.RobotState.RESETTING:
+            await self._stop_recording()
+        elif message.data == hardware.RobotState.AVAILABLE and self.last_robot_state != hardware.RobotState.AVAILABLE:
+            await self._reset_desired_action()
+
+        self.last_robot_state = message.data
+
     def ui_thread_main(self):
         dpg.create_context()
         with dpg.texture_registry():
@@ -208,12 +225,15 @@ class DearpyguiUi(ir.ControlSystem):
             dpg.add_text("", tag="target")
             dpg.add_text("", tag="robot_position")
 
+        def reset_callback():
+            self.loop.create_task(self.outs.reset.write(ir.Message(True)))
+
         with dpg.handler_registry():
             dpg.add_key_down_handler(callback=self.key_down)
             dpg.add_key_release_handler(callback=self.key_release)
             dpg.add_key_press_handler(key=dpg.mvKey_G, callback=self.grab)
             dpg.add_key_press_handler(key=dpg.mvKey_R, callback=self.switch_recording)
-            dpg.add_key_press_handler(key=dpg.mvKey_Space, callback=lambda: self.loop.create_task(self.outs.reset.write(ir.Message(True))))
+            dpg.add_key_press_handler(key=dpg.mvKey_Spacebar, callback=reset_callback)
 
         with dpg.item_handler_registry(tag="adjust_images"):
             dpg.add_item_resize_handler(callback=self._configure_image_sizes)
@@ -246,10 +266,6 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.destroy_context()
 
     async def step(self):
-        # if self._should_reset:
-        #     await self.outs.reset.write(ir.Message(True))
-        #     self._should_reset = False
-
         await self.update()
         return ir.State.ALIVE if self.ui_thread.is_alive() else ir.State.FINISHED
 
@@ -265,9 +281,6 @@ async def _main(cfg: DictConfig):
     renderer = MujocoRenderer(model=model, data=data, render_resolution=(width, height), camera_names=cfg.mujoco.camera_names)
     inverse_kinematics = InverseKinematics(data=data)
 
-    simulator.reset()
-    initial_position = simulator.initial_position
-
     # systems
     simulator = MujocoSimulatorCS(
         simulator=simulator,
@@ -281,7 +294,7 @@ async def _main(cfg: DictConfig):
         'mujoco_model_path': cfg.mujoco.model_path,
         'simulation_hz': cfg.mujoco.simulation_hz,
     }
-    window = DearpyguiUi(width, height, cfg.mujoco.camera_names, episode_metadata, initial_position)
+    window = DearpyguiUi(width, height, cfg.mujoco.camera_names, episode_metadata)
 
     systems = [
         simulator.bind(

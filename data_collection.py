@@ -17,8 +17,7 @@ from simulator.mujoco.mujoco_gui import DearpyguiUi
 import mujoco
 
 logging.basicConfig(level=logging.INFO,
-                   handlers=[logging.StreamHandler(),
-                             logging.FileHandler("data_collection.log", mode="w")])
+                    handlers=[logging.StreamHandler()])
 
 
 def setup_hardware(cfg: DictConfig):
@@ -36,7 +35,12 @@ def setup_hardware(cfg: DictConfig):
         franka = Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
         components.append(franka)
         outputs['robot_position'] = (franka, 'position')
+        outputs['joint_positions'] = (franka, 'joint_positions')
+        outputs['ext_force_base'] = (franka, 'ext_force_base')
+        outputs['ext_force_ee'] = (franka, 'ext_force_ee')
+        outputs['robot_state'] = (franka, 'robot_state')
         inputs['target_position'] = (franka, 'target_position')
+        inputs['reset'] = (franka, 'reset')
 
         if 'dh_gripper' in cfg:
             gripper = DHGripper(cfg.dh_gripper)
@@ -82,18 +86,22 @@ def setup_hardware(cfg: DictConfig):
         # Map the interface
         inputs['target_position'] = (simulator_cs, 'robot_target_position')
         inputs['target_grip'] = (simulator_cs, 'gripper_target_grasp')
+        inputs['reset'] = (simulator_cs, 'reset')
         outputs['robot_position'] = (simulator_cs, 'robot_position')
+        outputs['joint_positions'] = (simulator_cs, 'actuator_values')
+        outputs['ext_force_base'] = (simulator_cs, 'ext_force_base')
+        outputs['ext_force_ee'] = (simulator_cs, 'ext_force_ee')
         outputs['grip'] = (simulator_cs, 'grip')
         outputs['frame'] = (simulator_cs, 'images')
+        outputs['robot_state'] = (simulator_cs, 'robot_state')
     else:
         raise ValueError(f"Invalid robot type: {cfg.type}")
 
     return ir.compose(*components, inputs=inputs, outputs=outputs)
 
 
-
 def setup_interface(cfg: DictConfig):
-    if cfg.control == 'teleop':
+    if cfg.control_ui == 'teleop':
         components, inputs, outputs = [], {}, {}
         webxr = WebXR(port=cfg.webxr.port)
         components.append(webxr)
@@ -107,76 +115,64 @@ def setup_interface(cfg: DictConfig):
         )
 
         inputs['robot_position'] = (teleop, 'robot_position')
+        inputs['robot_grip'] = None
+        inputs['images'] = None
+        inputs['robot_state'] = None
         outputs['robot_target_position'] = (teleop, 'robot_target_position')
         outputs['gripper_target_grasp'] = (teleop, 'gripper_target_grasp')
         outputs['start_tracking'] = (teleop, 'start_tracking')
         outputs['stop_tracking'] = (teleop, 'stop_tracking')
-
+        outputs['reset'] = None  # This ports exists, but not used
         return ir.compose(*components, inputs=inputs, outputs=outputs)
-    elif cfg.control == 'gui':
-        pass
+    elif cfg.control_ui == 'gui':
+        width, height = cfg.mujoco.camera_width, cfg.mujoco.camera_height
+
+        episode_metadata = {
+            'mujoco_model_path': cfg.mujoco.model_path,
+            'simulation_hz': cfg.mujoco.simulation_hz,
+        }
+        # This system has all necessary ports
+        return DearpyguiUi(width, height, cfg.mujoco.camera_names, episode_metadata)
     else:
-        raise ValueError(f"Invalid control type: {cfg.control}")
+        raise ValueError(f"Invalid control type: {cfg.control_ui}")
 
 
 async def main_async(cfg: DictConfig):
+    control = setup_interface(cfg.control_ui)
+    hardware = setup_hardware(cfg.hardware)
+
+    control.bind(
+        robot_grip=hardware.outs.grip,
+        robot_position=hardware.outs.robot_position,
+        images=hardware.outs.frame,
+        robot_state=hardware.outs.robot_state,
+    )
+    hardware.bind(
+        target_position=control.outs.robot_target_position,
+        target_grip=control.outs.gripper_target_grasp,
+        reset=control.outs.reset,
+    )
+
     components: List[ir.ControlSystem] = []
-
-    # Setup robot/simulator and control method
-    if cfg.robot == 'mujoco':
-        simulator, control = setup_mujoco(cfg)
-        components.extend([simulator, control])
-
-        # Connect control to simulator
-        simulator.bind(
-            gripper_target_grasp=control.outs.gripper_target_grasp,
-            robot_target_position=control.outs.robot_target_position,
-            reset=control.outs.reset,
-        )
-        control.bind(
-            images=simulator.outs.images,
-            robot_position=simulator.outs.robot_position,
-        )
-
-        robot_data_source = simulator
-
-    else:  # Physical robot
-        franka, gripper, control = await setup_robot(cfg)
-        components.extend([franka, control])
-
-        # Connect control to robot
-        franka.bind(target_position=control.outs.robot_target_position)
-        control.bind(robot_position=franka.outs.position)
-
-        if gripper:
-            gripper.bind(grip=control.outs.gripper_target_grasp)
-            components.append(gripper)
-
-        robot_data_source = franka
-
-    # Setup camera if needed
-    if cfg.robot == 'physical' or cfg.extra_camera:
-        cam = hardware.from_config.sl_camera(cfg.camera)
-        components.append(cam)
-        image_source = cam.outs.frame
-    else:
-        image_source = simulator.outs.images
+    components.append(control)
+    components.append(hardware)
 
     # Setup data collection if enabled
     if cfg.data_output_dir is not None:
         properties_to_dump = ir.utils.properties_dict(
-            robot_joints=robot_data_source.outs.joint_positions,
-            robot_position_translation=ir.utils.map_property(lambda t: t.translation, robot_data_source.outs.position),
-            robot_position_quaternion=ir.utils.map_property(lambda t: t.quaternion, robot_data_source.outs.position),
-            ext_force_ee=robot_data_source.outs.ext_force_ee,
-            ext_force_base=robot_data_source.outs.ext_force_base,
-            grip=gripper.outs.grip if gripper else None
+            robot_joints=hardware.outs.joint_positions,
+            robot_position_translation=ir.utils.map_property(lambda t: t.translation, hardware.outs.robot_position),
+            robot_position_quaternion=ir.utils.map_property(lambda t: t.quaternion, hardware.outs.robot_position),
+            ext_force_ee=hardware.outs.ext_force_ee,
+            ext_force_base=hardware.outs.ext_force_base,
+            grip=hardware.outs.grip if hardware.outs.grip else None
         )
 
         data_dumper = DatasetDumper(cfg.data_output_dir)
         components.append(
             data_dumper.bind(
-                image=image_source,
+                # TODO: Let user disable images, like in mujoco_gui
+                image=hardware.outs.frame,
                 target_grip=control.outs.gripper_target_grasp,
                 target_robot_position=control.outs.robot_target_position,
                 start_episode=control.outs.start_tracking,

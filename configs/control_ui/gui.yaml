@@ -1,0 +1,10 @@
+control_ui: gui
+
+mujoco:
+  # DO NOT SUBMIT!
+  model_path: 'assets/mujoco/mjx_single_cube.xml'
+  simulation_hz: 500
+
+  camera_width: 352
+  camera_height: 192
+  camera_names: ['handcam_left', 'handcam_right']

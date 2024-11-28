@@ -9,7 +9,8 @@ from geom import Transform3D
 
 @ir.ironic_system(
     input_ports=['target_position', 'target_grip', 'reset'],
-    output_props=['position', 'grip', 'joint_positions', 'ext_force_base', 'ext_force_ee', 'state']
+    output_ports=['state'],
+    output_props=['position', 'grip', 'joint_positions', 'ext_force_base', 'ext_force_ee']
 )
 class Franka(ir.ControlSystem):
     def __init__(self, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
@@ -27,8 +28,8 @@ class Franka(ir.ControlSystem):
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
             [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
         )
-        self._state = RobotState.INVALID  # One must call setup() first
         self.target_fps = ir.utils.FPSCounter("Franka target position")
+        self._resetting = False
 
         try:
             self.gripper = franky.Gripper(ip)
@@ -68,6 +69,10 @@ class Franka(ir.ControlSystem):
 
     @ir.on_message('reset')
     async def handle_reset(self, message: ir.Message):
+        """Commands the robot to start moving to the home position."""
+        await self.outs.state.write(ir.Message(RobotState.RESETTING, ir.system_clock()))
+        self._resetting = True
+
         self.robot.recover_from_errors()
         self.robot.move(franky.JointWaypointMotion([
             franky.JointWaypoint([0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785])
@@ -77,7 +82,6 @@ class Franka(ir.ControlSystem):
             self.gripper.homing()  # This might be a blocking call, so ideally it should run in a separate thread.
             self._gripper_grasped = False
 
-        self._state = RobotState.RESETTING
 
     @ir.on_message('target_grip')
     async def handle_target_grip(self, message: ir.Message):
@@ -127,14 +131,11 @@ class Franka(ir.ControlSystem):
             timestamp=ir.system_clock()
         )
 
-    @ir.out_property
-    async def state(self):
-        return ir.Message(data=self._state)
-
     async def step(self) -> ir.State:
-        if self._state == RobotState.RESETTING:
-            if self.robot.is_in_control():
-                self._state = RobotState.AVAILABLE
+        if self._resetting and self.robot.is_in_control():
+            self._resetting = False
+            await self.outs.state.write(ir.Message(RobotState.AVAILABLE, ir.system_clock()))
+
         return await super().step()
 
 

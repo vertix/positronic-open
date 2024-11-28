@@ -1,6 +1,0 @@
-control: teleop
-
-webxr:
-  port: 5005
-
-# Teleop can configure transformation of frames

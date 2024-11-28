@@ -11,7 +11,7 @@ import numpy as np
 
 import ironic as ir
 
-from control.utils import FPSCounter
+from ironic.utils import FPSCounter
 from geom import Transform3D
 
 

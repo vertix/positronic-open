@@ -237,6 +237,9 @@ class ControlSystem:
     Ports and properties must be declared using the @ironic_system decorator. Input ports can have
     message handlers defined using @on_message, while output properties are defined using
     @output_property.
+
+    Binding must be done before calling setup(), as control system can start writing to output ports
+    in setup().
     """
     def __init__(self):
         self._message_handlers = {
