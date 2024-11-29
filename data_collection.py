@@ -54,6 +54,7 @@ def setup_hardware(cfg: DictConfig):
         camera = hardware.from_config.sl_camera(cfg.camera)
         components.append(camera)
         outputs['frame'] = (camera, 'frame')
+        return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'mujoco':
         model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
         data = mujoco.MjData(model)
@@ -94,10 +95,11 @@ def setup_hardware(cfg: DictConfig):
         outputs['grip'] = (simulator_cs, 'grip')
         outputs['frame'] = (simulator_cs, 'images')
         outputs['robot_state'] = (simulator_cs, 'robot_state')
+
+        metadata = {'mujoco_model_path': cfg.mujoco.model_path, 'simulation_hz': cfg.mujoco.simulation_hz}
+        return ir.compose(*components, inputs=inputs, outputs=outputs), metadata
     else:
         raise ValueError(f"Invalid robot type: {cfg.type}")
-
-    return ir.compose(*components, inputs=inputs, outputs=outputs)
 
 
 def setup_interface(cfg: DictConfig):
@@ -123,23 +125,21 @@ def setup_interface(cfg: DictConfig):
         outputs['start_tracking'] = (teleop, 'start_tracking')
         outputs['stop_tracking'] = (teleop, 'stop_tracking')
         outputs['reset'] = None  # This ports exists, but not used
-        return ir.compose(*components, inputs=inputs, outputs=outputs)
+        return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'gui':
         width, height = cfg.mujoco.camera_width, cfg.mujoco.camera_height
-
-        episode_metadata = {
-            'mujoco_model_path': cfg.mujoco.model_path,
-            'simulation_hz': cfg.mujoco.simulation_hz,
-        }
-        # This system has all necessary ports
-        return DearpyguiUi(width, height, cfg.mujoco.camera_names, episode_metadata)
+        return DearpyguiUi(width, height, cfg.mujoco.camera_names), {}
     else:
         raise ValueError(f"Invalid control type: {cfg.type}")
 
 
 async def main_async(cfg: DictConfig):
-    control = setup_interface(cfg.control_ui)
-    hardware = setup_hardware(cfg.hardware)
+    metadata = {}
+    control, md = setup_interface(cfg.control_ui)
+    metadata.update(md)
+
+    hardware, md = setup_hardware(cfg.hardware)
+    metadata.update(md)
 
     control.bind(
         robot_grip=hardware.outs.grip,
@@ -168,7 +168,7 @@ async def main_async(cfg: DictConfig):
             grip=hardware.outs.grip if hardware.outs.grip else None
         )
 
-        data_dumper = DatasetDumper(cfg.data_output_dir)
+        data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=metadata)
         components.append(
             data_dumper.bind(
                 # TODO: Let user disable images, like in mujoco_gui

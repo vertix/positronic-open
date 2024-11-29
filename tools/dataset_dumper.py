@@ -82,9 +82,10 @@ class SerialDumper:
     input_ports=['image', 'start_episode', 'end_episode', 'target_grip', 'target_robot_position'],
     input_props=['robot_data'])
 class DatasetDumper(ir.ControlSystem):
-    def __init__(self,  directory: str):
+    def __init__(self,  directory: str, additional_metadata: dict = None):
         super().__init__()
         self.dumper = SerialDumper(directory)
+        self.additional_metadata = additional_metadata or {}
 
         self.tracked = False
         self.episode_start = None
@@ -106,6 +107,7 @@ class DatasetDumper(ir.ControlSystem):
         self.tracked = False
         metadata = {
             "episode_start": self.episode_start,
+            **self.additional_metadata,
             **message.data,
         }
         self.dumper.end_episode(metadata=metadata)

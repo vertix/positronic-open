@@ -61,12 +61,11 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.mvKey_LShift: 'up',
     }
 
-    def __init__(self, width, height, camera_names: Sequence[str], episode_metadata: dict = None):
+    def __init__(self, width, height, camera_names: Sequence[str]):
         super().__init__()
         self.width = width
         self.height = height
         self.camera_names = camera_names
-        self.episode_metadata = episode_metadata or {}
 
         self.ui_thread = threading.Thread(target=self.ui_thread_main, daemon=True)
         self.ui_stop_event = threading.Event()
@@ -140,7 +139,7 @@ class DearpyguiUi(ir.ControlSystem):
 
     async def _stop_recording(self):
         if self.recording:
-            await self.outs.stop_tracking.write(ir.Message(self.episode_metadata))
+            await self.outs.stop_tracking.write(ir.Message({}))
             self.recording = False
 
     async def _switch_recording(self):
@@ -301,11 +300,7 @@ async def _main(cfg: DictConfig):
         inverse_kinematics=inverse_kinematics,
     )
 
-    episode_metadata = {
-        'mujoco_model_path': cfg.mujoco.model_path,
-        'simulation_hz': cfg.mujoco.simulation_hz,
-    }
-    window = DearpyguiUi(width, height, cfg.mujoco.camera_names, episode_metadata)
+    window = DearpyguiUi(width, height, cfg.mujoco.camera_names)
 
     systems = [
         simulator.bind(
@@ -342,7 +337,11 @@ async def _main(cfg: DictConfig):
             actuator_values=simulator.outs.actuator_values,
         )
 
-        data_dumper = DatasetDumper(cfg.data_output_dir)
+        episode_metadata = {
+            'mujoco_model_path': cfg.mujoco.model_path,
+            'simulation_hz': cfg.mujoco.simulation_hz,
+        }
+        data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=episode_metadata)
         systems.append(
             data_dumper.bind(
                 image=ir.utils.map_port(discard_images, simulator.outs.images),
