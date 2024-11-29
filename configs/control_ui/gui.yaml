@@ -1,4 +1,4 @@
-control_ui: gui
+type: gui
 
 mujoco:
   # DO NOT SUBMIT!

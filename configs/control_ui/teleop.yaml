@@ -1,4 +1,4 @@
-control: teleop
+type: teleop
 
 webxr:
   port: 5005

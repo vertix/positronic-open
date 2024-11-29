@@ -101,7 +101,7 @@ def setup_hardware(cfg: DictConfig):
 
 
 def setup_interface(cfg: DictConfig):
-    if cfg.control_ui == 'teleop':
+    if cfg.type == 'teleop':
         components, inputs, outputs = [], {}, {}
         webxr = WebXR(port=cfg.webxr.port)
         components.append(webxr)
@@ -124,7 +124,7 @@ def setup_interface(cfg: DictConfig):
         outputs['stop_tracking'] = (teleop, 'stop_tracking')
         outputs['reset'] = None  # This ports exists, but not used
         return ir.compose(*components, inputs=inputs, outputs=outputs)
-    elif cfg.control_ui == 'gui':
+    elif cfg.type == 'gui':
         width, height = cfg.mujoco.camera_width, cfg.mujoco.camera_height
 
         episode_metadata = {
@@ -134,7 +134,7 @@ def setup_interface(cfg: DictConfig):
         # This system has all necessary ports
         return DearpyguiUi(width, height, cfg.mujoco.camera_names, episode_metadata)
     else:
-        raise ValueError(f"Invalid control type: {cfg.control_ui}")
+        raise ValueError(f"Invalid control type: {cfg.type}")
 
 
 async def main_async(cfg: DictConfig):
