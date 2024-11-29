@@ -98,17 +98,18 @@ class DatasetDumper(ir.ControlSystem):
     async def on_start_episode(self, message: ir.Message):
         self.tracked = True
         self.episode_start = message.timestamp
-        print(f"Episode {self.dumper.episode_count} started")
         self.dumper.start_episode()
+        print(f"Episode {self.dumper.episode_count} started")
 
     @ir.on_message('end_episode')
     async def on_end_episode(self, message: ir.Message):
         assert self.tracked, "end_episode without start_episode"
         self.tracked = False
+
         metadata = {
             "episode_start": self.episode_start,
             **self.additional_metadata,
-            **message.data,
+            **(message.data or {}),
         }
         self.dumper.end_episode(metadata=metadata)
         print(f"Episode {self.dumper.episode_count} ended")
