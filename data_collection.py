@@ -124,7 +124,7 @@ def setup_interface(cfg: DictConfig):
         outputs['gripper_target_grasp'] = (teleop, 'gripper_target_grasp')
         outputs['start_tracking'] = (teleop, 'start_tracking')
         outputs['stop_tracking'] = (teleop, 'stop_tracking')
-        outputs['reset'] = None  # This ports exists, but not used
+        outputs['reset'] = (teleop, 'stop_tracking')  # Reset robot when stop tracking
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'gui':
         width, height = cfg.mujoco.camera_width, cfg.mujoco.camera_height
