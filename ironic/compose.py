@@ -21,6 +21,19 @@ Example usage:
         inputs={'data': (processor, 'in_data')},
         outputs={'result': (processor, 'processed')}
     )
+
+    # Mappings can include None to skip certain ports:
+    system = compose(
+        components=[processor, sink],
+        inputs={
+            'data': (processor, 'in_data'),
+            'optional_input': None  # This input will be skipped during binding
+        },
+        outputs={
+            'result': (processor, 'processed'),
+            'optional_output': None  # This output will be skipped during connection
+        }
+    )
 """
 
 import asyncio
@@ -46,7 +59,7 @@ class ComposedSystem(ControlSystem):
 
         # Validate all referenced components exist in composition
         for mapping_type, mappings in [('Input', inputs), ('Output', outputs)]:
-            if mappings and any(comp not in components_set for comp, _ in mappings.values()):
+            if mappings and any(comp[0] not in components_set for comp in mappings.values() if comp is not None):
                 raise CompositionError(f"{mapping_type} mappings reference components not in composition")
 
         # Get input/output ports from mappings
@@ -65,7 +78,10 @@ class ComposedSystem(ControlSystem):
 
         # Connect outputs - direct assignment of OutputPort objects
         if outputs:
-            for name, (component, port_name) in outputs.items():
+            for name, binding in outputs.items():
+                if binding is None:
+                    continue
+                component, port_name = binding
                 try:
                     original_port = getattr(component.outs, port_name)
                 except AttributeError:
@@ -95,7 +111,10 @@ class ComposedSystem(ControlSystem):
             if name not in self._input_mappings:
                 raise ValueError(f"Unknown input: {name}")
 
-            component, port_name = self._input_mappings[name]
+            input_mapping = self._input_mappings[name]
+            if input_mapping is None:
+                continue
+            component, port_name = input_mapping
             component.bind(**{port_name: binding})
             binds[name] = binding
 
