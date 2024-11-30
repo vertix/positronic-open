@@ -1,4 +1,4 @@
-_target_: tools.inference.StateEncodingConfig
+_target_: inference.StateEncodingConfig
 resize: null
 state:
   - robot_position_translation
