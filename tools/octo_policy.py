@@ -41,31 +41,51 @@ class OctoPolicy:
         self.num_obs = 0
         self.act_history = deque(maxlen=self.action_horizon)
 
+    def _normalize_image(self, image: torch.Tensor, camera_key: str) -> torch.Tensor:
+        """Normalize image using dataset statistics.
+
+        Args:
+            image: [window_size, H, W, 3] RGB image
+            camera_key: Camera key (e.g. "image_primary", "image_wrist")
+
+        Returns:
+            Normalized image tensor [window_size, 3, H, W]
+        """
+        image = image.permute(0, 3, 1, 2).float() / 255.0
+        stats = self.model.dataset_statistics["bridge_dataset"][camera_key]
+        return (image - stats["mean"]) / stats["std"]
+
     def _internal_select_action(self, obs: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Process stacked observations and generate actions using the Octo model.
 
         Args:
             obs: Dictionary containing stacked observations with keys:
-                - image_primary: [window_size, H, W, 3] RGB images
-                - state: [window_size, 7] robot state vector containing:
-                    - xyz position (3)
-                    - rotation angles (3)
-                    - gripper state (1)
+                - image_primary: [window_size, H, W, 3] RGB primary camera images (optional if wrist present)
+                - image_wrist: [window_size, H, W, 3] RGB wrist camera images (optional if primary present)
+                - state: [window_size, 7] robot state vector
                 - timestep_pad_mask: [window_size] binary mask for valid timesteps
-
-        Returns:
-            actions: [sequence_length, action_dim] predicted action sequence
         """
         # Format observations for the model
         model_obs = {}
 
-        # Normalize image: scale to [0,1] and normalize using dataset statistics
-        image = obs["image_primary"].permute(0, 3, 1, 2).float() / 255.0
-        image_stats = self.model.dataset_statistics["bridge_dataset"]["image_primary"]
-        image = (image - image_stats["mean"]) / image_stats["std"]
-        model_obs["image_primary"] = image
+        # Track which image modalities are present
+        model_obs["pad_mask_dict"] = {}
 
-        # Normalize state using dataset statistics
+        # Handle primary camera if present
+        if "image_primary" in obs:
+            model_obs["image_primary"] = self._normalize_image(obs["image_primary"], "image_primary")
+            model_obs["pad_mask_dict"]["image_primary"] = True
+
+        # Handle wrist camera if present
+        if "image_wrist" in obs:
+            model_obs["image_wrist"] = self._normalize_image(obs["image_wrist"], "image_wrist")
+            model_obs["pad_mask_dict"]["image_wrist"] = True
+
+        # Ensure at least one camera is present
+        if not any(k.startswith("image_") for k in obs.keys()):
+            raise KeyError("At least one camera image (primary or wrist) must be provided")
+
+        # Normalize state
         state = obs["state"].float()
         state_stats = self.model.dataset_statistics["bridge_dataset"]["state"]
         state = (state - state_stats["mean"]) / state_stats["std"]
@@ -77,9 +97,9 @@ class OctoPolicy:
         with torch.no_grad():
             actions = self.model.sample_actions(
                 observations=model_obs,
-                tasks=self.task,  # Language instruction task created in constructor
-                rng=None,  # Deterministic sampling
-                argmax=True,  # Take most likely action
+                tasks=self.task,
+                rng=None,
+                argmax=True,
                 unnormalization_statistics=self.model.dataset_statistics["bridge_dataset"]["action"]
             )
 
@@ -120,10 +140,7 @@ class OctoPolicy:
 
         # Get predictions for current timestep
         curr_act_preds = torch.stack([
-            pred_actions[i] for i, pred_actions in zip(
-                range(num_actions-1, -1, -1),
-                self.act_history
-            )
+            pred_actions[i] for i, pred_actions in zip(range(num_actions-1, -1, -1), self.act_history)
         ])
 
         # Weight predictions (more recent predictions get exponentially less weight)
