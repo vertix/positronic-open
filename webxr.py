@@ -20,11 +20,11 @@ def run_server(data_queue, port, ssl_keyfile, ssl_certfile):
 
     @app.get("/")
     async def root():
-        return FileResponse("quest_tracking/static/index.html")
+        return FileResponse("assets/webxr/index.html")
 
     @app.get("/webxr-button.js")
     async def webxr_button():
-        return FileResponse("quest_tracking/static/webxr-button.js")
+        return FileResponse("assets/webxr/webxr-button.js")
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
