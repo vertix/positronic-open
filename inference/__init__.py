@@ -1,1 +1,2 @@
-from .inference import Inference, StateEncoder, ActionDecoder, StateEncodingConfig, ImageEncodingConfig
+from .inference import Inference, ActionDecoder
+from .state import StateEncoder, ImageEncodingConfig, StateEncodingConfig
