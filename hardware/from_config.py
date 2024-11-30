@@ -1,5 +1,5 @@
+from typing import Any, Callable
 from dataclasses import dataclass, field
-from typing import Any
 
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig
@@ -25,11 +25,14 @@ def sl_camera(cfg: DictConfig):
     camera = SLCamera(cfg.fps, view, resolution, **kwargs)
 
     if 'image_mapping' in cfg:
-        mapped = ir.utils.map_port(lambda frame: {new_k: frame[k] for k, new_k in cfg.image_mapping.items()},
-                                   camera.outs.frame)
-        camera.outs.frame = mapped  # TODO: Define if this is a good thing to do
+        def map_images(frame):
+            return {new_k: frame[k] for k, new_k in cfg.image_mapping.items()}
 
-    return camera
+        map_system = ir.utils.MapControlSystem(map_images)
+        map_system.bind(input=camera.outs.frame)
+        return ir.compose(camera, map_system, outputs={'frame': (map_system, 'output')})
+    else:
+        return camera
 
 
 def robot_setup(cfg: DictConfig):

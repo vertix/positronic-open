@@ -183,7 +183,6 @@ def ironic_system(*, input_ports: List[str] = None, output_ports: List[str] = No
                 UserWarning
             )
 
-
         # Verify output properties
         defined_props = {
             method.__output_property_name__
