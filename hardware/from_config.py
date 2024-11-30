@@ -22,7 +22,14 @@ def sl_camera(cfg: DictConfig):
     if 'depth_mask' in cfg:
         kwargs['depth_mask'] = cfg.depth_mask
 
-    return SLCamera(cfg.fps, view, resolution, **kwargs)
+    camera = SLCamera(cfg.fps, view, resolution, **kwargs)
+
+    if 'image_mapping' in cfg:
+        mapped = ir.utils.map_port(lambda frame: {new_k: frame[k] for k, new_k in cfg.image_mapping.items()},
+                                   camera.outs.frame)
+        camera.outs.frame = mapped  # TODO: Define if this is a good thing to do
+
+    return camera
 
 
 def robot_setup(cfg: DictConfig):

@@ -1,13 +1,17 @@
 _target_: inference.StateEncodingConfig
 images:
-  - key: left
+  - key: image.left
+    output_key: observation.images.left
     resize:
       - 352
       - 192
-  - key: right
+  - key: image.right
+    output_key: observation.images.right
     resize:
       - 352
       - 192
+
+state_output_key: observation.state
 state:
   - robot_position_translation
   - robot_position_quaternion

@@ -2,3 +2,7 @@ fps: 15
 view: SIDE_BY_SIDE
 resolution: VGA
 depth_mode: NONE
+
+image_mapping:
+  left: 'image.left'
+  right: 'image.right'

@@ -9,12 +9,13 @@ import torch.nn.functional as F
 @dataclass
 class ImageEncodingConfig:
     key: str = "image"
+    output_key: Optional[str] = None  # If not None, the encoding will have different key
     resize: Optional[List[int]] = None
 
 @dataclass
 class StateEncodingConfig:
     images: List[ImageEncodingConfig] = field(default_factory=list)
-    resize: Optional[List[int]] = None
+    state_output_key: str
     state: List[str] = field(default_factory=list)
 
 ConfigStore.instance().store(name="state", node=StateEncodingConfig)
@@ -25,29 +26,30 @@ class StateEncoder:
         self.cfg = cfg
 
     def encode_episode(self, episode_data):
+        """Encodes data for training (i.e. to_lerobot.py). Every episode is a dict of tensors."""
         obs = {}
         for cfg in self.cfg.images:
-            image = episode_data['image.' + cfg.key]
-            image = image.permute(0, 3, 2, 1)
+            image = episode_data[cfg.key]
+            image = image.permute(0, 3, 2, 1)  # BHWC -> BCWH
             if cfg.resize is not None:
-                # We use nearest because we mostly have downscaling
                 image = F.interpolate(image, size=tuple(cfg.resize), mode='nearest')
 
-            obs[f"observation.images.{cfg.key}"] = image.permute(0, 1, 3, 2)
+            output_key = cfg.output_key if cfg.output_key is not None else cfg.key
+            obs[output_key] = image.permute(0, 1, 3, 2)  # BCWH -> BCHW
 
-        obs['observation.state'] = torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k]
-                                              for k in self.cfg.state], dim=1)
+        obs[self.cfg.state_output_key] = torch.cat([episode_data[k].unsqueeze(1) if episode_data[k].dim() == 1 else episode_data[k]
+                                                    for k in self.cfg.state], dim=1)
         return obs
 
     def encode(self, images, inputs):
+        """Encodes data for inference."""
         obs = {}
-        for key in images:
-            side = key.split('_')[-1]
-            image = torch.tensor(images[key], dtype=torch.float32).permute(2, 1, 0).unsqueeze(0) / 255
-            if self.cfg.resize is not None:
-                # Bilinear might be better, but due to NaNs in depth, we use nearest
-                image = F.interpolate(image, size=tuple(self.cfg.resize), mode='nearest')
-            obs[f"observation.images.{side}"] = image.permute(0, 1, 3, 2)
+        for cfg in self.cfg.images:
+            image = torch.tensor(images[cfg.key], dtype=torch.float32).permute(2, 1, 0).unsqueeze(0) / 255
+            if cfg.resize is not None:
+                image = F.interpolate(image, size=tuple(cfg.resize), mode='nearest')
+            output_key = cfg.output_key if cfg.output_key is not None else cfg.key
+            obs[output_key] = image.permute(0, 1, 3, 2)
 
         data = {}
         for key in self.cfg.state:
@@ -56,5 +58,5 @@ class StateEncoder:
                 tensor = tensor.unsqueeze(0)
             data[key] = tensor
 
-        obs['observation.state'] = torch.cat([data[k] for k in self.cfg.state], dim=0).unsqueeze(0).type(torch.float32)
+        obs[self.cfg.state_output_key] = torch.cat([data[k] for k in self.cfg.state], dim=0).unsqueeze(0).type(torch.float32)
         return obs
