@@ -257,10 +257,14 @@ class ControlSystem:
         self.outs = SimpleNamespace(**outs)
         self.ins = None
 
+        self._setup_done = False
+
     def bind(self, **bindings):
         """Bind inputs to provided outputs of other systems. Must be called before calling setup.
 
         For convienice, returns self so result can be passed to other functions."""
+        assert not self._setup_done, "bind() must be called before setup()"
+
         if self.ins is None:
             self.ins = SimpleNamespace()
 
@@ -276,7 +280,7 @@ class ControlSystem:
 
     async def setup(self):
         """Setup the control system."""
-        pass
+        self._setup_done = True
 
     async def cleanup(self):
         """Cleanup the control system."""

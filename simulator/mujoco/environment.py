@@ -1,6 +1,6 @@
 from typing import Optional
 
-import hardware
+from hardware import RobotState
 from ironic.utils import Throttler
 import ironic as ir
 from geom import Transform3D
@@ -85,9 +85,9 @@ class MujocoSimulatorCS(ir.ControlSystem):
             await self.outs.images.write(ir.Message(images, self.ts))
 
     async def _init_position(self):
-        await self.outs.robot_state.write(ir.Message(hardware.RobotState.RESETTING, self.ts))
+        await self.outs.robot_state.write(ir.Message(RobotState.RESETTING, self.ts))
         self.simulator.reset()
-        await self.outs.robot_state.write(ir.Message(hardware.RobotState.AVAILABLE, self.ts))
+        await self.outs.robot_state.write(ir.Message(RobotState.AVAILABLE, self.ts))
 
     def _init_renderer(self):
         if self.renderer is not None:

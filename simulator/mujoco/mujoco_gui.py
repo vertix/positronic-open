@@ -11,7 +11,7 @@ import numpy as np
 from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
 
-import hardware
+from hardware import RobotState
 import ironic as ir
 from geom import Transform3D
 from ironic.utils import FPSCounter
@@ -209,15 +209,14 @@ class DearpyguiUi(ir.ControlSystem):
             for cam_name in self.camera_names:
                 try:
                     _set_image_uint8_to_float32(self.second_buffer[cam_name], images[cam_name])
-                except KeyError:
-                    print(f"Camera {cam_name} not found among {images.keys()}")
-                    raise
+                except KeyError as e:
+                    raise ValueError(f"Camera {cam_name} not found among {images.keys()}") from e
 
     @ir.on_message('robot_state')
     async def on_robot_state(self, message: ir.Message):
-        if message.data == hardware.RobotState.RESETTING and self.last_robot_state != hardware.RobotState.RESETTING:
+        if message.data == RobotState.RESETTING and self.last_robot_state != RobotState.RESETTING:
             await self._stop_recording()
-        elif message.data == hardware.RobotState.AVAILABLE and self.last_robot_state != hardware.RobotState.AVAILABLE:
+        elif message.data == RobotState.AVAILABLE and self.last_robot_state != RobotState.AVAILABLE:
             await self._reset_desired_action()
 
         self.last_robot_state = message.data

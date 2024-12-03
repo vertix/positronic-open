@@ -1,9 +1,6 @@
 type: gui
 
 mujoco:
-  # DO NOT SUBMIT!
-  model_path: 'assets/mujoco/mjx_single_cube.xml'
-  simulation_hz: 500
 
   camera_width: 352
   camera_height: 192

@@ -17,20 +17,15 @@ from geom import Transform3D
 )
 class Franka(ir.ControlSystem):
     def __init__(self, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
-                 realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Ignore):
+                 realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Ignore, collision_behavior = None,
+                 home_joints_config=None):
         super().__init__()
         self.robot = franky.Robot(ip, realtime_config=realtime_config)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
-        self.robot.set_collision_behavior(
-            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
-            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
-            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
-            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
-        )
+        if collision_behavior is not None:
+            self.robot.set_collision_behavior(collision_behavior)
+
+        self.home_joints_config = home_joints_config or [0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785]
 
         self._command_queue = deque()
         self._command_mutex = threading.Lock()
@@ -113,7 +108,7 @@ class Franka(ir.ControlSystem):
             self._main_loop.call_soon_threadsafe(lambda: start_reset_future.set_result(True))
 
             self.robot.join_motion()
-            motion = franky.JointWaypointMotion([franky.JointWaypoint([0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785])])
+            motion = franky.JointWaypointMotion([franky.JointWaypoint(self.home_joints_config)])
             self.robot.move(motion, asynchronous=False)
             if self.gripper:
                 self.gripper.homing()

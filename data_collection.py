@@ -1,105 +1,22 @@
 import asyncio
+from dataclasses import dataclass, field, MISSING
 import logging
 from typing import List
 
 import hydra
+from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig
 
-import hardware
+from hardware import from_config
+
 import ironic as ir
-from hardware import Franka, DHGripper
-from simulator.mujoco.environment import MujocoSimulatorCS
-from simulator.mujoco.sim import MujocoSimulator, MujocoRenderer, InverseKinematics
 from teleop import TeleopSystem
 from tools.dataset_dumper import DatasetDumper
 from webxr import WebXR
 from simulator.mujoco.mujoco_gui import DearpyguiUi
-import mujoco
 
 logging.basicConfig(level=logging.INFO,
                     handlers=[logging.StreamHandler()])
-
-
-def setup_hardware(cfg: DictConfig):
-    """Setup and returns control system with the following interface:
-    inputs:
-        target_position: Target position for the robot
-        target_grip: Target grip for the gripper
-    outputs:
-        robot_position: Current position of the robot
-        grip: Current gripper state
-        frame: Current camera frame
-    """
-    components, inputs, outputs = [], {}, {}
-    if cfg.type == 'physical':
-        franka = Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
-        components.append(franka)
-        outputs['robot_position'] = (franka, 'position')
-        outputs['joint_positions'] = (franka, 'joint_positions')
-        outputs['ext_force_base'] = (franka, 'ext_force_base')
-        outputs['ext_force_ee'] = (franka, 'ext_force_ee')
-        outputs['robot_state'] = (franka, 'state')
-        inputs['target_position'] = (franka, 'target_position')
-        inputs['reset'] = (franka, 'reset')
-
-        if 'dh_gripper' in cfg:
-            gripper = DHGripper(cfg.dh_gripper)
-            components.append(gripper)
-            outputs['grip'] = (gripper, 'grip')
-            inputs['target_grip'] = (gripper, 'target_grip')
-        else:
-            outputs['grip'] = (franka, 'grip')
-            inputs['target_grip'] = (franka, 'target_grip')
-
-        camera = hardware.from_config.sl_camera(cfg.camera)
-        components.append(camera)
-        outputs['frame'] = (camera, 'frame')
-        return ir.compose(*components, inputs=inputs, outputs=outputs), {}
-    elif cfg.type == 'mujoco':
-        model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
-        data = mujoco.MjData(model)
-
-        simulator = MujocoSimulator(
-            model=model,
-            data=data,
-            simulation_rate=1/cfg.mujoco.simulation_hz
-        )
-        renderer = MujocoRenderer(
-            model=model,
-            data=data,
-            camera_names=cfg.mujoco.camera_names,
-            render_resolution=(cfg.mujoco.camera_width, cfg.mujoco.camera_height)
-        )
-        inverse_kinematics = InverseKinematics(data=data)
-
-        simulator.reset()
-
-        # Create MujocoSimulatorCS
-        simulator_cs = MujocoSimulatorCS(
-            simulator=simulator,
-            simulation_rate=1/cfg.mujoco.simulation_hz,
-            render_rate=1/cfg.mujoco.observation_hz,
-            renderer=renderer,
-            inverse_kinematics=inverse_kinematics,
-        )
-        components.append(simulator_cs)
-
-        # Map the interface
-        inputs['target_position'] = (simulator_cs, 'robot_target_position')
-        inputs['target_grip'] = (simulator_cs, 'gripper_target_grasp')
-        inputs['reset'] = (simulator_cs, 'reset')
-        outputs['robot_position'] = (simulator_cs, 'robot_position')
-        outputs['joint_positions'] = (simulator_cs, 'actuator_values')
-        outputs['ext_force_base'] = (simulator_cs, 'ext_force_base')
-        outputs['ext_force_ee'] = (simulator_cs, 'ext_force_ee')
-        outputs['grip'] = (simulator_cs, 'grip')
-        outputs['frame'] = (simulator_cs, 'images')
-        outputs['robot_state'] = (simulator_cs, 'robot_state')
-
-        metadata = {'mujoco_model_path': cfg.mujoco.model_path, 'simulation_hz': cfg.mujoco.simulation_hz}
-        return ir.compose(*components, inputs=inputs, outputs=outputs), metadata
-    else:
-        raise ValueError(f"Invalid robot type: {cfg.type}")
 
 
 def setup_interface(cfg: DictConfig):
@@ -138,7 +55,7 @@ async def main_async(cfg: DictConfig):
     control, md = setup_interface(cfg.control_ui)
     metadata.update(md)
 
-    hardware, md = setup_hardware(cfg.hardware)
+    hardware, md = from_config.robot_setup(cfg.hardware)
     metadata.update(md)
 
     control.bind(
