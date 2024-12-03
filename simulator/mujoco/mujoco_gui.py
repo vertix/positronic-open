@@ -61,10 +61,10 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.mvKey_LShift: 'up',
     }
 
-    def __init__(self, width, height, camera_names: Sequence[str]):
+    def __init__(self, camera_names: Sequence[str]):
         super().__init__()
-        self.width = width
-        self.height = height
+        self.width = None
+        self.height = None
         self.camera_names = camera_names
 
         self.ui_thread = threading.Thread(target=self.ui_thread_main, daemon=True)
@@ -87,13 +87,9 @@ class DearpyguiUi(ir.ControlSystem):
             'down': False,
         }
 
-        self.raw_textures = {
-            cam_name: np.ones((self.height, self.width, 4), dtype=np.float32) for cam_name in self.camera_names
-        }
+        self.raw_textures = None
 
-        self.second_buffer = {
-            cam_name: np.zeros((self.height, self.width, 3), dtype=np.float32) for cam_name in self.camera_names
-        }
+        self.second_buffer = None
 
     async def update(self):
         self.move()
@@ -110,6 +106,11 @@ class DearpyguiUi(ir.ControlSystem):
 
         dpg.set_value("robot_position", f"Robot Translation: {robot_position.data.translation}\n"
                                     f"Robot Quaternion: {robot_position.data.quaternion}")
+        dpg.set_value("target",
+                        f"Target Position: {self.desired_action.position}\n"
+                        f"Target Quat: {self.desired_action.orientation}\n"
+                        f"Target Grip: {self.desired_action.grip}")
+
 
     def key_down(self, sender, app_data):
         key = app_data[0]
@@ -159,12 +160,6 @@ class DearpyguiUi(ir.ControlSystem):
 
         self.last_move_ts = ir.system_clock()
 
-        if self.desired_action is not None:
-            dpg.set_value("target",
-                          f"Target Position: {self.desired_action.position}\n"
-                          f"Target Quat: {self.desired_action.orientation}\n"
-                          f"Target Grip: {self.desired_action.grip}")
-
     def _configure_image_grid(self):
         n_images = len(self.camera_names)
         n_cols = int(np.ceil(np.sqrt(n_images)))
@@ -205,6 +200,19 @@ class DearpyguiUi(ir.ControlSystem):
     @ir.on_message('images')
     async def on_images(self, message: ir.Message):
         images = message.data
+        if self.width is None and self.height is None:
+            # TODO: Every image may have different size
+            self.width = images[self.camera_names[0]].shape[1]
+            self.height = images[self.camera_names[0]].shape[0]
+
+            self.raw_textures = {
+                cam_name: np.ones((self.height, self.width, 4), dtype=np.float32) for cam_name in self.camera_names
+            }
+
+            self.second_buffer = {
+                cam_name: np.zeros((self.height, self.width, 3), dtype=np.float32) for cam_name in self.camera_names
+            }
+
         with self.swap_buffer_lock:
             for cam_name in self.camera_names:
                 try:
@@ -231,6 +239,7 @@ class DearpyguiUi(ir.ControlSystem):
             self._configure_image_grid()
 
         with dpg.window(label="Info"):
+            print("Creating text fields")
             dpg.add_text("", tag="target")
             dpg.add_text("", tag="robot_position")
 
@@ -266,15 +275,20 @@ class DearpyguiUi(ir.ControlSystem):
             dpg.render_dearpygui_frame()
             fps_counter.tick()
 
-    async def setup(self):
-        self.ui_thread.start()
+        dpg.destroy_context()
 
     async def cleanup(self):
         self.ui_stop_event.set()
-        self.ui_thread.join()
-        dpg.destroy_context()
+        if self.ui_thread.is_alive():
+            self.ui_thread.join()
 
     async def step(self):
+        if self.width is not None and self.height is not None and not self.ui_thread.is_alive():
+            self.ui_thread.start()
+
+        if self.width is None or self.height is None:
+            return ir.State.ALIVE
+
         await self.update()
         return ir.State.ALIVE if self.ui_thread.is_alive() else ir.State.FINISHED
 

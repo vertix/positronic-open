@@ -44,8 +44,7 @@ def setup_interface(cfg: DictConfig):
         outputs['reset'] = (teleop, 'stop_tracking')  # Reset robot when stop tracking
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'gui':
-        width, height = cfg.mujoco.camera_width, cfg.mujoco.camera_height
-        return DearpyguiUi(width, height, cfg.mujoco.camera_names), {}
+        return DearpyguiUi(cfg.mujoco.camera_names), {}
     else:
         raise ValueError(f"Invalid control type: {cfg.type}")
 

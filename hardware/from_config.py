@@ -67,7 +67,8 @@ def robot_setup(cfg: DictConfig):
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'mujoco':
         import mujoco
-        from simulator.mujoco.sim import MujocoSimulator, MujocoSimulatorCS, MujocoRenderer, InverseKinematics
+        from simulator.mujoco.sim import MujocoSimulator, MujocoRenderer, InverseKinematics
+        from simulator.mujoco.environment import MujocoSimulatorCS
 
         model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
         data = mujoco.MjData(model)

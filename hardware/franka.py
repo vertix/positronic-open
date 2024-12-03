@@ -156,7 +156,7 @@ class Franka(ir.ControlSystem):
     @ir.out_property
     async def grip(self):
         return ir.Message(
-            data=self._gripper_grasped if self.gripper else None,
+            data=self._gripper_grasped if self.gripper else 0.0,
             timestamp=ir.system_clock()
         )
 
