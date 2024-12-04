@@ -21,11 +21,7 @@ from tools.dataset_dumper import DatasetDumper
 
 
 def _set_image_uint8_to_float32(target, source):
-    if target.shape != source.shape:
-        resized = cv2.resize(source, (target.shape[1], target.shape[0]))
-        target[:] = resized
-    else:
-        target[:] = source
+    target[:] = source
     target[:] /= 255
 
 
