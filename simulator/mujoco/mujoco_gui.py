@@ -89,7 +89,6 @@ class DearpyguiUi(ir.ControlSystem):
         self.width = None
         self.height = None
         self.camera_names = camera_names
-        self.episode_metadata = episode_metadata or {}
 
         self.ui_thread = threading.Thread(target=self.ui_thread_main, daemon=True)
         self.ui_stop_event = threading.Event()
@@ -136,9 +135,10 @@ class DearpyguiUi(ir.ControlSystem):
                         f"Target Quat: {self.desired_action.orientation}\n"
                         f"Target Grip: {self.desired_action.grip}")
 
-        actuator_values = await self.ins.actuator_values()
-        values_str = "[" + ", ".join(map(lambda x: f"{x:.4f}", actuator_values.data)) + "]"
-        dpg.set_value("actuator_values", values_str)
+        if self.actuator_values_enabled:
+            actuator_values = await self.ins.actuator_values()
+            values_str = "[" + ", ".join(map(lambda x: f"{x:.4f}", actuator_values.data)) + "]"
+            dpg.set_value("actuator_values", values_str)
 
 
     def key_down(self, sender, app_data):
@@ -270,7 +270,8 @@ class DearpyguiUi(ir.ControlSystem):
         with dpg.window(label="Info"):
             dpg.add_text("", tag="target")
             dpg.add_text("", tag="robot_position")
-            dpg.add_input_text(label="actuator_values", tag="actuator_values", auto_select_all=True)
+            if self.actuator_values_enabled:
+                dpg.add_input_text(label="actuator_values", tag="actuator_values", auto_select_all=True)
 
         def reset_callback():
             self.loop.create_task(self.outs.reset.write(ir.Message(True)))
@@ -304,7 +305,9 @@ class DearpyguiUi(ir.ControlSystem):
             dpg.render_dearpygui_frame()
             fps_counter.tick()
 
-        dpg.destroy_context()
+    async def setup(self):
+        # TODO: Do we need a common way to check if a port was bound?
+        self.actuator_values_enabled = hasattr(self.ins, "actuator_values")
 
     async def cleanup(self):
         self.ui_stop_event.set()
@@ -344,7 +347,7 @@ async def _main(cfg: DictConfig):
         inverse_kinematics=inverse_kinematics,
     )
 
-    window = DearpyguiUi(width, height, cfg.mujoco.camera_names)
+    window = DearpyguiUi(cfg.mujoco.camera_names)
 
     systems = [
         simulator.bind(
