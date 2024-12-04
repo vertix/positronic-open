@@ -4,7 +4,6 @@ import time
 
 from dataclasses import dataclass
 from typing import Sequence
-import cv2
 import hydra
 import mujoco
 import numpy as np
