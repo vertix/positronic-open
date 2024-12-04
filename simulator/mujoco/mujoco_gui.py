@@ -10,6 +10,7 @@ import numpy as np
 from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
 
+from hardware import RobotState
 import ironic as ir
 from geom import Transform3D
 from ironic.utils import FPSCounter
@@ -30,10 +31,9 @@ class DesiredAction:
     grip: float
 
 
-
 @ir.ironic_system(
-    input_ports=["images"],
-    input_props=["robot_position"],
+    input_ports=["images", "robot_state"],
+    input_props=["robot_position", "robot_grip"],
     output_ports=["start_tracking", "stop_tracking", "gripper_target_grasp", "robot_target_position", "reset"],
 )
 class DearpyguiUi(ir.ControlSystem):
@@ -56,24 +56,20 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.mvKey_LShift: 'up',
     }
 
-    def __init__(self, width, height, camera_names: Sequence[str], episode_metadata: dict = None, initial_position: Transform3D = None):
+    def __init__(self, camera_names: Sequence[str]):
         super().__init__()
-        self.width = width
-        self.height = height
+        self.width = None
+        self.height = None
         self.camera_names = camera_names
-        self.episode_metadata = episode_metadata or {}
 
         self.ui_thread = threading.Thread(target=self.ui_thread_main, daemon=True)
         self.ui_stop_event = threading.Event()
         self.swap_buffer_lock = threading.Lock()
         self.loop = asyncio.get_running_loop()
 
-        self.initial_position = DesiredAction(
-            position=initial_position.translation.copy(),
-            orientation=initial_position.quaternion.copy(),
-            grip=0.0
-        )
-        self._reset_desired_action()
+        self.desired_action = None
+        self.last_robot_state = None
+
         self.recording = False
         self.last_move_ts = None
 
@@ -86,26 +82,17 @@ class DearpyguiUi(ir.ControlSystem):
             'down': False,
         }
 
-        self.raw_textures = {
-            cam_name: np.ones((self.height, self.width, 4), dtype=np.float32) for cam_name in self.camera_names
-        }
+        self.raw_textures = None
 
-        self.second_buffer = {
-            cam_name: np.zeros((self.height, self.width, 3), dtype=np.float32) for cam_name in self.camera_names
-        }
-
-    def _reset_desired_action(self):
-        self.desired_action = DesiredAction(
-            position=self.initial_position.position.copy(),
-            orientation=self.initial_position.orientation.copy(),
-            grip=self.initial_position.grip,
-        )
+        self.second_buffer = None
 
     async def update(self):
         self.move()
 
-        target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
+        if self.desired_action is None:
+            await self._reset_desired_action()
 
+        target_pos = Transform3D(self.desired_action.position, self.desired_action.orientation)
         _, _, robot_position = await asyncio.gather(
             self.outs.gripper_target_grasp.write(ir.Message(self.desired_action.grip)),
             self.outs.robot_target_position.write(ir.Message(target_pos)),
@@ -113,7 +100,12 @@ class DearpyguiUi(ir.ControlSystem):
         )
 
         dpg.set_value("robot_position", f"Robot Translation: {robot_position.data.translation}\n"
-                                      f"Robot Quaternion: {robot_position.data.quaternion}")
+                                    f"Robot Quaternion: {robot_position.data.quaternion}")
+        dpg.set_value("target",
+                        f"Target Position: {self.desired_action.position}\n"
+                        f"Target Quat: {self.desired_action.orientation}\n"
+                        f"Target Grip: {self.desired_action.grip}")
+
 
     def key_down(self, sender, app_data):
         key = app_data[0]
@@ -133,15 +125,25 @@ class DearpyguiUi(ir.ControlSystem):
     def switch_recording(self):
         self.loop.create_task(self._switch_recording())
 
+    async def _reset_desired_action(self):
+        pos_msg, grip_msg = await asyncio.gather(self.ins.robot_position(), self.ins.robot_grip())
+        self.desired_action = DesiredAction(
+            position=pos_msg.data.translation.copy(),
+            orientation=pos_msg.data.quaternion.copy(),
+            grip=grip_msg.data
+        )
+
+    async def _stop_recording(self):
+        if self.recording:
+            await self.outs.stop_tracking.write(ir.Message({}))
+            self.recording = False
+
     async def _switch_recording(self):
         if self.recording:
-            await self.outs.stop_tracking.write(ir.Message(self.episode_metadata))
+            await self._stop_recording()
         else:
-            await self.outs.reset.write(ir.Message(True))
-            self._reset_desired_action()
             await self.outs.start_tracking.write(ir.Message(True))
-
-        self.recording = not self.recording
+            self.recording = True
 
     def move(self):
         time_since_last_move = ir.system_clock() - self.last_move_ts if self.last_move_ts is not None else 0
@@ -152,11 +154,6 @@ class DearpyguiUi(ir.ControlSystem):
                 self.desired_action.position += vector * time_since_last_move
 
         self.last_move_ts = ir.system_clock()
-
-        dpg.set_value("target",
-                      f"Target Position: {self.desired_action.position}\n"
-                      f"Target Quat: {self.desired_action.orientation}\n"
-                      f"Target Grip: {self.desired_action.grip}")
 
     def _configure_image_grid(self):
         n_images = len(self.camera_names)
@@ -198,9 +195,34 @@ class DearpyguiUi(ir.ControlSystem):
     @ir.on_message('images')
     async def on_images(self, message: ir.Message):
         images = message.data
+        if self.width is None and self.height is None:
+            # TODO: Every image may have different size
+            self.width = images[self.camera_names[0]].shape[1]
+            self.height = images[self.camera_names[0]].shape[0]
+
+            self.raw_textures = {
+                cam_name: np.ones((self.height, self.width, 4), dtype=np.float32) for cam_name in self.camera_names
+            }
+
+            self.second_buffer = {
+                cam_name: np.zeros((self.height, self.width, 3), dtype=np.float32) for cam_name in self.camera_names
+            }
+
         with self.swap_buffer_lock:
             for cam_name in self.camera_names:
-                _set_image_uint8_to_float32(self.second_buffer[cam_name], images[cam_name])
+                try:
+                    _set_image_uint8_to_float32(self.second_buffer[cam_name], images[cam_name])
+                except KeyError as e:
+                    raise ValueError(f"Camera {cam_name} not found among {images.keys()}") from e
+
+    @ir.on_message('robot_state')
+    async def on_robot_state(self, message: ir.Message):
+        if message.data == RobotState.RESETTING and self.last_robot_state != RobotState.RESETTING:
+            await self._stop_recording()
+        elif message.data == RobotState.AVAILABLE and self.last_robot_state != RobotState.AVAILABLE:
+            await self._reset_desired_action()
+
+        self.last_robot_state = message.data
 
     def ui_thread_main(self):
         dpg.create_context()
@@ -212,14 +234,19 @@ class DearpyguiUi(ir.ControlSystem):
             self._configure_image_grid()
 
         with dpg.window(label="Info"):
+            print("Creating text fields")
             dpg.add_text("", tag="target")
             dpg.add_text("", tag="robot_position")
+
+        def reset_callback():
+            self.loop.create_task(self.outs.reset.write(ir.Message(True)))
 
         with dpg.handler_registry():
             dpg.add_key_down_handler(callback=self.key_down)
             dpg.add_key_release_handler(callback=self.key_release)
             dpg.add_key_press_handler(key=dpg.mvKey_G, callback=self.grab)
             dpg.add_key_press_handler(key=dpg.mvKey_R, callback=self.switch_recording)
+            dpg.add_key_press_handler(key=dpg.mvKey_Spacebar, callback=reset_callback)
 
         with dpg.item_handler_registry(tag="adjust_images"):
             dpg.add_item_resize_handler(callback=self._configure_image_sizes)
@@ -243,15 +270,20 @@ class DearpyguiUi(ir.ControlSystem):
             dpg.render_dearpygui_frame()
             fps_counter.tick()
 
-    async def setup(self):
-        self.ui_thread.start()
+        dpg.destroy_context()
 
     async def cleanup(self):
         self.ui_stop_event.set()
-        self.ui_thread.join()
-        dpg.destroy_context()
+        if self.ui_thread.is_alive():
+            self.ui_thread.join()
 
     async def step(self):
+        if self.width is not None and self.height is not None and not self.ui_thread.is_alive():
+            self.ui_thread.start()
+
+        if self.width is None or self.height is None:
+            return ir.State.ALIVE
+
         await self.update()
         return ir.State.ALIVE if self.ui_thread.is_alive() else ir.State.FINISHED
 
@@ -267,9 +299,6 @@ async def _main(cfg: DictConfig):
     renderer = MujocoRenderer(model=model, data=data, render_resolution=(width, height), camera_names=cfg.mujoco.camera_names)
     inverse_kinematics = InverseKinematics(data=data)
 
-    simulator.reset()
-    initial_position = simulator.initial_position
-
     # systems
     simulator = MujocoSimulatorCS(
         simulator=simulator,
@@ -279,11 +308,7 @@ async def _main(cfg: DictConfig):
         inverse_kinematics=inverse_kinematics,
     )
 
-    episode_metadata = {
-        'mujoco_model_path': cfg.mujoco.model_path,
-        'simulation_hz': cfg.mujoco.simulation_hz,
-    }
-    window = DearpyguiUi(width, height, cfg.mujoco.camera_names, episode_metadata, initial_position)
+    window = DearpyguiUi(width, height, cfg.mujoco.camera_names)
 
     systems = [
         simulator.bind(
@@ -294,6 +319,7 @@ async def _main(cfg: DictConfig):
         window.bind(
             images=simulator.outs.images,
             robot_position=simulator.outs.robot_position,
+            robot_grip=simulator.outs.grip
         ),
     ]
 
@@ -319,7 +345,11 @@ async def _main(cfg: DictConfig):
             actuator_values=simulator.outs.actuator_values,
         )
 
-        data_dumper = DatasetDumper(cfg.data_output_dir)
+        episode_metadata = {
+            'mujoco_model_path': cfg.mujoco.model_path,
+            'simulation_hz': cfg.mujoco.simulation_hz,
+        }
+        data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=episode_metadata)
         systems.append(
             data_dumper.bind(
                 image=ir.utils.map_port(discard_images, simulator.outs.images),
@@ -336,7 +366,7 @@ async def _main(cfg: DictConfig):
     await ir.utils.run_gracefully(composed)
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="mujoco_gui")
+@hydra.main(version_base=None, config_path="../../configs", config_name="mujoco_gui")
 def main(cfg: DictConfig):
     asyncio.run(_main(cfg))
 

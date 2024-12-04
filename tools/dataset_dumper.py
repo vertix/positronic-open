@@ -82,9 +82,10 @@ class SerialDumper:
     input_ports=['image', 'start_episode', 'end_episode', 'target_grip', 'target_robot_position'],
     input_props=['robot_data'])
 class DatasetDumper(ir.ControlSystem):
-    def __init__(self,  directory: str):
+    def __init__(self,  directory: str, additional_metadata: dict = None):
         super().__init__()
         self.dumper = SerialDumper(directory)
+        self.additional_metadata = additional_metadata or {}
 
         self.tracked = False
         self.episode_start = None
@@ -97,16 +98,18 @@ class DatasetDumper(ir.ControlSystem):
     async def on_start_episode(self, message: ir.Message):
         self.tracked = True
         self.episode_start = message.timestamp
-        print(f"Episode {self.dumper.episode_count} started")
         self.dumper.start_episode()
+        print(f"Episode {self.dumper.episode_count} started")
 
     @ir.on_message('end_episode')
     async def on_end_episode(self, message: ir.Message):
         assert self.tracked, "end_episode without start_episode"
         self.tracked = False
+
         metadata = {
             "episode_start": self.episode_start,
-            **message.data,
+            **self.additional_metadata,
+            **(message.data or {}),
         }
         self.dumper.end_episode(metadata=metadata)
         print(f"Episode {self.dumper.episode_count} ended")

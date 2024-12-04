@@ -1,5 +1,6 @@
 from typing import Optional
 
+from hardware import RobotState
 from ironic.utils import Throttler
 import ironic as ir
 from geom import Transform3D
@@ -8,14 +9,14 @@ from simulator.mujoco.sim import InverseKinematics, MujocoRenderer, MujocoSimula
 
 @ir.ironic_system(
     input_ports=["actuator_values", "gripper_target_grasp", "reset", "robot_target_position"],
-    output_ports=["images"],
+    output_ports=["images", "robot_state"],
     output_props=[
         "robot_position",
         "grip",
         "joints",
         "ext_force_ee",
         "ext_force_base",
-        "actuator_values",
+        "actuator_values"
     ])
 class MujocoSimulatorCS(ir.ControlSystem):
     def __init__(
@@ -83,8 +84,10 @@ class MujocoSimulatorCS(ir.ControlSystem):
             images = self.renderer.render_frames()
             await self.outs.images.write(ir.Message(images, self.ts))
 
-    def _init_position(self):
+    async def _init_position(self):
+        await self.outs.robot_state.write(ir.Message(RobotState.RESETTING, self.ts))
         self.simulator.reset()
+        await self.outs.robot_state.write(ir.Message(RobotState.AVAILABLE, self.ts))
 
     def _init_renderer(self):
         if self.renderer is not None:
@@ -92,7 +95,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
 
     @ir.on_message('reset')
     async def on_reset(self, _message: ir.Message):
-        self._init_position()
+        await self._init_position()
 
     @ir.on_message('gripper_target_grasp')
     async def on_gripper_target_grasp(self, message: ir.Message):
@@ -110,7 +113,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
         self.simulator.set_actuator_values(message.data)
 
     async def setup(self):
-        self._init_position()
+        await self._init_position()
         self._init_renderer()
 
     async def step(self):

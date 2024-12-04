@@ -1,32 +1,37 @@
+import asyncio
+from collections import deque
+import threading
 import time
 from typing import Optional
 
 import franky
 import ironic as ir
+from .state import RobotState
 from geom import Transform3D
 
 
 @ir.ironic_system(
-    input_ports=['target_position', 'gripper_grasped'],
-    output_props=['position', 'gripper_grasped', 'joint_positions', 'ext_force_base', 'ext_force_ee']
+    input_ports=['target_position', 'target_grip', 'reset'],
+    output_ports=['state'],
+    output_props=['position', 'grip', 'joint_positions', 'ext_force_base', 'ext_force_ee']
 )
 class Franka(ir.ControlSystem):
     def __init__(self, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
-                 realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Ignore):
+                 realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Ignore, collision_behavior = None,
+                 home_joints_config=None):
         super().__init__()
         self.robot = franky.Robot(ip, realtime_config=realtime_config)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
-        self.robot.set_collision_behavior(
-            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
-            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
-            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-            [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
-            [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
-        )
-        self.target_fps = ir.utils.FPSCounter("Franka target position")
+        if collision_behavior is not None:
+            self.robot.set_collision_behavior(collision_behavior)
+
+        self.home_joints_config = home_joints_config or [0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785]
+
+        self._command_queue = deque()
+        self._command_mutex = threading.Lock()
+        self._motion_exit_event = threading.Event()
+        self._motion_thread = threading.Thread(target=self._motion_thread, daemon=True)
+        self._main_loop = asyncio.get_running_loop()
 
         try:
             self.gripper = franky.Gripper(ip)
@@ -39,40 +44,90 @@ class Franka(ir.ControlSystem):
             self._gripper_grasped = None
 
     async def setup(self):
-        self.robot.recover_from_errors()
-        self.robot.move(franky.JointWaypointMotion([
-            franky.JointWaypoint([0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785])
-        ]))
-
-        if self.gripper:
-            self.gripper.homing()
-            self._gripper_grasped = False
+        self._motion_thread.start()
+        await self.handle_reset(ir.Message(True))
 
     async def cleanup(self):
         print("Franka stopping")
+        self._motion_exit_event.set()
+        self._motion_thread.join()
         self.robot.stop()
         if self.gripper:
             self.gripper.open(self.gripper_speed)
         print("Franka stopped")
 
+    def _motion_thread(self):
+        fps = ir.utils.FPSCounter("Franka motion")
+
+        while not self._motion_exit_event.is_set():
+            motion = None
+            with self._command_mutex:
+                if self._command_queue:
+                    motion, _ = self._command_queue.popleft()
+
+            if motion:
+                motion()
+                fps.tick()
+            else:
+                time.sleep(0.01)  # Avoid busy-waiting
+                continue
+
+    def _submit_motion(self, motion: franky.Motion, asynchronous: bool = True):
+        # There's only one async motion at a time in the queue, and any number of blocking motions
+        # If motion is async, we delete existing async motion (keeping blocking motions), and put the new in the end of the queue
+        # If motion is not async, we just add it to the end
+        with self._command_mutex:
+            if asynchronous:
+                self._command_queue = deque([(m, a) for m, a in self._command_queue if not a])
+                self._command_queue.append((motion, asynchronous))
+            else:
+                self._command_queue.append((motion, asynchronous))
+
     @ir.on_message('target_position')
     async def handle_target_position(self, message: ir.Message):
-        try:
-            pos = franky.Affine(
-                translation=message.data.translation,
-                quaternion=message.data.quaternion
-            )
-            self.robot.move(
-                franky.CartesianMotion(pos, franky.ReferenceType.Absolute),
-                asynchronous=True
-            )
-            self.target_fps.tick()
-        except franky.ControlException as e:
-            self.robot.recover_from_errors()
-            print(f"IK failed for {message.data}: {e}")
+        pos = franky.Affine(translation=message.data.translation, quaternion=message.data.quaternion)
+        motion = franky.CartesianMotion(pos, franky.ReferenceType.Absolute)
 
-    @ir.on_message('gripper_grasped')
-    async def handle_gripper_grasped(self, message: ir.Message):
+        def internal_motion():
+            try:
+                self.robot.move(motion, asynchronous=True)
+            except franky.ControlException as e:
+                self.robot.recover_from_errors()
+                print(f"IK failed for {message.data}: {e}")
+
+        self._submit_motion(internal_motion, asynchronous=True)
+
+    @ir.on_message('reset')
+    async def handle_reset(self, message: ir.Message):
+        """Commands the robot to start moving to the home position."""
+        start_reset_future = self._main_loop.create_future()
+        reset_done_future = self._main_loop.create_future()
+
+        def _internal_reset():
+            # Signal we're starting the reset
+            self._main_loop.call_soon_threadsafe(lambda: start_reset_future.set_result(True))
+
+            self.robot.join_motion()
+            motion = franky.JointWaypointMotion([franky.JointWaypoint(self.home_joints_config)])
+            self.robot.move(motion, asynchronous=False)
+            if self.gripper:
+                self.gripper.homing()
+                self._gripper_grasped = False
+
+            self._main_loop.call_soon_threadsafe(lambda: reset_done_future.set_result(True))
+
+        async def handle_state_transitions():
+            await start_reset_future
+            await self.outs.state.write(ir.Message(RobotState.RESETTING, ir.system_clock()))
+
+            await reset_done_future
+            await self.outs.state.write(ir.Message(RobotState.AVAILABLE, ir.system_clock()))
+
+        self._main_loop.create_task(handle_state_transitions())
+        self._submit_motion(_internal_reset, asynchronous=False)
+
+    @ir.on_message('target_grip')
+    async def handle_target_grip(self, message: ir.Message):
         if self._gripper_grasped:
             if message.data < 0.33:
                 self.gripper.open(self.gripper_speed)
@@ -99,9 +154,9 @@ class Franka(ir.ControlSystem):
         return ir.Message(data=self.robot.current_joint_state.position)
 
     @ir.out_property
-    async def gripper_grasped(self):
+    async def grip(self):
         return ir.Message(
-            data=self._gripper_grasped if self.gripper else None,
+            data=self._gripper_grasped if self.gripper else 0.0,
             timestamp=ir.system_clock()
         )
 
@@ -119,9 +174,11 @@ class Franka(ir.ControlSystem):
             timestamp=ir.system_clock()
         )
 
+    async def step(self) -> ir.State:
+        return await super().step()
+
 
 if __name__ == "__main__":
-    import asyncio
     import numpy as np
 
     async def _main():

@@ -2,9 +2,6 @@ import franky
 import hydra
 from omegaconf import DictConfig
 
-from control.world import MainThreadWorld
-from hardware.franka import Franka
-
 @hydra.main(version_base=None, config_path=".", config_name="trajectory")
 def main(cfg: DictConfig):
     robot = franky.Robot(cfg.ip, realtime_config=franky.RealtimeConfig.Ignore)

@@ -1,9 +1,107 @@
 import asyncio
+from collections import namedtuple
 import time
 import signal
 from typing import Any, Callable, Optional
 
-from ironic.system import ControlSystem, Message, OutputPort, State
+from ironic.system import ControlSystem, Message, OutputPort, State, ironic_system
+
+Change = namedtuple('Change', ['prev', 'current'])
+
+
+# TODO: Write tests for this and control system
+class PropertyChangeDetector:
+    """Detects changes in property values and reports them as Change objects.
+
+    This utility class monitors a property for changes in its value and reports them
+    along with the previous value when a change is detected. The first call will always
+    report a change.
+
+    Args:
+        input_prop (Callable[[], Message]): An async callable that returns a Message
+            containing the property value to monitor.
+
+    Attributes:
+        last_input: The previous value of the monitored property
+        initialized (bool): Whether the detector has received its first value
+
+    Example:
+        ```python
+        async def temperature_prop():
+            return Message(data=get_temperature(), timestamp=time.time_ns())
+
+        detector = PropertyChangeDetector(temperature_prop)
+
+        # Will return a Change object on first call
+        change = await detector.get_change()  # Change(prev=None, current=20.5)
+
+        # Will return None if temperature hasn't changed
+        change = await detector.get_change()  # None
+
+        # Will return a Change object when temperature changes
+        change = await detector.get_change()  # Change(prev=20.5, current=21.0)
+        ```
+    """
+    def __init__(self, input_prop: Callable[[], Message]):
+        self.input_prop = input_prop
+        self.last_input = None
+        self.initialized = False
+
+    async def get_change(self):
+        input_message = await self.input_prop()
+        if input_message.data != self.last_input or not self.initialized:
+            self.last_input = input_message.data
+            self.initialized = True
+            return Message(Change(self.last_input, input_message.data), input_message.timestamp)
+        return None
+
+
+@ironic_system(input_props=["input"], output_ports=["output"])
+class PropertyChangeDetectorSystem(ControlSystem):
+    """A control system that monitors a property for changes and emits change events.
+
+    This system wraps a PropertyChangeDetector and integrates it into the control system
+    framework. It continuously monitors an input property and emits Change objects through
+    its output port whenever the input value changes.
+
+    Input Properties:
+        input: The property to monitor for changes
+
+    Output Ports:
+        output: Emits Message objects containing Change(prev, current) namedtuples
+            when the input property value changes
+
+    Example:
+        ```python
+        # Create and set up a change detector system
+        detector_system = PropertyChangeDetectorSystem()
+
+        # Connect it to a temperature sensor system
+        detector_system.bind(
+            input=temperature_sensor.outs.temperature
+        )
+
+        # Subscribe to change events
+        async def on_temperature_change(message):
+            change = message.data  # Change(prev=20.5, current=21.0)
+            print(f"Temperature changed from {change.prev}°C to {change.current}°C")
+
+        detector_system.outs.output.subscribe(on_temperature_change)
+
+        # Run the system
+        await run_gracefully(detector_system, temperature_sensor)
+        ```
+    """
+    def __init__(self):
+        super().__init__()
+        self._detector = PropertyChangeDetector()
+
+    async def step(self):
+        change = await self._detector.get_change()
+        if change is not None:
+            await self.outs.output.write(change)
+        return State.ALIVE
+
 
 class FPSCounter:
     """Utility class for tracking and reporting frames per second (FPS).

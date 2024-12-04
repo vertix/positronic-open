@@ -10,7 +10,6 @@ import yappi
 import hardware
 import ironic as ir
 from geom import Quaternion, Transform3D
-from hardware import Franka, DHGripper
 from tools.dataset_dumper import DatasetDumper
 from webxr import WebXR
 
@@ -96,6 +95,9 @@ def main(cfg: DictConfig):
 
 
 async def main_async(cfg: DictConfig):
+    from hardware.franka import Franka
+    from hardware.dhgrp import DHGripper
+
     webxr = WebXR(port=cfg.webxr.port)
     franka = Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
     teleop = TeleopSystem()
