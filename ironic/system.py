@@ -259,6 +259,21 @@ class ControlSystem:
 
         self._setup_done = False
 
+    def is_bound(self, input_name: str) -> bool:
+        """
+        Check if the input has been bound to an output.
+
+        Args:
+            input_name: (str) The name of the input to check
+
+        Returns:
+            (bool) True if the input has been bound to an output, False otherwise
+        """
+        if self.ins is None:
+            return False
+
+        return hasattr(self.ins, input_name)
+
     def bind(self, **bindings):
         """Bind inputs to provided outputs of other systems. Must be called before calling setup.
 

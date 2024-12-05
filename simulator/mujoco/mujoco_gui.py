@@ -135,7 +135,7 @@ class DearpyguiUi(ir.ControlSystem):
                         f"Target Quat: {self.desired_action.orientation}\n"
                         f"Target Grip: {self.desired_action.grip}")
 
-        if self.actuator_values_enabled:
+        if self.is_bound('actuator_values'):
             actuator_values = await self.ins.actuator_values()
             values_str = "[" + ", ".join(map(lambda x: f"{x:.4f}", actuator_values.data)) + "]"
             dpg.set_value("actuator_values", values_str)
@@ -270,7 +270,7 @@ class DearpyguiUi(ir.ControlSystem):
         with dpg.window(label="Info"):
             dpg.add_text("", tag="target")
             dpg.add_text("", tag="robot_position")
-            if self.actuator_values_enabled:
+            if self.is_bound('actuator_values'):
                 dpg.add_input_text(label="actuator_values", tag="actuator_values", auto_select_all=True)
 
         def reset_callback():
@@ -304,10 +304,6 @@ class DearpyguiUi(ir.ControlSystem):
 
             dpg.render_dearpygui_frame()
             fps_counter.tick()
-
-    async def setup(self):
-        # TODO: Do we need a common way to check if a port was bound?
-        self.actuator_values_enabled = hasattr(self.ins, "actuator_values")
 
     async def cleanup(self):
         self.ui_stop_event.set()

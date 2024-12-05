@@ -129,3 +129,16 @@ async def test_property_binding():
     value, ts = await system2.ins.multiplier()
     assert value == 20
     assert ts == 123
+
+
+def test_is_bound_returns_false_before_bind():
+    system = MockSystem()
+
+    assert not system.is_bound('sensor')
+
+
+def test_is_bound_returns_true_after_bind():
+    system = MockSystem()
+    system2 = MockSystem()
+    system.bind(sensor=system2.outs.processed)
+    assert system.is_bound('sensor')
