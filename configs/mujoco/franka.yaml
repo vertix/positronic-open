@@ -1,4 +1,4 @@
-model_path: 'assets/mujoco/mjx_single_cube.xml'
+model_path: null
 camera_names: ['handcam_left', 'handcam_right']
 camera_width: 352
 camera_height: 192
