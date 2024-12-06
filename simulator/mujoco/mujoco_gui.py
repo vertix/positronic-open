@@ -18,6 +18,7 @@ import ironic as ir
 from geom import Transform3D
 from ironic.utils import FPSCounter
 from simulator.mujoco.environment import MujocoSimulatorCS, InverseKinematics
+from simulator.mujoco import metric_calculators
 from simulator.mujoco.sim import MujocoRenderer, MujocoSimulator
 from tools.dataset_dumper import DatasetDumper
 
@@ -61,7 +62,7 @@ class DesiredAction:
 
 @ir.ironic_system(
     input_ports=["images", "robot_state"],
-    input_props=["robot_position", "actuator_values", "robot_grip"],
+    input_props=["robot_position", "actuator_values", "robot_grip", "metrics"],
     output_ports=["start_tracking", "stop_tracking", "gripper_target_grasp", "robot_target_position", "reset"],
 )
 class DearpyguiUi(ir.ControlSystem):
@@ -139,6 +140,12 @@ class DearpyguiUi(ir.ControlSystem):
             actuator_values = await self.ins.actuator_values()
             values_str = "[" + ", ".join(map(lambda x: f"{x:.4f}", actuator_values.data)) + "]"
             dpg.set_value("actuator_values", values_str)
+
+        if self.is_bound('metrics'):
+            metrics = await self.ins.metrics()
+
+            formatted_metrics = ", ".join(f"{k}: {v:.4f}" for k, v in metrics.data.items())
+            dpg.set_value("metrics", f"Metrics: {formatted_metrics}")
 
 
     def key_down(self, sender, app_data):
@@ -273,6 +280,9 @@ class DearpyguiUi(ir.ControlSystem):
             if self.is_bound('actuator_values'):
                 dpg.add_input_text(label="actuator_values", tag="actuator_values", auto_select_all=True)
 
+            if self.is_bound('metrics'):
+                dpg.add_text("", tag="metrics")
+
         def reset_callback():
             self.loop.create_task(self.outs.reset.write(ir.Message(True)))
 
@@ -330,9 +340,17 @@ async def _main(cfg: DictConfig):
     model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
     data = mujoco.MjData(model)
 
-    simulator = MujocoSimulator(model=model, data=data, simulation_rate=1 / cfg.mujoco.simulation_hz)
+    metrics = [
+        metric_calculators.ObjectMovedCalculator(object_name='box_1_main', threshold=0.01),
+        metric_calculators.ObjectDistanceCalculator(object_1='box_0_main', object_2='box_1_main'),
+        metric_calculators.ObjectLiftedTimeCalculator(object_name='box_1_main', threshold=0.01),
+        metric_calculators.ObjectsStackedCalculator(object_1='box_0_main', object_2='box_1_main', velocity_threshold=0.01),
+    ]
+
+    simulator = MujocoSimulator(model=model, data=data, simulation_rate=1 / cfg.mujoco.simulation_hz, metric_calculators=metrics)
     renderer = MujocoRenderer(model=model, data=data, render_resolution=(width, height), camera_names=cfg.mujoco.camera_names)
     inverse_kinematics = InverseKinematics(data=data)
+
 
     # systems
     simulator = MujocoSimulatorCS(
@@ -356,6 +374,7 @@ async def _main(cfg: DictConfig):
             robot_position=simulator.outs.robot_position,
             robot_grip=simulator.outs.grip,
             actuator_values=simulator.outs.actuator_values,
+            metrics=simulator.outs.metrics,
         ),
     ]
 

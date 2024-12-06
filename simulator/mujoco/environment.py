@@ -16,7 +16,8 @@ from simulator.mujoco.sim import InverseKinematics, MujocoRenderer, MujocoSimula
         "joints",
         "ext_force_ee",
         "ext_force_base",
-        "actuator_values"
+        "actuator_values",
+        "metrics",
     ])
 class MujocoSimulatorCS(ir.ControlSystem):
     def __init__(
@@ -71,6 +72,10 @@ class MujocoSimulatorCS(ir.ControlSystem):
     @ir.out_property
     async def actuator_values(self):
         return ir.Message(self.simulator.actuator_values, self.ts)
+
+    @ir.out_property
+    async def metrics(self):
+        return ir.Message(self.simulator.get_metrics(), self.ts)
 
     @property
     def ts(self) -> int:
