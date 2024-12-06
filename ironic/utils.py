@@ -4,7 +4,7 @@ import time
 import signal
 from typing import Any, Callable, Optional
 
-from ironic.system import ControlSystem, Message, OutputPort, State, ironic_system
+from ironic.system import ControlSystem, Message, OutputPort, State, ironic_system, on_message
 
 Change = namedtuple('Change', ['prev', 'current'])
 
