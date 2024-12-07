@@ -32,6 +32,7 @@ class Franka(ir.ControlSystem):
 
         self.home_joints_config = home_joints_config or [0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785]
         self.cartesian_mode = cartesian_mode
+        self.last_q = None
 
         self._command_queue = deque()
         self._command_mutex = threading.Lock()
@@ -65,7 +66,6 @@ class Franka(ir.ControlSystem):
     def _motion_thread(self):
         fps = ir.utils.FPSCounter("Franka motion")
 
-        last_q = None
         while not self._motion_exit_event.is_set():
             motion = None
             with self._command_mutex:
@@ -73,7 +73,7 @@ class Franka(ir.ControlSystem):
                     motion, _ = self._command_queue.popleft()
 
             if motion:
-                last_q = motion(last_q)
+                motion()
                 fps.tick()
             else:
                 time.sleep(0.01)  # Avoid busy-waiting
@@ -93,25 +93,23 @@ class Franka(ir.ControlSystem):
     @ir.on_message('target_position')
     async def handle_target_position(self, message: ir.Message):
         pos = franky.Affine(translation=message.data.translation, quaternion=message.data.quaternion)
+        motion = None
+        if self.cartesian_mode == CartesianMode.LIBFRANKA:
+            motion = franky.CartesianMotion(pos, franky.ReferenceType.Absolute)
+        else:
+            if self.last_q is None:
+                self.last_q = self.robot.current_joint_state.position
+            self.last_q = self.robot.inverse_kinematics(pos, self.last_q)
+            motion = franky.JointMotion(self.last_q)
 
-        def internal_franka_motion(_):
+        def internal_franka_motion():
             try:
-                motion = franky.CartesianMotion(pos, franky.ReferenceType.Absolute)
                 self.robot.move(motion, asynchronous=True)
             except franky.ControlException as e:
                 self.robot.recover_from_errors()
-                print(f"IK failed for {message.data}: {e}")
+                print(f"Motion failed for {message.data}: {e}")
 
-        def internal_positronic_motion(q0):
-            if q0 is None:
-                q0 = self.robot.current_joint_state.position
-            # TODO: Currently inverse kinematics always returns something, but it might fail
-            q = self.robot.inverse_kinematics(pos, q0)
-            self.robot.move(franky.JointMotion(q), asynchronous=True)
-            return q
-
-        motion = internal_franka_motion if self.cartesian_mode == CartesianMode.LIBFRANKA else internal_positronic_motion
-        self._submit_motion(motion, asynchronous=True)
+        self._submit_motion(internal_franka_motion, asynchronous=True)
 
     @ir.on_message('reset')
     async def handle_reset(self, message: ir.Message):
@@ -119,7 +117,7 @@ class Franka(ir.ControlSystem):
         start_reset_future = self._main_loop.create_future()
         reset_done_future = self._main_loop.create_future()
 
-        def _internal_reset(_q0):
+        def _internal_reset():
             # Signal we're starting the reset
             self._main_loop.call_soon_threadsafe(lambda: start_reset_future.set_result(True))
 

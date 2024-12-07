@@ -58,7 +58,6 @@ def robot_setup(cfg: DictConfig):
             kwargs['home_joints_config'] = cfg.franka.home_joints_config
         if 'cartesian_mode' in cfg.franka:
             kwargs['cartesian_mode'] = getattr(franka.CartesianMode, cfg.franka.cartesian_mode)
-        print(kwargs)
 
         franka = franka.Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force, **kwargs)
         components.append(franka)
