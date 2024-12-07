@@ -6,7 +6,9 @@ from tqdm import tqdm
 
 from simulator.mujoco.sim import InverseKinematics, MujocoRenderer, MujocoSimulator
 from lerobot.common.policies.act.modeling_act import ACTPolicy, ACTTemporalEnsembler
-from tools.inference import StateEncoder, ActionDecoder, _log_action, _log_observation
+from inference.action import ActionDecoder
+from inference.state import StateEncoder
+from inference.inference import rerun_log_action, rerun_log_observation
 
 
 def get_policy(checkpoint_path: str, use_temporal_ensembler: bool = False):
@@ -77,8 +79,8 @@ def main(cfg: DictConfig):
             action_dict = action_decoder.decode(action, inputs)
 
             if cfg.inference.rerun:
-                _log_observation(simulator.ts_sec, obs)
-                _log_action(simulator.ts_sec, action)
+                rerun_log_observation(simulator.ts_sec, obs)
+                rerun_log_action(simulator.ts_sec, action)
 
             # Apply actions
             target_pos = action_dict['target_robot_position']

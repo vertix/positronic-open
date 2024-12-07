@@ -3,6 +3,7 @@ from typing import Dict, Optional
 
 import numpy as np
 import torch
+# TODO(vertix): Once it is working, update environment.yaml
 from octo.model.octo_model import OctoModel
 
 
@@ -12,7 +13,8 @@ class OctoPolicy:
                  checkpoint_step: int,
                  instruction: Optional[str] = None,
                  window_size: int = 2,
-                 action_horizon: int = 4):
+                 action_horizon: int = 4,
+                 exp_weight: float = 0.01):
         self.model = OctoModel.load_pretrained(checkpoint_path, checkpoint_step)
         self.window_size = window_size
         self.action_horizon = action_horizon
@@ -31,7 +33,7 @@ class OctoPolicy:
 
         # For temporal ensembling
         self.act_history = deque(maxlen=self.action_horizon)
-        self.exp_weight = 0
+        self.exp_weight = exp_weight
 
     def to(self, device: str):
         self.model.to(device)

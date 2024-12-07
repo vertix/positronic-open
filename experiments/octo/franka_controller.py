@@ -6,7 +6,7 @@ import logging
 import os
 
 import franky
-from pyquaternion import Quaternion
+import quaternion
 import pymodbus.client as ModbusClient
 
 from widowx_envs.utils.exceptions import Environment_Exception
@@ -107,11 +107,11 @@ class Franka_Controller(RobotControllerBase):
     def move_to_state(self, target_xyz, target_zangle, duration=1.5):
         """Move end-effector to target position and orientation"""
         current_pose = self.robot.current_pose.end_effector_pose
-        new_quat = Quaternion(axis=np.array([0.0, 0.0, 1.0]), angle=target_zangle)
+        new_quat = quaternion.from_rotation_vector([0.0, 0.0, target_zangle])
 
         target_pose = franky.Affine(
             translation=target_xyz,
-            quaternion=new_quat.elements
+            quaternion=quaternion.as_float_array(new_quat)
         )
 
         try:

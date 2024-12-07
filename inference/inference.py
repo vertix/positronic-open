@@ -65,7 +65,7 @@ class ActionDecoder:
         return outputs
 
 
-def _log_observation(ts, obs):
+def rerun_log_observation(ts, obs):
     rr.set_time_seconds('time', ts)
 
     def log_image(name, tensor):
@@ -79,7 +79,7 @@ def _log_observation(ts, obs):
     for i, state in enumerate(obs['observation.state'].squeeze(0)):
         rr.log(f"observation/state/{i}", rr.Scalar(state.item()))
 
-def _log_action(ts, action):
+def rerun_log_action(ts, action):
     rr.set_time_seconds('time', ts)
     for i, action in enumerate(action):
         rr.log(f"action/{i}", rr.Scalar(action))
@@ -136,8 +136,8 @@ class Inference(ir.ControlSystem):
         action_dict = self.action_decoder.decode(action, robot_data)
 
         if self.cfg.rerun:
-            _log_observation(message.timestamp, obs)
-            _log_action(message.timestamp, action)
+            rerun_log_observation(message.timestamp, obs)
+            rerun_log_action(message.timestamp, action)
 
         write_ops = []
         for key, value in action_dict.items():

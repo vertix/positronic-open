@@ -9,30 +9,31 @@ dependencies:
   - gcc_linux-64
   - gxx_linux-64
   # Deps
-  - jupyter
-  - numpy
-  - matplotlib
-  - rerun-sdk
-  - scipy
-  - requests
+  - av
   - fastapi
-  - uvicorn[standard]
+  - jupyter
+  - matplotlib
+  - numpy
+  - opencv
   - pymodbus
   - pytorch
   - pytorch3d
-  - opencv
-  - av
+  - requests
+  - rerun-sdk
+  - scipy
+  - uvicorn[standard]
   - pip
   - pip:
+    - click
+    - dearpygui
+    - fire
+    - hydra-colorlog
+    - hydra-core
+    - lerobot
+    - numpy-quaternion
     - pytest
     - pytest-asyncio
-    - lerobot
-    - click
-    - yappi
-    - websockets
-    - hydra-core
-    - hydra-colorlog
-    - dearpygui
     - robosuite
-    - fire
+    - websockets
+    - yappi
 # python /usr/local/zed/get_python_api.py
