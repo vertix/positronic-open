@@ -16,7 +16,7 @@ from lerobot.common.datasets.video_utils import encode_video_frames
 from lerobot.scripts.push_dataset_to_hub import save_meta_data
 from lerobot.common.datasets.compute_stats import compute_stats
 
-from tools.inference import StateEncoder, ActionDecoder
+from inference import StateEncoder, ActionDecoder
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="to_lerobot")

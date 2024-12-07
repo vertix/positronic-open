@@ -131,10 +131,7 @@ class DatasetDumper(ir.ControlSystem):
             print("No target robot position")
             return
 
-        ep_dict = {}
-        for key, image in image_message.data.items():
-            name = f'image.{key}' if key else 'image'
-            ep_dict[name] = image
+        ep_dict = {**image_message.data}
         ep_dict['target_grip'] = self.target_grip
         ep_dict['target_robot_position_translation'] = self.target_robot_position.translation
         ep_dict['target_robot_position_quaternion'] = self.target_robot_position.quaternion

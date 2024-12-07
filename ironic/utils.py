@@ -4,7 +4,7 @@ import time
 import signal
 from typing import Any, Callable, Optional
 
-from ironic.system import ControlSystem, Message, OutputPort, State, ironic_system
+from ironic.system import ControlSystem, Message, OutputPort, State, ironic_system, on_message
 
 Change = namedtuple('Change', ['prev', 'current'])
 
@@ -201,6 +201,26 @@ def map_property(function: Callable[[Any], Any], property: Callable[[], Message]
         original_message = await property()
         return Message(data=function(original_message.data), timestamp=original_message.timestamp)
     return result
+
+@ironic_system(input_ports=['input'], output_ports=['output'])
+class MapControlSystem(ControlSystem):
+    """A control system that maps the data of an input port to an output port using a transform function.
+
+    In most cases, you should prefer using `map_port` over this class, as it provides a simpler
+    interface for mapping ports. But when you want to output the mapped port in composition, you
+    should use this class.
+
+    Args:
+        transform: A function that transforms the data from one format to another
+    """
+    def __init__(self, transform: Callable[[Any], Any]):
+        super().__init__()
+        self._transform = transform
+
+    @on_message('input')
+    async def handle_input(self, message: Message):
+        transformed = self._transform(message.data)
+        await self.outs.output.write(Message(transformed, timestamp=message.timestamp))
 
 
 def map_port(function: Callable[[Any], Any], port: OutputPort) -> OutputPort:

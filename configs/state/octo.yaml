@@ -1,15 +1,10 @@
 _target_: inference.StateEncodingConfig
 images:
   - key: image.left
-    output_key: observation.images.left
+    output_key: image_wrist
     resize:
-      - 352
-      - 192
-  - key: image.right
-    output_key: observation.images.right
-    resize:
-      - 352
-      - 192
+      - 128
+      - 128
 
 state_output_key: observation.state
 state:

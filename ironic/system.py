@@ -168,20 +168,20 @@ def ironic_system(*, input_ports: List[str] = None, output_ports: List[str] = No
     if duplicate_outputs:
         raise ValueError(f"Duplicate output names declared: {set(duplicate_outputs)}")
 
-    # Warn about input/output name conflicts
-    input_output_conflicts = set(all_inputs) & set(all_outputs)
-    if input_output_conflicts:
-        warnings.warn(
-            f"Names used as both input and output: {input_output_conflicts}. "
-            "This might make the system harder to understand.",
-            UserWarning
-        )
-
     def decorator(cls):
         cls._input_ports = input_ports
         cls._output_ports = output_ports
         cls._input_props = input_props
         cls._output_props = output_props
+
+        # Warn about input/output name conflicts
+        input_output_conflicts = set(all_inputs) & set(all_outputs)
+        if input_output_conflicts:
+            warnings.warn(
+                f"Names used as both input and output: {input_output_conflicts} in class {cls.__name__}. "
+                "This might make the system harder to understand.",
+                UserWarning
+            )
 
         # Verify output properties
         defined_props = {
