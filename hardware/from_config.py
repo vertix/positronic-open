@@ -50,8 +50,17 @@ def robot_setup(cfg: DictConfig):
     """
     components, inputs, outputs = [], {}, {}
     if cfg.type == 'physical':
-        from hardware.franka import Franka
-        franka = Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
+        from hardware import franka
+        kwargs = {}
+        if 'collision_behavior' in cfg.franka:
+            kwargs['collision_behavior'] = cfg.franka.collision_behavior
+        if 'home_joints_config' in cfg.franka:
+            kwargs['home_joints_config'] = cfg.franka.home_joints_config
+        if 'cartesian_mode' in cfg.franka:
+            kwargs['cartesian_mode'] = getattr(franka.CartesianMode, cfg.franka.cartesian_mode)
+        print(kwargs)
+
+        franka = franka.Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force, **kwargs)
         components.append(franka)
         outputs['robot_position'] = (franka, 'position')
         outputs['joint_positions'] = (franka, 'joint_positions')
@@ -71,9 +80,12 @@ def robot_setup(cfg: DictConfig):
             outputs['grip'] = (franka, 'grip')
             inputs['target_grip'] = (franka, 'target_grip')
 
-        camera = sl_camera(cfg.camera)
-        components.append(camera)
-        outputs['frame'] = (camera, 'frame')
+        if 'camera' in cfg:
+            camera = sl_camera(cfg.camera)
+            components.append(camera)
+            outputs['frame'] = (camera, 'frame')
+        else:
+            outputs['frame'] = None
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'mujoco':
         import mujoco

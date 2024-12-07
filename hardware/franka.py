@@ -1,5 +1,6 @@
 import asyncio
 from collections import deque
+from enum import Enum
 import threading
 import time
 from typing import Optional
@@ -8,6 +9,10 @@ import franky
 import ironic as ir
 from .state import RobotState
 from geom import Transform3D
+
+class CartesianMode(Enum):
+    LIBFRANKA = "libfranka"
+    POSITRONIC = "positronic"
 
 
 @ir.ironic_system(
@@ -18,14 +23,15 @@ from geom import Transform3D
 class Franka(ir.ControlSystem):
     def __init__(self, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
                  realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Ignore, collision_behavior = None,
-                 home_joints_config=None):
+                 home_joints_config=None, cartesian_mode: CartesianMode = CartesianMode.LIBFRANKA):
         super().__init__()
         self.robot = franky.Robot(ip, realtime_config=realtime_config)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
         if collision_behavior is not None:
-            self.robot.set_collision_behavior(collision_behavior)
+            self.robot.set_collision_behavior(*collision_behavior)
 
         self.home_joints_config = home_joints_config or [0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785]
+        self.cartesian_mode = cartesian_mode
 
         self._command_queue = deque()
         self._command_mutex = threading.Lock()
@@ -59,6 +65,7 @@ class Franka(ir.ControlSystem):
     def _motion_thread(self):
         fps = ir.utils.FPSCounter("Franka motion")
 
+        last_q = None
         while not self._motion_exit_event.is_set():
             motion = None
             with self._command_mutex:
@@ -66,7 +73,7 @@ class Franka(ir.ControlSystem):
                     motion, _ = self._command_queue.popleft()
 
             if motion:
-                motion()
+                last_q = motion(last_q)
                 fps.tick()
             else:
                 time.sleep(0.01)  # Avoid busy-waiting
@@ -86,16 +93,25 @@ class Franka(ir.ControlSystem):
     @ir.on_message('target_position')
     async def handle_target_position(self, message: ir.Message):
         pos = franky.Affine(translation=message.data.translation, quaternion=message.data.quaternion)
-        motion = franky.CartesianMotion(pos, franky.ReferenceType.Absolute)
 
-        def internal_motion():
+        def internal_franka_motion(_):
             try:
+                motion = franky.CartesianMotion(pos, franky.ReferenceType.Absolute)
                 self.robot.move(motion, asynchronous=True)
             except franky.ControlException as e:
                 self.robot.recover_from_errors()
                 print(f"IK failed for {message.data}: {e}")
 
-        self._submit_motion(internal_motion, asynchronous=True)
+        def internal_positronic_motion(q0):
+            if q0 is None:
+                q0 = self.robot.current_joint_state.position
+            # TODO: Currently inverse kinematics always returns something, but it might fail
+            q = self.robot.inverse_kinematics(pos, q0)
+            self.robot.move(franky.JointMotion(q), asynchronous=True)
+            return q
+
+        motion = internal_franka_motion if self.cartesian_mode == CartesianMode.LIBFRANKA else internal_positronic_motion
+        self._submit_motion(motion, asynchronous=True)
 
     @ir.on_message('reset')
     async def handle_reset(self, message: ir.Message):
@@ -103,12 +119,13 @@ class Franka(ir.ControlSystem):
         start_reset_future = self._main_loop.create_future()
         reset_done_future = self._main_loop.create_future()
 
-        def _internal_reset():
+        def _internal_reset(_q0):
             # Signal we're starting the reset
             self._main_loop.call_soon_threadsafe(lambda: start_reset_future.set_result(True))
 
             self.robot.join_motion()
             motion = franky.JointWaypointMotion([franky.JointWaypoint(self.home_joints_config)])
+            print(f"Resetting to {self.home_joints_config}")
             self.robot.move(motion, asynchronous=False)
             if self.gripper:
                 self.gripper.homing()
