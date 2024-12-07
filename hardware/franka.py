@@ -102,14 +102,14 @@ class Franka(ir.ControlSystem):
             self.last_q = self.robot.inverse_kinematics(pos, self.last_q)
             motion = franky.JointMotion(self.last_q)
 
-        def internal_franka_motion():
+        def internal_motion():
             try:
                 self.robot.move(motion, asynchronous=True)
             except franky.ControlException as e:
                 self.robot.recover_from_errors()
                 print(f"Motion failed for {message.data}: {e}")
 
-        self._submit_motion(internal_franka_motion, asynchronous=True)
+        self._submit_motion(internal_motion, asynchronous=True)
 
     @ir.on_message('reset')
     async def handle_reset(self, message: ir.Message):
@@ -123,7 +123,6 @@ class Franka(ir.ControlSystem):
 
             self.robot.join_motion()
             motion = franky.JointWaypointMotion([franky.JointWaypoint(self.home_joints_config)])
-            print(f"Resetting to {self.home_joints_config}")
             self.robot.move(motion, asynchronous=False)
             if self.gripper:
                 self.gripper.homing()
