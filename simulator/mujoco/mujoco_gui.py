@@ -340,6 +340,7 @@ async def _main(cfg: DictConfig):
     model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
     data = mujoco.MjData(model)
 
+    # TODO: make this configurable
     metrics = [
         metric_calculators.ObjectMovedCalculator(object_name='box_1_main', threshold=0.01),
         metric_calculators.ObjectDistanceCalculator(object_1='box_0_main', object_2='box_1_main'),
