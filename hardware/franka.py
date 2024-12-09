@@ -1,5 +1,6 @@
 import asyncio
 from collections import deque
+from enum import Enum
 import threading
 import time
 from typing import Optional
@@ -8,6 +9,10 @@ import franky
 import ironic as ir
 from .state import RobotState
 from geom import Transform3D
+
+class CartesianMode(Enum):
+    LIBFRANKA = "libfranka"
+    POSITRONIC = "positronic"
 
 
 @ir.ironic_system(
@@ -18,14 +23,16 @@ from geom import Transform3D
 class Franka(ir.ControlSystem):
     def __init__(self, ip: str, relative_dynamics_factor: float = 0.2, gripper_speed: float = 0.02,
                  realtime_config: franky.RealtimeConfig = franky.RealtimeConfig.Ignore, collision_behavior = None,
-                 home_joints_config=None):
+                 home_joints_config=None, cartesian_mode: CartesianMode = CartesianMode.LIBFRANKA):
         super().__init__()
         self.robot = franky.Robot(ip, realtime_config=realtime_config)
         self.robot.relative_dynamics_factor = relative_dynamics_factor
         if collision_behavior is not None:
-            self.robot.set_collision_behavior(collision_behavior)
+            self.robot.set_collision_behavior(*collision_behavior)
 
         self.home_joints_config = home_joints_config or [0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785]
+        self.cartesian_mode = cartesian_mode
+        self.last_q = None
 
         self._command_queue = deque()
         self._command_mutex = threading.Lock()
@@ -86,14 +93,21 @@ class Franka(ir.ControlSystem):
     @ir.on_message('target_position')
     async def handle_target_position(self, message: ir.Message):
         pos = franky.Affine(translation=message.data.translation, quaternion=message.data.quaternion)
-        motion = franky.CartesianMotion(pos, franky.ReferenceType.Absolute)
+        motion = None
+        if self.cartesian_mode == CartesianMode.LIBFRANKA:
+            motion = franky.CartesianMotion(pos, franky.ReferenceType.Absolute)
+        else:
+            if self.last_q is None:
+                self.last_q = self.robot.current_joint_state.position
+            self.last_q = self.robot.inverse_kinematics(pos, self.last_q)
+            motion = franky.JointMotion(self.last_q)
 
         def internal_motion():
             try:
                 self.robot.move(motion, asynchronous=True)
             except franky.ControlException as e:
                 self.robot.recover_from_errors()
-                print(f"IK failed for {message.data}: {e}")
+                print(f"Motion failed for {message.data}: {e}")
 
         self._submit_motion(internal_motion, asynchronous=True)
 

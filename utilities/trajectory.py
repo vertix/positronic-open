@@ -18,17 +18,19 @@ def main(cfg: DictConfig):
     )
 
     robot.recover_from_errors()
-    robot.move(franky.JointWaypointMotion([
-        franky.JointWaypoint([0.0,  -0.31, 0.0, -1.53, 0.0, 1.522,  0.785])]))
-
-    print(robot.current_pose.end_effector_pose)
 
     waypoints = []
+    last_q = robot.state.q
     for target in cfg.targets:
-        pos = franky.Affine(translation=target.translation, quaternion=target.quaternion)
-        waypoints.append(franky.CartesianWaypoint(pos, franky.ReferenceType.Absolute))
+        if "joints" in target:
+            waypoints.append(franky.JointWaypoint(target.joints))
+        elif "translation" in target:
+            pos = franky.Affine(translation=target.translation, quaternion=target.quaternion)
+            q = robot.inverse_kinematics(pos, last_q)
+            waypoints.append(franky.JointWaypoint(q))
+            last_q = q
 
-    robot.move(franky.CartesianWaypointMotion(waypoints))
+    robot.move(franky.JointWaypointMotion(waypoints))
     print(robot.current_pose.end_effector_pose)
 
 
