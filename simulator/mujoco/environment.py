@@ -1,10 +1,10 @@
-from typing import Optional
+from typing import Optional, Sequence
 
 from hardware import RobotState
 from ironic.utils import Throttler
 import ironic as ir
 from geom import Transform3D
-from simulator.mujoco.sim import InverseKinematics, MujocoRenderer, MujocoSimulator
+from simulator.mujoco.sim import CompositeMetricCalculator, InverseKinematics, MetricCalculator, MujocoRenderer, MujocoSimulator
 
 
 @ir.ironic_system(
@@ -27,6 +27,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
             render_rate: float = 1 / 60,
             renderer: Optional[MujocoRenderer] = None,
             inverse_kinematics: Optional[InverseKinematics] = None,
+            metric_calculators: Optional[Sequence[MetricCalculator]] = None,
     ):
         super().__init__()
         self.simulator = simulator
@@ -42,6 +43,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
             self.do_render = lambda: False
 
         self.inverse_kinematics = inverse_kinematics
+        self.metric_calculator = CompositeMetricCalculator(metric_calculators or [])
 
     @ir.out_property
     async def robot_position(self):
@@ -75,7 +77,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
 
     @ir.out_property
     async def metrics(self):
-        return ir.Message(self.simulator.get_metrics(), self.ts)
+        return ir.Message(self.metric_calculator.get_metrics(), self.ts)
 
     @property
     def ts(self) -> int:
@@ -83,6 +85,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
 
     def simulate(self):
         self.simulator.step()
+        self.metric_calculator.update(self.simulator.model, self.simulator.data)
 
     async def render(self):
         if self.renderer is not None:
@@ -92,6 +95,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
     async def _init_position(self):
         await self.outs.robot_state.write(ir.Message(RobotState.RESETTING, self.ts))
         self.simulator.reset()
+        self.metric_calculator.reset()
         await self.outs.robot_state.write(ir.Message(RobotState.AVAILABLE, self.ts))
 
     def _init_renderer(self):

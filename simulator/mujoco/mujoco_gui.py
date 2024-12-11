@@ -348,7 +348,7 @@ async def _main(cfg: DictConfig):
         metric_calculators.ObjectsStackedCalculator(object_1='box_0_main', object_2='box_1_main', velocity_threshold=0.01),
     ]
 
-    simulator = MujocoSimulator(model=model, data=data, simulation_rate=1 / cfg.mujoco.simulation_hz, metric_calculators=metrics)
+    simulator = MujocoSimulator(model=model, data=data, simulation_rate=1 / cfg.mujoco.simulation_hz)
     renderer = MujocoRenderer(model=model, data=data, render_resolution=(width, height), camera_names=cfg.mujoco.camera_names)
     inverse_kinematics = InverseKinematics(data=data)
 
@@ -360,6 +360,7 @@ async def _main(cfg: DictConfig):
         render_rate=1 / cfg.mujoco.observation_hz,
         renderer=renderer,
         inverse_kinematics=inverse_kinematics,
+        metric_calculators=metrics,
     )
 
     window = DearpyguiUi(cfg.mujoco.camera_names)

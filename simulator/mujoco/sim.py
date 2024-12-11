@@ -43,6 +43,29 @@ class MetricCalculator(abc.ABC):
         pass
 
 
+class CompositeMetricCalculator(MetricCalculator):
+    def __init__(self, metric_calculators: Sequence[MetricCalculator]):
+        super().__init__()
+        self.metric_calculators = metric_calculators
+
+    def initialize(self, model: mujoco.MjModel, data: mujoco.MjData):
+        for calculator in self.metric_calculators:
+            calculator.initialize(model, data)
+
+    def _update(self, model: mujoco.MjModel, data: mujoco.MjData):
+        for calculator in self.metric_calculators:
+            calculator.update(model, data)
+
+    def get_metrics(self) -> Dict[str, float]:
+        metrics = {}
+        for calculator in self.metric_calculators:
+            metrics.update(calculator.get_metrics())
+        return metrics
+
+    def reset(self):
+        for calculator in self.metric_calculators:
+            calculator.reset()
+
 
 class InverseKinematics:
     def __init__(self, data: mujoco.MjData):
@@ -75,7 +98,6 @@ class MujocoSimulator:
             model: mujoco.MjModel,
             data: mujoco.MjData,
             simulation_rate: float = 1 / 500,
-            metric_calculators: Sequence[MetricCalculator] = (),
     ):
         super().__init__()
         self.model = model
@@ -84,9 +106,6 @@ class MujocoSimulator:
         self.simulation_fps_counter = FPSCounter('Simulation')
         self.pending_actions = []
         self._initial_position = None
-        self.metric_calculators = metric_calculators
-        for calculator in self.metric_calculators:
-            calculator.initialize(self.model, self.data)
 
     @property
     def robot_position(self):
@@ -130,8 +149,6 @@ class MujocoSimulator:
     def step(self):
         mujoco.mj_step(self.model, self.data)
         self.simulation_fps_counter.tick()
-        for calculator in self.metric_calculators:
-            calculator.update(self.model, self.data)
 
     def reset(self, keyframe: str = "home"):
         """
@@ -144,22 +161,12 @@ class MujocoSimulator:
         mujoco.mj_forward(self.model, self.data)
         self._initial_position = self.robot_position
 
-        for calculator in self.metric_calculators:
-            calculator.reset()
-
     def set_actuator_values(self, actuator_values: np.ndarray):
         for i in range(7):
             self.data.actuator(f'actuator{i + 1}').ctrl = actuator_values[i]
 
     def set_grip(self, grip: float):
         self.data.actuator('actuator8').ctrl = grip
-
-    def get_metrics(self) -> Dict[str, float]:
-        metrics = {}
-        for calculator in self.metric_calculators:
-            metrics.update(calculator.get_metrics())
-        return metrics
-
 
 
 class MujocoRenderer:
@@ -203,4 +210,3 @@ class MujocoRenderer:
 
     def close(self):
         self.renderer.close()
-
