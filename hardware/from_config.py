@@ -7,7 +7,7 @@ from omegaconf import MISSING, DictConfig
 import ironic as ir
 
 def sl_camera(cfg: DictConfig):
-    from hardware.sl_camera import SLCamera
+    from hardware.camera.sl_camera import SLCamera
     import pyzed.sl as sl
 
     view = getattr(sl.VIEW, cfg.view)

@@ -7,8 +7,9 @@ from omegaconf import DictConfig
 import rerun as rr
 
 import hardware
+from hardware.camera import sl_camera
 import ironic as ir
-from hardware import Franka, DHGripper, sl_camera
+from hardware import Franka, DHGripper
 from inference import Inference
 
 logging.basicConfig(level=logging.INFO,
