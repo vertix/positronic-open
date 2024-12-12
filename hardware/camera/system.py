@@ -2,15 +2,16 @@ import ironic as ir
 from hardware.camera import Camera
 
 
-@ir.control_system(output_ports=['frame'])
+@ir.ironic_system(output_ports=['frame'])
 class CameraCS(ir.ControlSystem):
     def __init__(self, camera: Camera):
+        super().__init__()
         self.camera = camera
 
-    def setup(self):
+    async def setup(self):
         self.camera.setup()
 
-    def cleanup(self):
+    async def cleanup(self):
         self.camera.cleanup()
 
     async def step(self):

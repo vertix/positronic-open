@@ -16,4 +16,3 @@ class Camera(abc.ABC):
     @abc.abstractmethod
     def get_frame(self) -> Tuple[Dict[str, np.ndarray], float]:
         pass
-    

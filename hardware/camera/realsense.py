@@ -7,17 +7,31 @@ from hardware.camera import Camera
 
 
 class RealsenseCamera(Camera):
-    def __init__(self, resolution: Tuple[int, int] = (640, 480), fps: int = 30):
+    def __init__(
+        self,
+        resolution: Tuple[int, int] = (640, 480),
+        fps: int = 30,
+        enable_color: bool = True,
+        enable_depth: bool = True,
+        enable_infrared: bool = True,
+    ):
         self.resolution = resolution
         self.fps = fps
         self.config = rs.config()
-        self.config.enable_stream(rs.stream.color, self.resolution[0], self.resolution[1], rs.format.bgr8, self.fps)
-        self.config.enable_stream(rs.stream.depth, self.resolution[0], self.resolution[1], rs.format.z16, self.fps)
-        self.config.enable_stream(rs.stream.infrared, 1, self.resolution[0], self.resolution[1], rs.format.y8, self.fps)
-        self.config.enable_stream(rs.stream.infrared, 2, self.resolution[0], self.resolution[1], rs.format.y8, self.fps)
+        self.enable_color = enable_color
+        self.enable_depth = enable_depth
+        self.enable_infrared = enable_infrared
 
 
     def setup(self):
+        if self.enable_color:
+            self.config.enable_stream(rs.stream.color, self.resolution[0], self.resolution[1], rs.format.rgb8, self.fps)
+        if self.enable_depth:
+            self.config.enable_stream(rs.stream.depth, self.resolution[0], self.resolution[1], rs.format.z16, self.fps)
+        if self.enable_infrared:
+            self.config.enable_stream(rs.stream.infrared, 1, self.resolution[0], self.resolution[1], rs.format.y8, self.fps)
+            self.config.enable_stream(rs.stream.infrared, 2, self.resolution[0], self.resolution[1], rs.format.y8, self.fps)
+
         self.pipeline = rs.pipeline()
         self.pipeline.start(self.config)
 
@@ -25,17 +39,28 @@ class RealsenseCamera(Camera):
         pass
 
     def get_frame(self) -> Tuple[Dict[str, np.ndarray], float]:
-        frames = self.pipeline.wait_for_frames()
+        assert self.pipeline is not None, "You must call setup() before get_frame()"
 
-        color_frame = frames.get_color_frame()
-        depth_frame = frames.get_depth_frame()
-        infrared_frame_1 = frames.get_infrared_frame(1)
-        infrared_frame_2 = frames.get_infrared_frame(2)
-        timestamp = frames.get_timestamp()
+        realsense_frames = self.pipeline.wait_for_frames()
 
-        return {
-            'image': color_frame.get_data(),
-            'depth': depth_frame.get_data(),
-            'infrared_1': infrared_frame_1.get_data(),
-            'infrared_2': infrared_frame_2.get_data(),
-        }, timestamp
+        frames = {}
+
+        if self.enable_color:
+            color_frame = realsense_frames.get_color_frame()
+            color_frame = np.asanyarray(color_frame.get_data())
+            frames['image'] = color_frame
+        if self.enable_depth:
+            depth_frame = realsense_frames.get_depth_frame()
+            depth_frame = np.asanyarray(depth_frame.get_data())
+            frames['depth'] = depth_frame
+        if self.enable_infrared:
+            infrared_frame_1 = realsense_frames.get_infrared_frame(1)
+            infrared_frame_1 = np.asanyarray(infrared_frame_1.get_data())
+            frames['infrared_1'] = infrared_frame_1
+            infrared_frame_2 = realsense_frames.get_infrared_frame(2)
+            infrared_frame_2 = np.asanyarray(infrared_frame_2.get_data())
+            frames['infrared_2'] = infrared_frame_2
+
+        timestamp = realsense_frames.get_timestamp()
+
+        return frames, timestamp

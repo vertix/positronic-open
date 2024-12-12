@@ -1,10 +1,18 @@
-from typing import Any, Callable
-from dataclasses import dataclass, field
+from typing import Dict
 
-from hydra.core.config_store import ConfigStore
-from omegaconf import MISSING, DictConfig
+from omegaconf import DictConfig
+
+from hardware.camera.system import CameraCS
 
 import ironic as ir
+
+def add_image_mapping(mapping: Dict[str, str], camera: ir.ControlSystem):
+    def map_images(frame):
+        return {new_k: frame[k] for k, new_k in mapping.items()}
+
+    map_system = ir.utils.MapControlSystem(map_images)
+    map_system.bind(input=camera.outs.frame)
+    return ir.compose(camera, map_system, outputs={'frame': (map_system, 'output')})
 
 def sl_camera(cfg: DictConfig):
     from hardware.camera.sl_camera import SLCamera
@@ -25,14 +33,36 @@ def sl_camera(cfg: DictConfig):
     camera = SLCamera(cfg.fps, view, resolution, **kwargs)
 
     if 'image_mapping' in cfg:
-        def map_images(frame):
-            return {new_k: frame[k] for k, new_k in cfg.image_mapping.items()}
-
-        map_system = ir.utils.MapControlSystem(map_images)
-        map_system.bind(input=camera.outs.frame)
-        return ir.compose(camera, map_system, outputs={'frame': (map_system, 'output')})
+        return add_image_mapping(cfg.image_mapping, camera)
     else:
         return camera
+
+
+def realsense_camera(cfg: DictConfig):
+    from hardware.camera.realsense import RealsenseCamera
+
+
+    camera = CameraCS(RealsenseCamera(
+        resolution=cfg.resolution,
+        fps=cfg.fps,
+        enable_color=cfg.enable_color,
+        enable_depth=cfg.enable_depth,
+        enable_infrared=cfg.enable_infrared,
+    ))
+
+    if 'image_mapping' in cfg:
+        return add_image_mapping(cfg.image_mapping, camera)
+    else:
+        return camera
+
+
+def get_camera(cfg: DictConfig):
+    if cfg.type == 'sl':
+        return sl_camera(cfg)
+    elif cfg.type == 'realsense':
+        return realsense_camera(cfg)
+    else:
+        raise ValueError(f"Invalid camera type: {cfg.type}")
 
 
 def robot_setup(cfg: DictConfig):
@@ -80,7 +110,7 @@ def robot_setup(cfg: DictConfig):
             inputs['target_grip'] = (franka, 'target_grip')
 
         if 'camera' in cfg:
-            camera = sl_camera(cfg.camera)
+            camera = get_camera(cfg.camera)
             components.append(camera)
             outputs['frame'] = (camera, 'frame')
         else:
