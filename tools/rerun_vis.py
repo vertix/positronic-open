@@ -5,6 +5,9 @@ from typing import Dict
 import ironic as ir
 
 
+def wxyz_to_xyzw(wxyz: np.ndarray) -> np.ndarray:
+    return np.array([wxyz[1], wxyz[2], wxyz[3], wxyz[0]])
+
 @ir.ironic_system(
     input_ports=['frame'],
     input_props=['ext_force_ee', 'ext_force_base', 'robot_position'],
@@ -31,8 +34,7 @@ class RerunVisualiser(ir.ControlSystem):
             rr.log("camera/rgb", rr.Image(frames['image']).compress())
 
         if 'depth' in frames:
-            # Convert depth to meters for better visualization
-            depth_m = frames['depth'].astype(np.float32) / 1000.0
+            depth_m = frames['depth']
             rr.log("camera/depth", rr.Image(depth_m))
 
         if 'infrared_1' in frames:
@@ -52,6 +54,12 @@ class RerunVisualiser(ir.ControlSystem):
         rr.log("forces/base/z", rr.Scalar(base_force[2]))
 
         robot_position = (await self.ins.robot_position()).data
-        rr.log("robot/position", rr.Transform3D(translation=robot_position.translation.copy(), rotation=rr.Quaternion(xyzw=np.array(robot_position.quaternion))))
-        rr.log("robot/ee_force", rr.Arrows3D(origins=robot_position.translation.copy(), vectors=ee_force[:3].copy()))
-        # rr.log("robot/orientation", rr.Quaternion(xyzw=np.array(robot_position.quaternion)))
+        rr_robot_position = rr.Transform3D(
+            translation=robot_position.translation.copy(),
+            rotation=rr.Quaternion(xyzw=wxyz_to_xyzw(robot_position.quaternion))
+        )
+        rr.log("robot/position", rr_robot_position)
+        rr.log("robot/ee_force", rr.Arrows3D(
+            origins=robot_position.translation.copy(),
+            vectors=ee_force[:3].copy()
+        ))

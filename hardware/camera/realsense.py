@@ -48,7 +48,7 @@ class RealsenseCamera:
             frames['image'] = color_frame
         if self.enable_depth:
             depth_frame = realsense_frames.get_depth_frame()
-            depth_frame = np.asanyarray(depth_frame.get_data())
+            depth_frame = self.get_metric_depth(depth_frame)
             frames['depth'] = depth_frame
         if self.enable_infrared:
             infrared_frame_1 = realsense_frames.get_infrared_frame(1)
@@ -58,10 +58,17 @@ class RealsenseCamera:
             infrared_frame_2 = np.asanyarray(infrared_frame_2.get_data())
             frames['infrared_2'] = infrared_frame_2
 
-        timestamp = realsense_frames.get_timestamp()
+        timestamp_ms = realsense_frames.get_timestamp()
+        timestamp_ns = timestamp_ms * 1e6
 
-        return frames, timestamp
+        return frames, int(timestamp_ns)
 
+    def get_metric_depth(self, depth_frame) -> np.ndarray:
+        depth_units = depth_frame.get_units()
+        depth_frame = np.asanyarray(depth_frame.get_data())
+        depth_frame = depth_frame.astype(np.float32)
+        depth_frame *= depth_units
+        return depth_frame
 
 
 @ir.ironic_system(output_ports=['frame'])

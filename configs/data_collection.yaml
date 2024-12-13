@@ -5,4 +5,4 @@ defaults:
 
 
 data_output_dir: null
-rerun: null
+rerun: False

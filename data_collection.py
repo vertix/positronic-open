@@ -72,7 +72,7 @@ async def main_async(cfg: DictConfig):
     components.append(control)
     components.append(hardware)
 
-    if cfg.rerun is not None:
+    if cfg.rerun:
         visualizer = RerunVisualiser()
         visualizer.bind(
             frame=hardware.outs.frame,
