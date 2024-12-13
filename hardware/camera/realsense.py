@@ -3,10 +3,10 @@ from typing import Dict, Tuple
 import numpy as np
 import pyrealsense2 as rs
 
-from hardware.camera import Camera
+import ironic as ir
 
 
-class RealsenseCamera(Camera):
+class RealsenseCamera:
     def __init__(
         self,
         resolution: Tuple[int, int] = (640, 480),
@@ -35,9 +35,6 @@ class RealsenseCamera(Camera):
         self.pipeline = rs.pipeline()
         self.pipeline.start(self.config)
 
-    def cleanup(self):
-        pass
-
     def get_frame(self) -> Tuple[Dict[str, np.ndarray], float]:
         assert self.pipeline is not None, "You must call setup() before get_frame()"
 
@@ -64,3 +61,19 @@ class RealsenseCamera(Camera):
         timestamp = realsense_frames.get_timestamp()
 
         return frames, timestamp
+
+
+
+@ir.ironic_system(output_ports=['frame'])
+class RealsenseCameraCS(ir.ControlSystem):
+    def __init__(self, camera: RealsenseCamera):
+        super().__init__()
+        self.camera = camera
+
+    async def setup(self):
+        self.camera.setup()
+
+    async def step(self):
+        frame, timestamp = self.camera.get_frame()
+        await self.outs.frame.write(ir.Message(data=frame, timestamp=timestamp))
+        return ir.State.ALIVE

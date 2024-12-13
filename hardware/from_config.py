@@ -2,8 +2,6 @@ from typing import Dict
 
 from omegaconf import DictConfig
 
-from hardware.camera.system import CameraCS
-
 import ironic as ir
 
 def add_image_mapping(mapping: Dict[str, str], camera: ir.ControlSystem):
@@ -15,7 +13,7 @@ def add_image_mapping(mapping: Dict[str, str], camera: ir.ControlSystem):
     return ir.compose(camera, map_system, outputs={'frame': (map_system, 'output')})
 
 def sl_camera(cfg: DictConfig):
-    from hardware.camera.sl_camera import SLCamera
+    from hardware.camera.sl import SLCamera
     import pyzed.sl as sl
 
     view = getattr(sl.VIEW, cfg.view)
@@ -39,10 +37,10 @@ def sl_camera(cfg: DictConfig):
 
 
 def realsense_camera(cfg: DictConfig):
-    from hardware.camera.realsense import RealsenseCamera
+    from hardware.camera.realsense import RealsenseCamera, RealsenseCameraCS
 
 
-    camera = CameraCS(RealsenseCamera(
+    camera = RealsenseCameraCS(RealsenseCamera(
         resolution=cfg.resolution,
         fps=cfg.fps,
         enable_color=cfg.enable_color,

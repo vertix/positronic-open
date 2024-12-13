@@ -7,7 +7,6 @@ from omegaconf import DictConfig
 import rerun as rr
 
 import hardware
-from hardware.camera import sl_camera
 import ironic as ir
 from hardware import Franka, DHGripper
 from inference import Inference
