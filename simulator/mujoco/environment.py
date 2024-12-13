@@ -4,7 +4,7 @@ from hardware import RobotState
 from ironic.utils import Throttler
 import ironic as ir
 from geom import Transform3D
-from simulator.mujoco.sim import CompositeMetricCalculator, InverseKinematics, MetricCalculator, MujocoRenderer, MujocoSimulator
+from simulator.mujoco.sim import CompositeMujocoMetricCalculator, InverseKinematics, MujocoMetricCalculator, MujocoRenderer, MujocoSimulator
 
 
 @ir.ironic_system(
@@ -27,7 +27,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
             render_rate: float = 1 / 60,
             renderer: Optional[MujocoRenderer] = None,
             inverse_kinematics: Optional[InverseKinematics] = None,
-            metric_calculators: Optional[Sequence[MetricCalculator]] = None,
+            metric_calculators: Optional[Sequence[MujocoMetricCalculator]] = None,
     ):
         super().__init__()
         self.simulator = simulator
@@ -43,7 +43,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
             self.do_render = lambda: False
 
         self.inverse_kinematics = inverse_kinematics
-        self.metric_calculator = CompositeMetricCalculator(metric_calculators or [])
+        self.metric_calculator = CompositeMujocoMetricCalculator(metric_calculators or [])
 
     @ir.out_property
     async def robot_position(self):

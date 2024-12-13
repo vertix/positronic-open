@@ -16,23 +16,30 @@ def xmat_to_quat(xmat):
     return site_quat
 
 
-class MetricCalculator(abc.ABC):
-    def __init__(self, grace_time: Optional[float] = 0.2):
+class MujocoMetricCalculator(abc.ABC):
+    def __init__(
+            self,
+            model: mujoco.MjModel,
+            data: mujoco.MjData,
+            grace_time: Optional[float] = 0.2,
+    ):
+        self.model = model
+        self.data = data
         self.grace_time = grace_time
 
     @abc.abstractmethod
-    def initialize(self, model: mujoco.MjModel, data: mujoco.MjData):
+    def initialize(self):
         pass
 
     @abc.abstractmethod
-    def _update(self, model: mujoco.MjModel, data: mujoco.MjData) -> Dict[str, float]:
+    def _update(self) -> Dict[str, float]:
         pass
 
-    def update(self, model: mujoco.MjModel, data: mujoco.MjData):
-        if self.grace_time is not None and data.time < self.grace_time:
-            self.initialize(model, data)
+    def update(self):
+        if self.grace_time is not None and self.data.time < self.grace_time:
+            self.initialize()
             return
-        self._update(model, data)
+        self._update()
 
     @abc.abstractmethod
     def get_metrics(self) -> Dict[str, float]:
@@ -43,18 +50,18 @@ class MetricCalculator(abc.ABC):
         pass
 
 
-class CompositeMetricCalculator(MetricCalculator):
-    def __init__(self, metric_calculators: Sequence[MetricCalculator]):
+class CompositeMujocoMetricCalculator(MujocoMetricCalculator):
+    def __init__(self, metric_calculators: Sequence[MujocoMetricCalculator]):
         super().__init__()
         self.metric_calculators = metric_calculators
 
-    def initialize(self, model: mujoco.MjModel, data: mujoco.MjData):
+    def initialize(self):
         for calculator in self.metric_calculators:
-            calculator.initialize(model, data)
+            calculator.initialize()
 
-    def _update(self, model: mujoco.MjModel, data: mujoco.MjData):
+    def _update(self):
         for calculator in self.metric_calculators:
-            calculator.update(model, data)
+            calculator.update()
 
     def get_metrics(self) -> Dict[str, float]:
         metrics = {}
