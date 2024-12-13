@@ -30,17 +30,15 @@ class RerunVisualiser(ir.ControlSystem):
         if 'image' in frames:
             rr.log("camera/rgb", rr.Image(frames['image']).compress())
 
-        # # Handle depth image
-        # if 'depth' in frames:
-        #     # Convert depth to meters for better visualization
-        #     depth_m = frames['depth'].astype(np.float32) / 1000.0
-        #     rr.log("camera/depth", rr.Image(depth_m).compress())
+        if 'depth' in frames:
+            # Convert depth to meters for better visualization
+            depth_m = frames['depth'].astype(np.float32) / 1000.0
+            rr.log("camera/depth", rr.Image(depth_m))
 
-        # Handle infrared images
-        # if 'infrared_1' in frames:
-        #     rr.log("camera/infrared_1", rr.Image(frames['infrared_1']).compress())
-        # if 'infrared_2' in frames:
-        #     rr.log("camera/infrared_2", rr.Image(frames['infrared_2']).compress())
+        if 'infrared_1' in frames:
+            rr.log("camera/infrared_1", rr.Image(frames['infrared_1']).compress())
+        if 'infrared_2' in frames:
+            rr.log("camera/infrared_2", rr.Image(frames['infrared_2']).compress())
 
         ee_force = np.array((await self.ins.ext_force_ee()).data)
 

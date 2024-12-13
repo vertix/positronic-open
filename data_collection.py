@@ -1,10 +1,8 @@
 import asyncio
-from dataclasses import dataclass, field, MISSING
 import logging
 from typing import List
 
 import hydra
-from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig
 
 from hardware import from_config
@@ -58,15 +56,6 @@ async def main_async(cfg: DictConfig):
     hardware, md = from_config.robot_setup(cfg.hardware)
     metadata.update(md)
 
-    # Add visualizer
-    visualizer = RerunVisualiser()
-    visualizer.bind(
-        frame=hardware.outs.frame,
-        ext_force_ee=hardware.outs.ext_force_ee,
-        ext_force_base=hardware.outs.ext_force_base,
-        robot_position=hardware.outs.robot_position
-    )
-
     control.bind(
         robot_grip=hardware.outs.grip,
         robot_position=hardware.outs.robot_position,
@@ -82,7 +71,16 @@ async def main_async(cfg: DictConfig):
     components: List[ir.ControlSystem] = []
     components.append(control)
     components.append(hardware)
-    components.append(visualizer)  # Add visualizer to components
+
+    if cfg.rerun is not None:
+        visualizer = RerunVisualiser()
+        visualizer.bind(
+            frame=hardware.outs.frame,
+            ext_force_ee=hardware.outs.ext_force_ee,
+            ext_force_base=hardware.outs.ext_force_base,
+            robot_position=hardware.outs.robot_position
+        )
+        components.append(visualizer)  # Add visualizer to components
 
     # Setup data collection if enabled
     if cfg.data_output_dir is not None:
