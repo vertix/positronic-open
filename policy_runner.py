@@ -8,7 +8,7 @@ import rerun as rr
 
 import hardware
 import ironic as ir
-from hardware import Franka, DHGripper, sl_camera
+from hardware import Franka, DHGripper
 from inference import Inference
 
 logging.basicConfig(level=logging.INFO,
