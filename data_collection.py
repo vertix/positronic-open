@@ -14,6 +14,7 @@ from teleop import TeleopSystem
 from tools.dataset_dumper import DatasetDumper
 from webxr import WebXR
 from simulator.mujoco.mujoco_gui import DearpyguiUi
+from tools.rerun_vis import RerunVisualiser
 
 logging.basicConfig(level=logging.INFO,
                     handlers=[logging.StreamHandler()])
@@ -57,6 +58,15 @@ async def main_async(cfg: DictConfig):
     hardware, md = from_config.robot_setup(cfg.hardware)
     metadata.update(md)
 
+    # Add visualizer
+    visualizer = RerunVisualiser()
+    visualizer.bind(
+        frame=hardware.outs.frame,
+        ext_force_ee=hardware.outs.ext_force_ee,
+        ext_force_base=hardware.outs.ext_force_base,
+        robot_position=hardware.outs.robot_position
+    )
+
     control.bind(
         robot_grip=hardware.outs.grip,
         robot_position=hardware.outs.robot_position,
@@ -72,6 +82,7 @@ async def main_async(cfg: DictConfig):
     components: List[ir.ControlSystem] = []
     components.append(control)
     components.append(hardware)
+    components.append(visualizer)  # Add visualizer to components
 
     # Setup data collection if enabled
     if cfg.data_output_dir is not None:
