@@ -7,14 +7,14 @@ def main(cfg: DictConfig):
     robot = franky.Robot(cfg.ip, realtime_config=franky.RealtimeConfig.Ignore)
     robot.relative_dynamics_factor = cfg.relative_dynamics_factor
     robot.set_collision_behavior(
-        [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-        [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-        [30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
-        [30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
-        [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-        [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
-        [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
-        [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
+        [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        [100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
     )
 
     robot.recover_from_errors()
@@ -23,14 +23,21 @@ def main(cfg: DictConfig):
     last_q = robot.state.q
     for target in cfg.targets:
         if "joints" in target:
-            waypoints.append(franky.JointWaypoint(target.joints))
-        elif "translation" in target:
-            pos = franky.Affine(translation=target.translation, quaternion=target.quaternion)
+            robot.move(franky.JointMotion(target.joints))
+        elif "ik" in target:
+            pos = franky.Affine(translation=target.ik.translation, quaternion=target.ik.quaternion)
             q = robot.inverse_kinematics(pos, last_q)
-            waypoints.append(franky.JointWaypoint(q))
+            robot.move(franky.JointMotion(q))
             last_q = q
+        elif "impedance" in target:
+            pos = franky.Affine(translation=target.impedance.translation, quaternion=target.impedance.quaternion)
+            # robot.move(franky.ExponentialImpedanceMotion(pos))
+            kwargs = {}
+            if 'impedance' in target:
+                kwargs['translational_stiffness'] = target.impedance.stiffness.translational
+                kwargs['rotational_stiffness'] = target.impedance.stiffness.rotational
+            robot.move(franky.CartesianImpedanceMotion(pos, duration=target.impedance.duration, return_when_finished=False, finish_wait_factor=10, **kwargs))
 
-    robot.move(franky.JointWaypointMotion(waypoints))
     print(robot.current_pose.end_effector_pose)
 
 
