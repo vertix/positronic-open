@@ -1,3 +1,3 @@
-from ._franka_control import VERSION
+from ._franka_control import VERSION, Controller
 
-__all__ = ['VERSION']
+__all__ = ['VERSION', 'Controller']
