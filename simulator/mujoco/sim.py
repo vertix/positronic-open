@@ -1,3 +1,4 @@
+import abc
 from typing import Dict, Optional, Sequence, Tuple
 
 import mujoco
@@ -14,6 +15,63 @@ def xmat_to_quat(xmat):
     mujoco.mju_mat2Quat(site_quat, xmat)
     return site_quat
 
+
+class MujocoMetricCalculator(abc.ABC):
+    def __init__(
+            self,
+            model: mujoco.MjModel,
+            data: mujoco.MjData,
+            grace_time: Optional[float] = 0.2,
+    ):
+        self.model = model
+        self.data = data
+        self.grace_time = grace_time
+
+    @abc.abstractmethod
+    def initialize(self):
+        pass
+
+    @abc.abstractmethod
+    def _update(self) -> Dict[str, float]:
+        pass
+
+    def update(self):
+        if self.grace_time is not None and self.data.time < self.grace_time:
+            self.initialize()
+            return
+        self._update()
+
+    @abc.abstractmethod
+    def get_metrics(self) -> Dict[str, float]:
+        pass
+
+    @abc.abstractmethod
+    def reset(self):
+        pass
+
+
+class CompositeMujocoMetricCalculator(MujocoMetricCalculator):
+    def __init__(self, metric_calculators: Sequence[MujocoMetricCalculator]):
+        super().__init__()
+        self.metric_calculators = metric_calculators
+
+    def initialize(self):
+        for calculator in self.metric_calculators:
+            calculator.initialize()
+
+    def _update(self):
+        for calculator in self.metric_calculators:
+            calculator.update()
+
+    def get_metrics(self) -> Dict[str, float]:
+        metrics = {}
+        for calculator in self.metric_calculators:
+            metrics.update(calculator.get_metrics())
+        return metrics
+
+    def reset(self):
+        for calculator in self.metric_calculators:
+            calculator.reset()
 
 
 class InverseKinematics:
@@ -118,7 +176,6 @@ class MujocoSimulator:
         self.data.actuator('actuator8').ctrl = grip
 
 
-
 class MujocoRenderer:
     def __init__(
             self,
@@ -160,4 +217,3 @@ class MujocoRenderer:
 
     def close(self):
         self.renderer.close()
-
