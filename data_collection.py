@@ -5,14 +5,9 @@ from typing import List
 import hydra
 from omegaconf import DictConfig
 
-from hardware import from_config
-
 import ironic as ir
-from teleop import TeleopSystem
+from hardware import from_config
 from tools.dataset_dumper import DatasetDumper
-from webxr import WebXR
-from simulator.mujoco.mujoco_gui import DearpyguiUi
-from tools.rerun_vis import RerunVisualiser
 
 logging.basicConfig(level=logging.INFO,
                     handlers=[logging.StreamHandler()])
@@ -20,6 +15,9 @@ logging.basicConfig(level=logging.INFO,
 
 def setup_interface(cfg: DictConfig):
     if cfg.type == 'teleop':
+        from webxr import WebXR
+        from teleop import TeleopSystem
+
         components, inputs, outputs = [], {}, {}
         webxr = WebXR(port=cfg.webxr.port)
         components.append(webxr)
@@ -43,6 +41,8 @@ def setup_interface(cfg: DictConfig):
         outputs['reset'] = (teleop, 'stop_tracking')  # Reset robot when stop tracking
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'gui':
+        from simulator.mujoco.mujoco_gui import DearpyguiUi
+
         return DearpyguiUi(cfg.mujoco.camera_names), {}
     else:
         raise ValueError(f"Invalid control type: {cfg.type}")
@@ -72,7 +72,9 @@ async def main_async(cfg: DictConfig):
     components.append(control)
     components.append(hardware)
 
-    if cfg.rerun:
+    if cfg.get('rerun'):
+        from tools.rerun_vis import RerunVisualiser
+
         visualizer = RerunVisualiser()
         visualizer.bind(
             frame=hardware.outs.frame,

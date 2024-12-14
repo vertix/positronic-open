@@ -5,11 +5,11 @@ from typing import Dict, Tuple
 import ironic as ir
 
 
-def wxyz_to_xyzw(wxyz: np.ndarray) -> np.ndarray:
+def _wxyz_to_xyzw(wxyz: np.ndarray) -> np.ndarray:
     return np.array([wxyz[1], wxyz[2], wxyz[3], wxyz[0]])
 
 
-def depth_image_to_uint8(depth_image: np.ndarray, depth_range_m: Tuple[float, float]) -> np.ndarray:
+def _depth_image_to_uint8(depth_image: np.ndarray, depth_range_m: Tuple[float, float]) -> np.ndarray:
     depth_image = depth_image.astype(np.float32)
     depth_image = (depth_image - depth_range_m[0]) / (depth_range_m[1] - depth_range_m[0])
     depth_image = np.clip(depth_image, 0.0, 1.0)
@@ -44,7 +44,7 @@ class RerunVisualiser(ir.ControlSystem):
 
         if 'depth' in frames:
             depth_m = frames['depth']
-            depth_m = depth_image_to_uint8(depth_m, self.depth_image_range_m)
+            depth_m = _depth_image_to_uint8(depth_m, self.depth_image_range_m)
             rr.log("camera/depth", rr.Image(depth_m).compress())
 
         if 'infrared_1' in frames:
@@ -66,7 +66,7 @@ class RerunVisualiser(ir.ControlSystem):
         robot_position = (await self.ins.robot_position()).data
         rr_robot_position = rr.Transform3D(
             translation=robot_position.translation.copy(),
-            rotation=rr.Quaternion(xyzw=wxyz_to_xyzw(robot_position.quaternion))
+            rotation=rr.Quaternion(xyzw=_wxyz_to_xyzw(robot_position.quaternion))
         )
         rr.log("robot/position", rr_robot_position)
         rr.log("robot/ee_force", rr.Arrows3D(
