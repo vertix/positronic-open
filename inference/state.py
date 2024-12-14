@@ -14,8 +14,8 @@ class ImageEncodingConfig:
 
 @dataclass
 class StateEncodingConfig:
-    images: List[ImageEncodingConfig] = field(default_factory=list)
     state_output_key: str
+    images: List[ImageEncodingConfig] = field(default_factory=list)
     state: List[str] = field(default_factory=list)
 
 ConfigStore.instance().store(name="state", node=StateEncodingConfig)
