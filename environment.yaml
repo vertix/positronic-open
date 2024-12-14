@@ -25,6 +25,7 @@ dependencies:
   - pip
   - pip:
     - click
+    - cmake-build-extension
     - dearpygui
     - fire
     - hydra-colorlog
