@@ -68,11 +68,14 @@ class ActionDecoder:
 def rerun_log_observation(ts, obs):
     rr.set_time_seconds('time', ts)
 
-    def log_image(name, tensor):
+    def log_image(name, tensor, compress = True):
         tensor = tensor.squeeze(0)
         tensor = (tensor * 255).type(torch.uint8)
         tensor = tensor.permute(1, 2, 0).cpu().numpy()
-        rr.log(name, rr.Image(tensor))
+        rr_img = rr.Image(tensor)
+        if compress:
+            rr_img = rr_img.compress()
+        rr.log(name, rr_img)
 
     log_image("observation.images.left", obs['observation.images.left'])
     log_image("observation.images.right", obs['observation.images.right'])
