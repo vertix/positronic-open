@@ -5,21 +5,11 @@ import rerun as rr
 from tqdm import tqdm
 
 from simulator.mujoco.sim import InverseKinematics, MujocoRenderer, MujocoSimulator
-from lerobot.common.policies.act.modeling_act import ACTPolicy, ACTTemporalEnsembler
 from inference.action import ActionDecoder
 from inference.state import StateEncoder
+from inference.policy import get_policy
 from inference.inference import rerun_log_action, rerun_log_observation
 
-
-def get_policy(checkpoint_path: str, use_temporal_ensembler: bool = False):
-    policy = ACTPolicy.from_pretrained(checkpoint_path)
-
-    if use_temporal_ensembler:
-        policy.config.n_action_steps = 1
-        policy.config.temporal_ensemble_coeff = 0.01
-        policy.temporal_ensembler = ACTTemporalEnsembler(0.01, policy.config.chunk_size)
-
-    return policy
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="sync_policy_runner")
@@ -45,7 +35,7 @@ def main(cfg: DictConfig):
     simulator.reset()
 
     # Initialize policy and encoders
-    policy = get_policy(cfg.inference.checkpoint_path, cfg.inference.use_temporal_ensembler)
+    policy = get_policy(cfg.inference.checkpoint_path, cfg.get('policy_args', {}))
     policy.to(cfg.inference.device)
     state_encoder = StateEncoder(hydra.utils.instantiate(cfg.inference.state))
     action_decoder = ActionDecoder(cfg.inference.action)
@@ -60,6 +50,9 @@ def main(cfg: DictConfig):
         if i % render_hz == 0:
             rr.set_time_seconds('time', simulator.ts_sec)
             images = renderer.render()
+
+            if cfg.image_name_mapping:
+                images = {f"image.{k}": images[v] for k, v in cfg.image_name_mapping.items()}
 
             # Encode state
             inputs = {

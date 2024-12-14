@@ -1,0 +1,32 @@
+defaults:
+  - state: tqg_352x192
+  - action: baseline
+  - mujoco: franka
+  - _self_
+
+rerun: null
+
+inference:
+  checkpoint_path: ???
+  device: cuda
+
+  inference_time_sec: 10
+
+  state: ${state}
+  action: ${action}
+
+  rerun: true
+
+policy_args:
+  use_temporal_ensembler: false
+
+image_name_mapping:
+  left: handcam_left
+  right: handcam_right
+
+mujoco:
+  camera_names:
+    - handcam_left
+    - handcam_right
+    - side_view
+    - table_view
