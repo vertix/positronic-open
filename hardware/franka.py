@@ -29,7 +29,8 @@ class Franka(ir.ControlSystem):
         self.robot.relative_dynamics_factor = relative_dynamics_factor
         if collision_behavior is not None:
             self.robot.set_collision_behavior(*collision_behavior)
-
+        self.robot.set_cartesian_impedance([150, 150, 150, 30, 30, 30])
+        self.robot.set_joint_impedance([150] * 7)
         self.home_joints_config = home_joints_config or [0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785]
         self.cartesian_mode = cartesian_mode
         self.last_q = None
