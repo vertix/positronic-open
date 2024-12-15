@@ -29,7 +29,7 @@ def _set_image_uint8_to_float32(target, source):
 
 def gen_fn(model_path):
     # TODO: robosuite's OpenGL is conflicting with dearpygui's OpenGL, so we need to run this in a separate process
-    from simulator.mujoco.scene_builder import construct_scene
+    from simulator.mujoco.scene.scene_builder import construct_scene
     construct_scene(model_path)
 
 
