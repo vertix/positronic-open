@@ -60,6 +60,7 @@ class SerialDumper:
 
         for k, v in self.data.items():
             self.data[k] = torch.from_numpy(np.array(v))
+
             if n_frames is None:
                 n_frames = len(self.data[k])
                 tensor_key = k
