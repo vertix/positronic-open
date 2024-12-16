@@ -80,9 +80,10 @@ async def main_async(cfg: DictConfig):
         visualizer = RerunVisualiser()
         visualizer.bind(
             frame=hardware.outs.frame,
+            new_recording=control.outs.start_recording,
             ext_force_ee=hardware.outs.ext_force_ee,
             ext_force_base=hardware.outs.ext_force_base,
-            robot_position=hardware.outs.robot_position
+            robot_position=hardware.outs.robot_position,
         )
         components.append(visualizer)  # Add visualizer to components
 
