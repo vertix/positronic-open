@@ -39,11 +39,11 @@ class TeleopSystem(ir.ControlSystem):
 
         self.fps = ir.utils.FPSCounter("Teleop")
         self.prev_buttons = {
-            'A': False,
-            'B': False,
-            'trigger': False,
-            'thumb': False,
-            'stick': False
+            'A': 0,
+            'B': 0,
+            'trigger': 0,
+            'thumb': 0,
+            'stick': 0
         }
 
     @classmethod
@@ -61,24 +61,24 @@ class TeleopSystem(ir.ControlSystem):
 
 
     @staticmethod
-    def _parse_buttons(value: List[float]) -> Dict[str, bool]:
+    def _parse_buttons(value: List[float]) -> Dict[str, float]:
         if len(value) > 6:
             but = {
-                'A': value[4] > 0,
-                'B': value[5] > 0,
-                'trigger': value[0] > 0,
-                'thumb': value[1] > 0,
-                'stick': value[3] > 0
+                'A': value[4],
+                'B': value[5],
+                'trigger': value[0],
+                'thumb': value[1],
+                'stick': value[3]
             }
         else:
-            but = {'A': False, 'B': False, 'trigger': False, 'thumb': False, 'stick': False}
+            but = {'A': 0, 'B': 0, 'trigger': 0, 'thumb': 0, 'stick': 0}
         return but
 
-    def _get_pressed_buttons(self, value: List[float]) -> Dict[str, bool]:
+    def _get_pressed_buttons(self, value: List[float]) -> Tuple[Dict[str, bool], Dict[str, float]]:
         current_buttons = self._parse_buttons(value)
-        pressed_buttons = {k: v and not self.prev_buttons[k] for k, v in current_buttons.items()}
+        just_pressed_buttons = {k: v > 0 and self.prev_buttons[k] == 0 for k, v in current_buttons.items()}
         self.prev_buttons = current_buttons
-        return pressed_buttons
+        return just_pressed_buttons, current_buttons
 
     @ir.on_message("teleop_transform")
     async def handle_teleop_transform(self, message: ir.Message):
@@ -94,12 +94,13 @@ class TeleopSystem(ir.ControlSystem):
 
     @ir.on_message("teleop_buttons")
     async def handle_teleop_buttons(self, message: ir.Message):
-        buttons = self._get_pressed_buttons(message.data)
+        just_pressed_buttons, current_buttons = self._get_pressed_buttons(message.data)
 
-        track_but = buttons['A']
-        record_but = buttons['B']
-        grasp_but = buttons['trigger']
-        reset_but = buttons['stick']
+        track_but = just_pressed_buttons['A']
+        record_but = just_pressed_buttons['B']
+        reset_but = just_pressed_buttons['stick']
+
+        grasp_but = current_buttons['trigger']
 
         if self.is_tracking:
             await self.outs.gripper_target_grasp.write(ir.Message(grasp_but, message.timestamp))
@@ -143,6 +144,7 @@ class TeleopSystem(ir.ControlSystem):
             logging.info('Started recording')
             self.is_recording = True
             await self.outs.start_recording.write(ir.Message(None, timestamp))
+
 
 @hydra.main(version_base=None, config_path="configs", config_name="teleop")
 def main(cfg: DictConfig):
