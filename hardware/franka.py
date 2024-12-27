@@ -143,6 +143,9 @@ class Franka(ir.ControlSystem):
 
     @ir.on_message('target_grip')
     async def handle_target_grip(self, message: ir.Message):
+        if self.gripper is None:
+            return
+
         if self._gripper_grasped:
             if message.data < 0.33:
                 self.gripper.open(self.gripper_speed)

@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import hydra
@@ -20,14 +20,31 @@ logging.basicConfig(level=logging.INFO,
 
 @ir.ironic_system(input_ports=["teleop_transform", "teleop_buttons"],
                   input_props=["robot_position"],
-                  output_ports=["robot_target_position", "gripper_target_grasp", "start_tracking", "stop_tracking"])
+                  output_ports=[
+                      "robot_target_position",
+                      "gripper_target_grasp",
+                      "start_tracking",
+                      "stop_tracking",
+                      "start_recording",
+                      "stop_recording",
+                      "reset"
+                  ])
 class TeleopSystem(ir.ControlSystem):
     def __init__(self):
         super().__init__()
         self.teleop_t = None
         self.offset = None
         self.is_tracking = False
+        self.is_recording = False
+
         self.fps = ir.utils.FPSCounter("Teleop")
+        self.prev_buttons = {
+            'A': 0,
+            'B': 0,
+            'trigger': 0,
+            'thumb': 0,
+            'stick': 0
+        }
 
     @classmethod
     def _parse_position(cls, value: Transform3D) -> Transform3D:
@@ -42,13 +59,26 @@ class TeleopSystem(ir.ControlSystem):
         res_quat = Quaternion(-res_quat[0], res_quat[1], res_quat[2], res_quat[3])
         return Transform3D(pos, res_quat)
 
-    @classmethod
-    def _parse_buttons(cls, value: List[float]) -> Tuple[float, float, float]:
+
+    @staticmethod
+    def _parse_buttons(value: List[float]) -> Dict[str, float]:
         if len(value) > 6:
-            but = value[4], value[5], value[0]
+            but = {
+                'A': value[4],
+                'B': value[5],
+                'trigger': value[0],
+                'thumb': value[1],
+                'stick': value[3]
+            }
         else:
-            but = 0., 0., 0.
+            but = {'A': 0, 'B': 0, 'trigger': 0, 'thumb': 0, 'stick': 0}
         return but
+
+    def _get_pressed_buttons(self, value: List[float]) -> Tuple[Dict[str, bool], Dict[str, float]]:
+        current_buttons = self._parse_buttons(value)
+        just_pressed_buttons = {k: v > 0 and self.prev_buttons[k] == 0 for k, v in current_buttons.items()}
+        self.prev_buttons = current_buttons
+        return just_pressed_buttons, current_buttons
 
     @ir.on_message("teleop_transform")
     async def handle_teleop_transform(self, message: ir.Message):
@@ -64,29 +94,56 @@ class TeleopSystem(ir.ControlSystem):
 
     @ir.on_message("teleop_buttons")
     async def handle_teleop_buttons(self, message: ir.Message):
-        track_but, untrack_but, grasp_but = self._parse_buttons(message.data)
+        just_pressed_buttons, current_buttons = self._get_pressed_buttons(message.data)
+
+        track_but = just_pressed_buttons['A']
+        record_but = just_pressed_buttons['B']
+        reset_but = just_pressed_buttons['stick']
+
+        grasp_but = current_buttons['trigger']
 
         if self.is_tracking:
             await self.outs.gripper_target_grasp.write(ir.Message(grasp_but, message.timestamp))
 
         if track_but:
-            # Note that translation and rotation offsets are independent
-            if self.teleop_t is not None:
-                robot_t = (await self.ins.robot_position()).data
-                self.offset = Transform3D(
-                    -self.teleop_t.translation + robot_t.translation,
-                    self.teleop_t.quaternion.inv * robot_t.quaternion
-                )
-            if not self.is_tracking:
-                logging.info('Started tracking')
-                self.is_tracking = True
-                await self.outs.start_tracking.write(ir.Message(None, message.timestamp))
-        elif untrack_but:
+            await self._switch_tracking(message.timestamp)
+
+        if record_but:
+            await self._switch_recording(message.timestamp)
+
+        if reset_but:
+            await self.outs.reset.write(ir.Message(None, message.timestamp))
             if self.is_tracking:
-                logging.info('Stopped tracking')
-                self.is_tracking = False
-                self.offset = None
-                await self.outs.stop_tracking.write(ir.Message(None, message.timestamp))
+                await self._switch_tracking(message.timestamp)
+            if self.is_recording:
+                await self._switch_recording(message.timestamp)
+
+    async def _switch_tracking(self, timestamp: int):
+        # Note that translation and rotation offsets are independent
+        if self.teleop_t is not None:
+            robot_t = (await self.ins.robot_position()).data
+            self.offset = Transform3D(
+                -self.teleop_t.translation + robot_t.translation,
+                self.teleop_t.quaternion.inv * robot_t.quaternion
+            )
+        if self.is_tracking:
+            logging.info('Stopped tracking')
+            self.is_tracking = False
+            await self.outs.stop_tracking.write(ir.Message(None, timestamp))
+        else:
+            logging.info('Started tracking')
+            self.is_tracking = True
+            await self.outs.start_tracking.write(ir.Message(None, timestamp))
+
+    async def _switch_recording(self, timestamp: int):
+        if self.is_recording:
+            logging.info('Stopped recording')
+            self.is_recording = False
+            await self.outs.stop_recording.write(ir.Message(None, timestamp))
+        else:
+            logging.info('Started recording')
+            self.is_recording = True
+            await self.outs.start_recording.write(ir.Message(None, timestamp))
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="teleop")

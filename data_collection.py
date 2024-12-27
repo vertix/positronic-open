@@ -38,7 +38,9 @@ def setup_interface(cfg: DictConfig):
         outputs['gripper_target_grasp'] = (teleop, 'gripper_target_grasp')
         outputs['start_tracking'] = (teleop, 'start_tracking')
         outputs['stop_tracking'] = (teleop, 'stop_tracking')
-        outputs['reset'] = (teleop, 'stop_tracking')  # Reset robot when stop tracking
+        outputs['start_recording'] = (teleop, 'start_recording')
+        outputs['stop_recording'] = (teleop, 'stop_recording')
+        outputs['reset'] = (teleop, 'reset')
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'gui':
         from simulator.mujoco.mujoco_gui import DearpyguiUi
@@ -78,9 +80,10 @@ async def main_async(cfg: DictConfig):
         visualizer = RerunVisualiser()
         visualizer.bind(
             frame=hardware.outs.frame,
+            new_recording=control.outs.start_recording,
             ext_force_ee=hardware.outs.ext_force_ee,
             ext_force_base=hardware.outs.ext_force_base,
-            robot_position=hardware.outs.robot_position
+            robot_position=hardware.outs.robot_position,
         )
         components.append(visualizer)  # Add visualizer to components
 
@@ -96,14 +99,15 @@ async def main_async(cfg: DictConfig):
         )
 
         data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=metadata)
+
         components.append(
             data_dumper.bind(
                 # TODO: Let user disable images, like in mujoco_gui
                 image=hardware.outs.frame,
                 target_grip=control.outs.gripper_target_grasp,
                 target_robot_position=control.outs.robot_target_position,
-                start_episode=control.outs.start_tracking,
-                end_episode=control.outs.stop_tracking,
+                start_episode=control.outs.start_recording,
+                end_episode=control.outs.stop_recording,
                 robot_data=properties_to_dump,
             )
         )

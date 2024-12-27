@@ -3,7 +3,7 @@ import rerun as rr
 from typing import Dict, Tuple
 
 import ironic as ir
-
+import cv2
 
 def _wxyz_to_xyzw(wxyz: np.ndarray) -> np.ndarray:
     return np.array([wxyz[1], wxyz[2], wxyz[3], wxyz[0]])
@@ -16,21 +16,50 @@ def _depth_image_to_uint8(depth_image: np.ndarray, depth_range_m: Tuple[float, f
     depth_image = (depth_image * 255).astype(np.uint8)
     return depth_image
 
+def _add_crosshair_to_image(image: np.ndarray) -> np.ndarray:
+    image = image.copy()
+    # add vertical and horizontal lines to the image
+    height, width = image.shape[:2]
+    line_thickness = 2
+    line_color = (255, 0, 0)
+    cv2.line(image, (width // 2, 0), (width // 2, height), line_color, line_thickness)
+    cv2.line(image, (0, height // 2), (width, height // 2), line_color, line_thickness)
+
+    # add horizontal line 10% from the bottom of the image
+    sponge_color = (0, 255, 255)
+    cv2.line(image, (0, height - height // 10), (width, height - height // 10), sponge_color, line_thickness)
+    return image
+
+
 @ir.ironic_system(
-    input_ports=['frame'],
+    input_ports=['frame', 'new_recording'],
     input_props=['ext_force_ee', 'ext_force_base', 'robot_position'],
 )
 class RerunVisualiser(ir.ControlSystem):
     """Control system for visualizing data streams using rerun."""
 
-    def __init__(self, depth_image_range_m: Tuple[float, float] = (0.15, 3.0)) -> None:
+    def __init__(
+            self,
+            port: int = 9876,
+            depth_image_range_m: Tuple[float, float] = (0.15, 3.0)
+        ) -> None:
         super().__init__()
         self.depth_image_range_m = depth_image_range_m
         self.recording_id = 0
+        self.port = port
 
     async def setup(self):
         """Initialize rerun recording."""
-        rr.init("Data Collection Visualizer", spawn=True)
+        self.application_id = "Data Collection"
+        rr.init(self.application_id, recording_id=self.recording_id)
+        rr.spawn(memory_limit="50%", port=self.port)
+
+    @ir.on_message('new_recording')
+    async def on_new_recording(self, msg: ir.Message):
+        """Handle new recording message."""
+        self.recording_id += 1
+        rr.new_recording(self.application_id, recording_id=self.recording_id, make_default=True)
+        rr.connect()
 
     @ir.on_message('frame')
     async def on_frame(self, msg: ir.Message):
@@ -40,7 +69,9 @@ class RerunVisualiser(ir.ControlSystem):
 
         # Handle RGB image
         if 'image' in frames:
-            rr.log("camera/rgb", rr.Image(frames['image']).compress())
+            image = frames['image']
+            image = _add_crosshair_to_image(image)
+            rr.log("camera/rgb", rr.Image(image).compress())
 
         if 'depth' in frames:
             depth_m = frames['depth']
