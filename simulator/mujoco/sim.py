@@ -52,7 +52,9 @@ class MujocoMetricCalculator(abc.ABC):
 
 class CompositeMujocoMetricCalculator(MujocoMetricCalculator):
     def __init__(self, metric_calculators: Sequence[MujocoMetricCalculator]):
-        super().__init__()
+        assert len(metric_calculators) > 0, "You must provide at least one metric calculator"
+
+        super().__init__(model=metric_calculators[0].model, data=metric_calculators[0].data)
         self.metric_calculators = metric_calculators
 
     def initialize(self):
