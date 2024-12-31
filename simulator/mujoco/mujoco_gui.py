@@ -342,10 +342,10 @@ async def _main(cfg: DictConfig):
 
     # TODO: make this configurable
     metrics = [
-        metric_calculators.ObjectMovedCalculator(object_name='box_1_main', threshold=0.01),
-        metric_calculators.ObjectDistanceCalculator(object_1='box_0_main', object_2='box_1_main'),
-        metric_calculators.ObjectLiftedTimeCalculator(object_name='box_1_main', threshold=0.01),
-        metric_calculators.ObjectsStackedCalculator(object_1='box_0_main', object_2='box_1_main', velocity_threshold=0.01),
+        metric_calculators.ObjectMovedCalculator(model=model, data=data, object_name='box_1_main', threshold=0.01),
+        metric_calculators.ObjectDistanceCalculator(model=model, data=data, object_1='box_0_main', object_2='box_1_main'),
+        metric_calculators.ObjectLiftedTimeCalculator(model=model, data=data, object_name='box_1_main', threshold=0.01),
+        metric_calculators.ObjectsStackedCalculator(model=model, data=data, object_1='box_0_main', object_2='box_1_main', velocity_threshold=0.01),
     ]
 
     simulator = MujocoSimulator(model=model, data=data, simulation_rate=1 / cfg.mujoco.simulation_hz)

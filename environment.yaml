@@ -10,6 +10,7 @@ dependencies:
   - gxx_linux-64
   # Deps
   - av
+  - evdev
   - fastapi
   - jupyter
   - matplotlib
@@ -37,4 +38,5 @@ dependencies:
     - robosuite
     - websockets
     - yappi
+    - dm_control
 # python /usr/local/zed/get_python_api.py

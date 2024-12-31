@@ -85,7 +85,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
 
     def simulate(self):
         self.simulator.step()
-        self.metric_calculator.update(self.simulator.model, self.simulator.data)
+        self.metric_calculator.update()
 
     async def render(self):
         if self.renderer is not None:
