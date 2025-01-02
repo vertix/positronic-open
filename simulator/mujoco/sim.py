@@ -94,7 +94,6 @@ class InverseKinematics:
             target_quat=target_robot_position.quaternion,
             joint_names=self.joints,
             rot_weight=0.5,
-            # inplace=True,
         )
 
         if result.success:

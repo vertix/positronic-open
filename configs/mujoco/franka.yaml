@@ -1,6 +1,7 @@
 defaults:
-  - loaders: []
   - _self_
+
+loaders: []
 model_path: null
 camera_names:
   - handcam_left
@@ -9,5 +10,3 @@ camera_width: 352
 camera_height: 192
 simulation_hz: 500
 observation_hz: 60
-render_depth: false
-
