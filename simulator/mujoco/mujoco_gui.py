@@ -339,7 +339,7 @@ async def _main(cfg: DictConfig):
 
 
     loaders = hydra.utils.instantiate(cfg.mujoco.loaders)
-    simulator = MujocoSimulator.load_from_xml_path(cfg.mujoco.model_path, simulation_rate=1 / cfg.mujoco.simulation_hz, loaders=loaders)
+    simulator = MujocoSimulator.load_from_xml_path(cfg.mujoco.model_path, simulation_rate=1 / cfg.mujoco.simulation_hz, loaders=loaders, model_suffix='panda_hand')
     renderer = MujocoRenderer(
         model=simulator.model,
         data=simulator.data,

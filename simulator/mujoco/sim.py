@@ -1,4 +1,7 @@
 import abc
+import os
+from pathlib import Path
+import pickle
 from typing import Dict, Optional, Sequence, Tuple
 
 import mujoco
@@ -8,7 +11,7 @@ from dm_control.utils import inverse_kinematics as ik
 
 from ironic.utils import FPSCounter
 from geom import Transform3D
-from simulator.mujoco.scene.loaders import MujocoSceneLoader, load_xml_string
+from simulator.mujoco.scene.transforms import MujocoSceneTransform, load_model_from_spec
 
 
 def xmat_to_quat(xmat):
@@ -108,6 +111,7 @@ class MujocoSimulator:
             model: mujoco.MjModel,
             data: mujoco.MjData,
             simulation_rate: float = 1 / 500,
+            model_suffix: str = '',
     ):
         super().__init__()
         self.model = model
@@ -116,12 +120,13 @@ class MujocoSimulator:
         self.simulation_fps_counter = FPSCounter('Simulation')
         self.pending_actions = []
         self._initial_position = None
-
+        self.model_suffix = model_suffix
+        
     @property
     def robot_position(self):
         return Transform3D(
-            translation=self.data.site('end_effector').xpos.copy(),
-            quaternion=xmat_to_quat(self.data.site('end_effector').xmat.copy())
+            translation=self.data.site(f'end_effector{self.model_suffix}').xpos.copy(),
+            quaternion=xmat_to_quat(self.data.site(f'end_effector{self.model_suffix}').xmat.copy())
         )
 
     @property
@@ -179,20 +184,30 @@ class MujocoSimulator:
         self.data.actuator('actuator8').ctrl = grip
 
     @staticmethod
-    def load_from_xml_path(model_path: str, loaders: Sequence[MujocoSceneLoader] = (), **kwargs) -> 'MujocoSimulator':
+    def load_from_xml_path(model_path: str, asset_dict_path: Optional[str] = None, loaders: Sequence[MujocoSceneTransform] = (), **kwargs) -> 'MujocoSimulator':
         with open(model_path, 'r') as f:
             model_string = f.read()
 
-        model_string = load_xml_string(model_string, loaders)
-        model = mujoco.MjModel.from_xml_string(model_string)
+        if asset_dict_path is not None:
+            with open(asset_dict_path, 'rb') as f:
+                assets = pickle.load(f)
+        else:
+            # load .assets.pkl file if it exists
+            assets_path = Path(model_path).with_suffix('.assets.pkl')
+            if assets_path.exists():
+                with open(assets_path, 'rb') as f:
+                    assets = pickle.load(f)
+            else:
+                assets = None
+
+        model = load_model_from_spec(model_string, assets, loaders)
         data = mujoco.MjData(model)
 
         return MujocoSimulator(model, data, **kwargs)
 
     @staticmethod
-    def load_from_xml_string(model_string: str, loaders: Sequence[MujocoSceneLoader] = (), **kwargs) -> 'MujocoSimulator':
-        model_string = load_xml_string(model_string, loaders)
-        model = mujoco.MjModel.from_xml_string(model_string)
+    def load_from_xml_string(model_string: str, loaders: Sequence[MujocoSceneTransform] = (), **kwargs) -> 'MujocoSimulator':
+        model = load_model_from_spec(model_string, loaders)
         data = mujoco.MjData(model)
 
         return MujocoSimulator(model, data, **kwargs)

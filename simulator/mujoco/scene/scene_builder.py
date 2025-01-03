@@ -1,18 +1,17 @@
 import os
+import pickle
 import random
 import pathlib
-import shutil
-from typing import Tuple, Union
-import xml.etree.ElementTree as ET
+from typing import Any, Dict, Optional, Tuple, Union
 
 import fire
 import numpy as np
+import mujoco
 
 import robosuite
 import robosuite.models
 import robosuite.models.arenas
 from robosuite.models.objects import BoxObject
-import robosuite.models.robots
 
 RANGE_OR_VALUE = Union[float, Tuple[float, float]]
 
@@ -45,24 +44,58 @@ def random_range(value: RANGE_OR_VALUE) -> float:
         raise ValueError(f"Invalid range: {value}")
 
 
+def extract_assets(spec: mujoco.MjSpec, parent_dir: Optional[str] = None) -> Dict[str, Any]:
+
+    def _load_asset_binary(asset, parent_dir: str) -> bytes:
+        asset_path = os.path.join(parent_dir, asset.file)
+        with open(asset_path, 'rb') as f:
+            data = f.read()
+        return data
+
+    assets = {}
+    for texture in spec.textures:
+        if not texture.file:
+            print(f"Skipping texture {texture.file} for {texture.name}")
+            continue
+
+        if not texture.name:
+            texture.name = os.path.splitext(os.path.basename(texture.file))[0]
+
+        texture_name = f"{texture.name}{os.path.splitext(texture.file)[1]}"
+        path = os.path.join(parent_dir, spec.texturedir) if parent_dir else spec.texturedir
+
+        assets[texture_name] = _load_asset_binary(texture, path)
+        print(f"Renaming texture {texture.file} to {texture_name}")
+        texture.file = texture_name
+
+    for mesh in spec.meshes:
+        if not mesh.file:
+            print(f"Skipping mesh {mesh.file} for {mesh.name}")
+            continue
+        if not mesh.name:
+            mesh.name = os.path.splitext(os.path.basename(mesh.file))[0]
+
+        mesh_name = f"{mesh.name}{os.path.splitext(mesh.file)[1]}"
+        path = os.path.join(parent_dir, spec.meshdir) if parent_dir else spec.meshdir
+
+        assets[mesh_name] = _load_asset_binary(mesh, path)
+        print(f"Renaming mesh {mesh.file} to {mesh_name}")
+        mesh.file = mesh_name
+
+    return assets
+
+
 def generate_scene(
-    path: str,
     num_boxes: int = 2,
     table_height: RANGE_OR_VALUE = (0.1, 0.2),
     table_size: Tuple[float, float, float] = (0.4, 0.6, 0.05),
     box_size: RANGE_OR_VALUE = 0.02,
-
-):
+) -> mujoco.MjModel:
     table_height = random_range(table_height)
+    table_offset = (-0.3, 0, table_height)
 
-    table_offset = (
-        -0.3,  # make table closer to robot
-        0,
-        table_height  # make table lower
-    )
-
+    # Create base world with table
     world = robosuite.models.MujocoWorldBase()
-
     mujoco_arena = robosuite.models.arenas.TableArena(
         table_full_size=table_size,
         table_friction=(1, 0.005, 0.0001),
@@ -71,6 +104,7 @@ def generate_scene(
     mujoco_arena.set_origin([0.8, 0, 0])
     world.merge(mujoco_arena)
 
+    # Add boxes
     box_size = random_range(box_size)
     box_pos = []
 
@@ -80,76 +114,68 @@ def generate_scene(
             size=[box_size, box_size, box_size * 0.5],
             rgba=random_color(),
             density=2500,
-
         ).get_obj()
-        tabletop_x, tabletop_y, tabletop_z = mujoco_arena.table_top_abs  # table top midpoint
+        tabletop_x, tabletop_y, tabletop_z = mujoco_arena.table_top_abs
 
-        tabletop_z += box_size / 2  # make box sit on table
+        tabletop_z += box_size / 2
         tabletop_x += random.uniform(-table_size[0] / 2 + box_size, table_size[0] / 2 - box_size * 2)
         tabletop_y += random.uniform(-table_size[1] / 2 + box_size, table_size[1] / 2 - box_size * 2)
 
         object.set('pos', f'{tabletop_x} {tabletop_y} {tabletop_z}')
         world.worldbody.append(object)
-
         box_pos.extend([tabletop_x, tabletop_y, tabletop_z, 1, 0, 0, 0])
 
-    tree = ET.ElementTree(ET.fromstring(world.get_xml()))
-    root = tree.getroot()
+    # Load Panda robot specification as base
+    panda_spec = mujoco.MjSpec.from_file("assets/mujoco/mjx_panda.xml")
+    panda_assets = extract_assets(panda_spec, "assets/mujoco")
 
-    # add robot to scene
-    root.insert(0, ET.Element("include", file="mjx_panda.xml"))
+    # Create temporary spec from the world to merge into Panda spec
+    world_spec = mujoco.MjSpec.from_string(world.get_xml())
+    world_assets = extract_assets(world_spec, "")
 
-    # remove <compiler> section
-    compiler = root.find("compiler")
-    root.remove(compiler)
+    # Adjust lighting
+    world_spec.lights[0].pos = [1.8, 3.0, 1.5]
+    world_spec.lights[0].dir = [-0.2, -0.2, 0]
+    world_spec.lights[0].specular = [0.3, 0.3, 0.3]
+    world_spec.lights[0].directional = 0
+    world_spec.lights[0].castshadow = 0
 
-    # add robot home keyframe
-    home_keyframe = ET.Element("keyframe")
+    # add panda to world
+    origin_site = world_spec.worldbody.add_site(name="origin", pos=[0, 0, 0])
+    origin_site.attach(panda_spec.worldbody, '', 'panda_hand')
+
+    # Add keyframe data
     keyframe_actuator = generate_initial_actuator_values()
+    qpos = keyframe_actuator + [0.04] + box_pos
+    world_spec.add_key(name="home", qpos=qpos, ctrl=keyframe_actuator)
 
-    qpos_str = " ".join(map(str, keyframe_actuator + [0.04] + box_pos))
-    ctrl_str = " ".join(map(str, keyframe_actuator))
-    home_keyframe.append(ET.Element("key", name="home", qpos=qpos_str, ctrl=ctrl_str))
-    root.append(home_keyframe)
+    # Configure visual settings
+    g = getattr(panda_spec.visual, "global")
+    g.azimuth = 120
+    g.elevation = -20
+    g.offwidth = 1920
+    g.offheight = 1080
 
-    # add to <visual>
-    visual = root.find("visual")
-    visual.append(ET.Element("global", azimuth="120", elevation="-20", offwidth="1920", offheight="1080"))
+    asset_dict = {**panda_assets, **world_assets}
+    world_spec.meshdir = "<This spec should be loaded with asset dict>"
+    world_spec.texturedir = "<This spec should be loaded with asset dict>"
 
-    # replace light
-    light = root.find("worldbody/light")
-    light.set("pos", "1.8 3.0 1.5")
-    light.set("dir", "-0.2 -0.2 0")
-    light.set("specular", "0.3 0.3 0.3")
-    light.set("directional", "false")
-    light.set("castshadow", "false")
-
-    tree.write(path)
-
-    return world
-
-def copy_assets(scene_dir: pathlib.Path, source_dir: pathlib.Path = pathlib.Path("assets/mujoco")):
-    """
-    Copy assets from source directory to scene directory.
-
-    Args:
-        scene_dir: Directory to copy assets to.
-        source_dir: Directory to copy assets from.
-    """
-    scene_dir.mkdir(parents=True, exist_ok=True)
-    (scene_dir / "assets").mkdir(parents=True, exist_ok=True)
-
-    # copy assets
-    for file in os.listdir(source_dir / "assets"):
-        shutil.copy(source_dir / "assets" / file, scene_dir / "assets")
-
-    shutil.copy(source_dir / "mjx_panda.xml", scene_dir)
+    return world_spec, asset_dict
 
 
 def construct_scene(scene_path: Union[str, pathlib.Path]):
     scene_path = pathlib.Path(scene_path)
-    copy_assets(scene_path.parent)
-    generate_scene(scene_path)
+    scene_path.parent.mkdir(parents=True, exist_ok=True)
+    spec, assets = generate_scene()
+
+    spec.compile(assets)
+
+    with open(scene_path, "w") as f:
+        f.write(spec.to_xml())
+
+    with open(scene_path.with_suffix(".assets.pkl"), "wb") as f:
+        pickle.dump(assets, f)
+
 
 if __name__ == "__main__":
     fire.Fire(construct_scene)
