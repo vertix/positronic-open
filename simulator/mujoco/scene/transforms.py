@@ -40,10 +40,12 @@ class RecolorObject(MujocoSceneTransform):
 def load_model_from_spec(xml_string: str, assets: Optional[Dict[str, Any]] = None, loaders: Sequence[MujocoSceneTransform] = ()) -> mujoco.MjModel:
     spec = mujoco.MjSpec.from_string(xml_string)
 
+    metadata = {s.name: s.data for s in spec.texts}
+
     for loader in loaders:
         spec = loader.apply(spec)
 
     if assets is None:
         return spec.compile()
 
-    return spec.compile(assets)
+    return spec.compile(assets), metadata

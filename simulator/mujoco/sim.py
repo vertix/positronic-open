@@ -210,14 +210,17 @@ class MujocoSimulator:
             else:
                 assets = None
 
-        model = load_model_from_spec(model_string, assets, loaders)
+        model, metadata = load_model_from_spec(model_string, assets, loaders)
         data = mujoco.MjData(model)
+
+        if 'model_suffix' in metadata:
+            kwargs['model_suffix'] = metadata['model_suffix']
 
         return MujocoSimulator(model, data, **kwargs)
 
     @staticmethod
     def load_from_xml_string(model_string: str, loaders: Sequence[MujocoSceneTransform] = (), **kwargs) -> 'MujocoSimulator':
-        model = load_model_from_spec(model_string, loaders)
+        model, metadata = load_model_from_spec(model_string, loaders)
         data = mujoco.MjData(model)
 
         return MujocoSimulator(model, data, **kwargs)

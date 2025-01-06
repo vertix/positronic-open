@@ -3,12 +3,10 @@ import glob
 import os
 import multiprocessing
 import threading
-import time
 
 from dataclasses import dataclass
 from typing import Sequence
 import hydra
-import mujoco
 import numpy as np
 from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
@@ -339,7 +337,7 @@ async def _main(cfg: DictConfig):
 
 
     loaders = hydra.utils.instantiate(cfg.mujoco.loaders)
-    simulator = MujocoSimulator.load_from_xml_path(cfg.mujoco.model_path, simulation_rate=1 / cfg.mujoco.simulation_hz, loaders=loaders, model_suffix='panda_hand')
+    simulator = MujocoSimulator.load_from_xml_path(cfg.mujoco.model_path, simulation_rate=1 / cfg.mujoco.simulation_hz, loaders=loaders)
     renderer = MujocoRenderer(
         model=simulator.model,
         data=simulator.data,
@@ -385,7 +383,7 @@ async def _main(cfg: DictConfig):
         render_rate=1 / cfg.mujoco.observation_hz,
         renderer=renderer,
         inverse_kinematics=inverse_kinematics,
-        # metric_calculators=metrics,
+        metric_calculators=metrics,
     )
 
     window = DearpyguiUi(cfg.mujoco.camera_names)

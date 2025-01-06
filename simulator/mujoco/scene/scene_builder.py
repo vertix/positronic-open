@@ -45,6 +45,16 @@ def random_range(value: RANGE_OR_VALUE) -> float:
 
 
 def extract_assets(spec: mujoco.MjSpec, parent_dir: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Extract assets from the spec and return a dictionary of asset names to asset data.
+
+    This function is used to create portable mujoco scenes, since original xml files containes
+    paths to assets (sometimes relative to meshdir/texturedir and sometimes absolute).
+
+    args:
+        spec: mujoco.MjSpec to extract assets from
+        parent_dir: directory to prepend to asset paths
+    """
 
     def _load_asset_binary(asset, parent_dir: str) -> bytes:
         asset_path = os.path.join(parent_dir, asset.file)
@@ -55,37 +65,35 @@ def extract_assets(spec: mujoco.MjSpec, parent_dir: Optional[str] = None) -> Dic
     assets = {}
     for texture in spec.textures:
         if not texture.file:
-            print(f"Skipping texture {texture.file} for {texture.name}")
             continue
 
         if not texture.name:
             texture.name = os.path.splitext(os.path.basename(texture.file))[0]
 
-        texture_name = f"{texture.name}{os.path.splitext(texture.file)[1]}"
+        texture_file_ext = os.path.splitext(texture.file)[1]
+        texture_name = f"{texture.name}{texture_file_ext}"
         path = os.path.join(parent_dir, spec.texturedir) if parent_dir else spec.texturedir
 
         assets[texture_name] = _load_asset_binary(texture, path)
-        print(f"Renaming texture {texture.file} to {texture_name}")
         texture.file = texture_name
 
     for mesh in spec.meshes:
         if not mesh.file:
-            print(f"Skipping mesh {mesh.file} for {mesh.name}")
             continue
         if not mesh.name:
             mesh.name = os.path.splitext(os.path.basename(mesh.file))[0]
 
-        mesh_name = f"{mesh.name}{os.path.splitext(mesh.file)[1]}"
+        mesh_file_ext = os.path.splitext(mesh.file)[1]
+        mesh_name = f"{mesh.name}{mesh_file_ext}"
         path = os.path.join(parent_dir, spec.meshdir) if parent_dir else spec.meshdir
 
         assets[mesh_name] = _load_asset_binary(mesh, path)
-        print(f"Renaming mesh {mesh.file} to {mesh_name}")
         mesh.file = mesh_name
 
     return assets
 
 
-# TODO: In theory this could be implemented via series of scene transformations.
+# TODO: In theory this could be implemented via series of scene transformations. But this is a bit of a pain. :_)
 def generate_scene(
     num_boxes: int = 2,
     table_height: RANGE_OR_VALUE = (0.1, 0.2),
@@ -143,13 +151,11 @@ def generate_scene(
 
     # add panda to world
     origin_site = world_spec.worldbody.add_site(name="origin", pos=[0, 0, 0])
-    origin_site.attach(panda_spec.worldbody, '', 'panda_hand')
+    origin_site.attach(panda_spec.worldbody, '', '_ph')  # suffix is required by .attach()
 
     # Add keyframe data
-    # TODO: fix
     keyframe_actuator = generate_initial_actuator_values()
     qpos = box_pos + keyframe_actuator + [0.04]
-    print(qpos)
     world_spec.add_key(name="home", qpos=qpos, ctrl=keyframe_actuator)
 
     # Configure visual settings
@@ -160,8 +166,12 @@ def generate_scene(
     g.offheight = 1080
 
     asset_dict = {**panda_assets, **world_assets}
-    world_spec.meshdir = "<This spec should be loaded with asset dict>"
-    world_spec.texturedir = "<This spec should be loaded with asset dict>"
+
+    world_spec.meshdir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
+    world_spec.texturedir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
+
+    # Using custom texts to store metadata about the model
+    world_spec.add_text(name='model_suffix', data='_ph')
 
     return world_spec, asset_dict
 
