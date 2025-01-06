@@ -1,5 +1,4 @@
 import abc
-import os
 from pathlib import Path
 import pickle
 from typing import Dict, Optional, Sequence, Tuple
@@ -88,7 +87,7 @@ class InverseKinematics:
         self.physics = dm_mujoco.Physics.from_model(data)
         self.model_suffix = model_suffix
         self.joints = [self.name(f'joint{i}') for i in range(1, 8)]
-        self.joint_ids = [model.joint(joint).qposadr.item() for joint in self.joints]
+        self.joint_qpos_ids = [model.joint(joint).qposadr.item() for joint in self.joints]
 
     def name(self, name: str):
         return f'{name}{self.model_suffix}'
@@ -107,7 +106,7 @@ class InverseKinematics:
         )
 
         if result.success:
-            return result.qpos[self.joint_ids]
+            return result.qpos[self.joint_qpos_ids]
         print(f"Failed to calculate IK for {target_robot_position}")
         return None
 
@@ -218,13 +217,6 @@ class MujocoSimulator:
 
         return MujocoSimulator(model, data, **kwargs)
 
-    @staticmethod
-    def load_from_xml_string(model_string: str, loaders: Sequence[MujocoSceneTransform] = (), **kwargs) -> 'MujocoSimulator':
-        model, metadata = load_model_from_spec(model_string, loaders)
-        data = mujoco.MjData(model)
-
-        return MujocoSimulator(model, data, **kwargs)
-
 
 class MujocoRenderer:
     def __init__(
@@ -264,7 +256,6 @@ class MujocoRenderer:
         """
         # in case we have other code which works with OpenGL, we need to initialize the renderer in a separate thread to avoid conflicts
         self.renderer = mujoco.Renderer(self.model, height=self.render_resolution[1], width=self.render_resolution[0])
-
 
     def render(self) -> Dict[str, np.ndarray]:
         assert self.renderer is not None, "You must call initialize() before calling render()"
