@@ -95,9 +95,12 @@ class ObjectsStackedCalculator(MujocoMetricCalculator):
         vel2 = self.data.body(self.object_2).subtree_linvel
         vel2 = np.linalg.norm(vel2)
 
-        obj1_size = self.model.geom_size[self.data.body(self.object_1).id]
+        obj1_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, self.object_1)
+        obj1_size = self.model.geom_size[obj1_geom_id]
         obj1_size = np.linalg.norm(obj1_size)
-        obj2_size = self.model.geom_size[self.data.body(self.object_2).id]
+
+        obj2_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, self.object_2)
+        obj2_size = self.model.geom_size[obj2_geom_id]
         obj2_size = np.linalg.norm(obj2_size)
 
         not_moving = vel1 < self.velocity_threshold and vel2 < self.velocity_threshold
