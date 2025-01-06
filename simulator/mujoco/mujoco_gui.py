@@ -345,8 +345,9 @@ async def _main(cfg: DictConfig):
         data=simulator.data,
         render_resolution=(width, height),
         camera_names=cfg.mujoco.camera_names,
+        model_suffix=simulator.model_suffix,
     )
-    inverse_kinematics = InverseKinematics(data=simulator.data)
+    inverse_kinematics = InverseKinematics(model=simulator.model, data=simulator.data, model_suffix=simulator.model_suffix)
 
     metrics = [
         metric_calculators.ObjectMovedCalculator(
@@ -384,7 +385,7 @@ async def _main(cfg: DictConfig):
         render_rate=1 / cfg.mujoco.observation_hz,
         renderer=renderer,
         inverse_kinematics=inverse_kinematics,
-        metric_calculators=metrics,
+        # metric_calculators=metrics,
     )
 
     window = DearpyguiUi(cfg.mujoco.camera_names)

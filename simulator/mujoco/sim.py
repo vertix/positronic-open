@@ -56,9 +56,11 @@ class MujocoMetricCalculator(abc.ABC):
 
 class CompositeMujocoMetricCalculator(MujocoMetricCalculator):
     def __init__(self, metric_calculators: Sequence[MujocoMetricCalculator]):
-        assert len(metric_calculators) > 0, "You must provide at least one metric calculator"
+        model = metric_calculators[0].model if len(metric_calculators) > 0 else None
+        data = metric_calculators[0].data if len(metric_calculators) > 0 else None
 
-        super().__init__(model=metric_calculators[0].model, data=metric_calculators[0].data)
+        super().__init__(model=model, data=data, grace_time=None)
+
         self.metric_calculators = metric_calculators
 
     def initialize(self):
@@ -81,10 +83,15 @@ class CompositeMujocoMetricCalculator(MujocoMetricCalculator):
 
 
 class InverseKinematics:
-    def __init__(self, data: mujoco.MjData):
+    def __init__(self, model: mujoco.MjModel, data: mujoco.MjData, model_suffix: str = ''):
         super().__init__()
-        self.joints = [f'joint{i}' for i in range(1, 8)]
         self.physics = dm_mujoco.Physics.from_model(data)
+        self.model_suffix = model_suffix
+        self.joints = [self.name(f'joint{i}') for i in range(1, 8)]
+        self.joint_ids = [model.joint(joint).qposadr.item() for joint in self.joints]
+
+    def name(self, name: str):
+        return f'{name}{self.model_suffix}'
 
     def recalculate_ik(self, target_robot_position: Transform3D) -> Optional[np.ndarray]:
         """
@@ -92,7 +99,7 @@ class InverseKinematics:
         """
         result = ik.qpos_from_site_pose(
             physics=self.physics,
-            site_name='end_effector',
+            site_name=self.name('end_effector'),
             target_pos=target_robot_position.translation,
             target_quat=target_robot_position.quaternion,
             joint_names=self.joints,
@@ -100,7 +107,7 @@ class InverseKinematics:
         )
 
         if result.success:
-            return result.qpos[:7]
+            return result.qpos[self.joint_ids]
         print(f"Failed to calculate IK for {target_robot_position}")
         return None
 
@@ -121,17 +128,20 @@ class MujocoSimulator:
         self.pending_actions = []
         self._initial_position = None
         self.model_suffix = model_suffix
-        
+
+    def name(self, name: str):
+        return f'{name}{self.model_suffix}'
+
     @property
     def robot_position(self):
         return Transform3D(
-            translation=self.data.site(f'end_effector{self.model_suffix}').xpos.copy(),
-            quaternion=xmat_to_quat(self.data.site(f'end_effector{self.model_suffix}').xmat.copy())
+            translation=self.data.site(self.name('end_effector')).xpos.copy(),
+            quaternion=xmat_to_quat(self.data.site(self.name('end_effector')).xmat.copy())
         )
 
     @property
     def grip(self):
-        return self.data.actuator('actuator8').ctrl
+        return self.data.actuator(self.name('actuator8')).ctrl
 
     @property
     def joints(self):
@@ -178,10 +188,10 @@ class MujocoSimulator:
 
     def set_actuator_values(self, actuator_values: np.ndarray):
         for i in range(7):
-            self.data.actuator(f'actuator{i + 1}').ctrl = actuator_values[i]
+            self.data.actuator(self.name(f'actuator{i + 1}')).ctrl = actuator_values[i]
 
     def set_grip(self, grip: float):
-        self.data.actuator('actuator8').ctrl = grip
+        self.data.actuator(self.name('actuator8')).ctrl = grip
 
     @staticmethod
     def load_from_xml_path(model_path: str, asset_dict_path: Optional[str] = None, loaders: Sequence[MujocoSceneTransform] = (), **kwargs) -> 'MujocoSimulator':
@@ -220,6 +230,7 @@ class MujocoRenderer:
             data: mujoco.MjData,
             camera_names: Sequence[str],
             render_resolution: Tuple[int, int] = (320, 240),
+            model_suffix: str = '',
     ):
         super().__init__()
         self.model = model
@@ -228,12 +239,17 @@ class MujocoRenderer:
         self.render_resolution = render_resolution
         self.observation_fps_counter = FPSCounter('Renderer')
         self.camera_names = camera_names
+        self.model_suffix = model_suffix
+
+    def name(self, name: str):
+        return f'{name}{self.model_suffix}'
 
     def render_frames(self):
         views = {}
-        # TODO: make cameras configurable
+
         for cam_name in self.camera_names:
-            self.renderer.update_scene(self.data, camera=cam_name)
+            camera_name = self.name(cam_name)
+            self.renderer.update_scene(self.data, camera=camera_name)
             views[cam_name] = self.renderer.render()
 
         self.observation_fps_counter.tick()

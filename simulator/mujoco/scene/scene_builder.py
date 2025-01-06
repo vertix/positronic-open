@@ -85,6 +85,7 @@ def extract_assets(spec: mujoco.MjSpec, parent_dir: Optional[str] = None) -> Dic
     return assets
 
 
+# TODO: In theory this could be implemented via series of scene transformations.
 def generate_scene(
     num_boxes: int = 2,
     table_height: RANGE_OR_VALUE = (0.1, 0.2),
@@ -145,8 +146,10 @@ def generate_scene(
     origin_site.attach(panda_spec.worldbody, '', 'panda_hand')
 
     # Add keyframe data
+    # TODO: fix
     keyframe_actuator = generate_initial_actuator_values()
-    qpos = keyframe_actuator + [0.04] + box_pos
+    qpos = box_pos + keyframe_actuator + [0.04]
+    print(qpos)
     world_spec.add_key(name="home", qpos=qpos, ctrl=keyframe_actuator)
 
     # Configure visual settings
