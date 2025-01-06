@@ -179,14 +179,18 @@ def generate_scene(
 def construct_scene(scene_path: Union[str, pathlib.Path]):
     scene_path = pathlib.Path(scene_path)
     scene_path.parent.mkdir(parents=True, exist_ok=True)
+    assets_path = scene_path.with_suffix('.assets.pkl')
+    relative_assets_path = assets_path.name
     spec, assets = generate_scene()
+
+    spec.add_text(name='relative_assets_path', data=str(relative_assets_path))
 
     spec.compile(assets)
 
     with open(scene_path, "w") as f:
         f.write(spec.to_xml())
 
-    with open(scene_path.with_suffix(".assets.pkl"), "wb") as f:
+    with open(assets_path, "wb") as f:
         pickle.dump(assets, f)
 
 

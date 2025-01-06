@@ -2,6 +2,7 @@ import asyncio
 import glob
 import os
 import multiprocessing
+from pathlib import Path
 import threading
 
 from dataclasses import dataclass
@@ -375,7 +376,6 @@ async def _main(cfg: DictConfig):
         ),
     ]
 
-
     # systems
     simulator = MujocoSimulatorCS(
         simulator=simulator,
@@ -425,10 +425,18 @@ async def _main(cfg: DictConfig):
             actuator_values=simulator.outs.actuator_values,
         )
 
+        model_path = Path(cfg.mujoco.model_path)
+        data_output_dir = Path(cfg.data_output_dir)
+        assert data_output_dir in model_path.parents, f"Mujoco model {model_path} must be in the data output directory {data_output_dir} for transferability"
+
+        relative_data_output_dir = model_path.relative_to(data_output_dir)
+
         episode_metadata = {
             'mujoco_model_path': cfg.mujoco.model_path,
+            'relative_mujoco_model_path': str(relative_data_output_dir),
             'simulation_hz': cfg.mujoco.simulation_hz,
         }
+
         data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=episode_metadata)
         systems.append(
             data_dumper.bind(

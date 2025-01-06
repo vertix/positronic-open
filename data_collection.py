@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from pathlib import Path
 from typing import List
 
 import hydra
@@ -142,6 +143,12 @@ async def main_async(cfg: DictConfig):
             ext_force_base=hardware.outs.ext_force_base,
             grip=hardware.outs.grip if hardware.outs.grip else None
         )
+
+        if 'mujoco_model_path' in metadata:
+            model_path = Path(metadata['mujoco_model_path'])
+            data_output_dir = Path(cfg.data_output_dir)
+            assert data_output_dir in model_path.parents, f"Mujoco model {model_path} must be in the data output directory {data_output_dir} for transferability"
+            metadata['relative_mujoco_model_path'] = str(model_path.relative_to(data_output_dir))
 
         data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=metadata)
 

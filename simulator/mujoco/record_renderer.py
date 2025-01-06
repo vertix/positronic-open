@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from tqdm import tqdm
 import hydra
@@ -13,8 +14,16 @@ def process_episode(episode_path, cfg, output_dir):
     data = torch.load(episode_path)
     n_frames = len(data['image_timestamp'])
 
-    simulator = MujocoSimulator.load_from_xml_path(data['mujoco_model_path'], cfg.mujoco.loaders, simulation_rate=1 / cfg.mujoco.simulation_hz)
-    renderer = MujocoRenderer(simulator.model, simulator.data, cfg.mujoco.camera_names, (cfg.mujoco.camera_width, cfg.mujoco.camera_height))
+    loaders = hydra.utils.instantiate(cfg.mujoco.loaders)
+    model_path = Path(episode_path).parent / data['relative_mujoco_model_path']
+    simulator = MujocoSimulator.load_from_xml_path(model_path, loaders, simulation_rate=1 / cfg.mujoco.simulation_hz)
+    renderer = MujocoRenderer(
+        simulator.model,
+        simulator.data,
+        cfg.mujoco.camera_names,
+        (cfg.mujoco.camera_width, cfg.mujoco.camera_height),
+        model_suffix=simulator.model_suffix,
+    )
     dataset_writer = SerialDumper(cfg.data_output_dir)
 
     simulator.reset()

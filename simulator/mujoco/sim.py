@@ -1,6 +1,4 @@
 import abc
-from pathlib import Path
-import pickle
 from typing import Dict, Optional, Sequence, Tuple
 
 import mujoco
@@ -10,7 +8,7 @@ from dm_control.utils import inverse_kinematics as ik
 
 from ironic.utils import FPSCounter
 from geom import Transform3D
-from simulator.mujoco.scene.transforms import MujocoSceneTransform, load_model_from_spec
+from simulator.mujoco.scene.transforms import MujocoSceneTransform, load_model_from_spec_file
 
 
 def xmat_to_quat(xmat):
@@ -193,23 +191,8 @@ class MujocoSimulator:
         self.data.actuator(self.name('actuator8')).ctrl = grip
 
     @staticmethod
-    def load_from_xml_path(model_path: str, asset_dict_path: Optional[str] = None, loaders: Sequence[MujocoSceneTransform] = (), **kwargs) -> 'MujocoSimulator':
-        with open(model_path, 'r') as f:
-            model_string = f.read()
-
-        if asset_dict_path is not None:
-            with open(asset_dict_path, 'rb') as f:
-                assets = pickle.load(f)
-        else:
-            # load .assets.pkl file if it exists
-            assets_path = Path(model_path).with_suffix('.assets.pkl')
-            if assets_path.exists():
-                with open(assets_path, 'rb') as f:
-                    assets = pickle.load(f)
-            else:
-                assets = None
-
-        model, metadata = load_model_from_spec(model_string, assets, loaders)
+    def load_from_xml_path(model_path: str, loaders: Sequence[MujocoSceneTransform] = (), **kwargs) -> 'MujocoSimulator':
+        model, metadata = load_model_from_spec_file(model_path, loaders)
         data = mujoco.MjData(model)
 
         if 'model_suffix' in metadata:

@@ -1,5 +1,7 @@
 import abc
-from typing import Any, Dict, Optional, Sequence
+from pathlib import Path
+import pickle
+from typing import Any, Dict, Sequence
 
 import mujoco
 import numpy as np
@@ -16,9 +18,11 @@ class AddCameras(MujocoSceneTransform):
         self.additional_cameras = additional_cameras
 
     def apply(self, spec: mujoco.MjSpec) -> mujoco.MjSpec:
+        metadata = {s.name: s.data for s in spec.texts}
+        model_suffix = metadata.get('model_suffix')
 
         for camera_name, camera_cfg in self.additional_cameras.items():
-            spec.worldbody.add_camera(name=camera_name, pos=camera_cfg.pos, xyaxes=camera_cfg.xyaxes)
+            spec.worldbody.add_camera(name=f"{camera_name}{model_suffix}", pos=camera_cfg.pos, xyaxes=camera_cfg.xyaxes)
 
         return spec
 
@@ -37,7 +41,10 @@ class RecolorObject(MujocoSceneTransform):
         return spec
 
 
-def load_model_from_spec(xml_string: str, assets: Optional[Dict[str, Any]] = None, loaders: Sequence[MujocoSceneTransform] = ()) -> mujoco.MjModel:
+def load_model_from_spec_file(xml_path: str, loaders: Sequence[MujocoSceneTransform] = ()) -> mujoco.MjModel:
+    with open(xml_path, 'r') as f:
+        xml_string = f.read()
+
     spec = mujoco.MjSpec.from_string(xml_string)
 
     metadata = {s.name: s.data for s in spec.texts}
@@ -45,7 +52,14 @@ def load_model_from_spec(xml_string: str, assets: Optional[Dict[str, Any]] = Non
     for loader in loaders:
         spec = loader.apply(spec)
 
-    if assets is None:
-        return spec.compile()
+    assets = metadata.get('relative_assets_path')
 
-    return spec.compile(assets), metadata
+    if assets is not None:
+        assets_path = Path(xml_path).parent / assets
+        with open(assets_path, 'rb') as f:
+            assets = pickle.load(f)
+        model = spec.compile(assets)
+    else:
+        model = spec.compile()
+
+    return model, metadata

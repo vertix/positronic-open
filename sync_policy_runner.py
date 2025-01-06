@@ -24,7 +24,13 @@ def main(cfg: DictConfig):
     simulator = MujocoSimulator.load_from_xml_path(cfg.mujoco.model_path, loaders, simulation_rate=1/cfg.mujoco.simulation_hz)
 
     ik = InverseKinematics(simulator.model, simulator.data)
-    renderer = MujocoRenderer(simulator.model, simulator.data, cfg.mujoco.camera_names, (cfg.mujoco.camera_width, cfg.mujoco.camera_height))
+    renderer = MujocoRenderer(
+        simulator.model,
+        simulator.data,
+        cfg.mujoco.camera_names,
+        (cfg.mujoco.camera_width, cfg.mujoco.camera_height),
+        model_suffix=simulator.model_suffix,
+    )
 
     # Initialize renderer
     renderer.initialize()
