@@ -23,7 +23,7 @@ def main(cfg: DictConfig):
     loaders = hydra.utils.instantiate(cfg.mujoco.loaders)
     simulator = MujocoSimulator.load_from_xml_path(cfg.mujoco.model_path, loaders, simulation_rate=1/cfg.mujoco.simulation_hz)
 
-    ik = InverseKinematics(simulator.model, simulator.data)
+    ik = InverseKinematics(simulator.model, simulator.data, model_suffix=simulator.model_suffix)
     renderer = MujocoRenderer(
         simulator.model,
         simulator.data,
