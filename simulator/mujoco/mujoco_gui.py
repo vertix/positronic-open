@@ -346,7 +346,7 @@ async def _main(cfg: DictConfig):
         camera_names=cfg.mujoco.camera_names,
         model_suffix=simulator.model_suffix,
     )
-    inverse_kinematics = InverseKinematics(model=simulator.model, data=simulator.data, model_suffix=simulator.model_suffix)
+    inverse_kinematics = InverseKinematics(simulator)
 
     metrics = [
         metric_calculators.ObjectMovedCalculator(

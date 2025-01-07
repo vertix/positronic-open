@@ -137,7 +137,7 @@ def robot_setup(cfg: DictConfig):
             camera_names=cfg.mujoco.camera_names,
             render_resolution=(cfg.mujoco.camera_width, cfg.mujoco.camera_height)
         )
-        inverse_kinematics = InverseKinematics(model=simulator.model, data=simulator.data)
+        inverse_kinematics = InverseKinematics(simulator)
 
         simulator.reset()
 

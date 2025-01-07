@@ -79,36 +79,6 @@ class CompositeMujocoMetricCalculator(MujocoMetricCalculator):
             calculator.reset()
 
 
-class InverseKinematics:
-    def __init__(self, model: mujoco.MjModel, data: mujoco.MjData, model_suffix: str = ''):
-        super().__init__()
-        self.physics = dm_mujoco.Physics.from_model(data)
-        self.model_suffix = model_suffix
-        self.joints = [self.name(f'joint{i}') for i in range(1, 8)]
-        self.joint_qpos_ids = [model.joint(joint).qposadr.item() for joint in self.joints]
-
-    def name(self, name: str):
-        return f'{name}{self.model_suffix}'
-
-    def recalculate_ik(self, target_robot_position: Transform3D) -> Optional[np.ndarray]:
-        """
-        Returns None if the IK calculation failed
-        """
-        result = ik.qpos_from_site_pose(
-            physics=self.physics,
-            site_name=self.name('end_effector'),
-            target_pos=target_robot_position.translation,
-            target_quat=target_robot_position.quaternion,
-            joint_names=self.joints,
-            rot_weight=0.5,
-        )
-
-        if result.success:
-            return result.qpos[self.joint_qpos_ids]
-        print(f"Failed to calculate IK for {target_robot_position}")
-        return None
-
-
 class MujocoSimulator:
     def __init__(
             self,
@@ -125,6 +95,8 @@ class MujocoSimulator:
         self.pending_actions = []
         self._initial_position = None
         self.model_suffix = model_suffix
+        self.joint_names = [self.name(f'joint{i}') for i in range(1, 8)]
+        self.joint_qpos_ids = [model.joint(joint).qposadr.item() for joint in self.joint_names]
 
     def name(self, name: str):
         return f'{name}{self.model_suffix}'
@@ -142,7 +114,7 @@ class MujocoSimulator:
 
     @property
     def joints(self):
-        return np.array([self.data.qpos[i] for i in range(7)])
+        return np.array([self.data.qpos[i] for i in self.joint_qpos_ids])
 
     @property
     def actuator_values(self):
@@ -199,6 +171,32 @@ class MujocoSimulator:
             kwargs['model_suffix'] = metadata['model_suffix']
 
         return MujocoSimulator(model, data, **kwargs)
+
+
+class InverseKinematics:
+    def __init__(self, simulator: MujocoSimulator):
+        super().__init__()
+        self.simulator = simulator
+        self.physics = dm_mujoco.Physics.from_model(simulator.data)
+
+
+    def recalculate_ik(self, target_robot_position: Transform3D) -> Optional[np.ndarray]:
+        """
+        Returns None if the IK calculation failed
+        """
+        result = ik.qpos_from_site_pose(
+            physics=self.physics,
+            site_name=self.simulator.name('end_effector'),
+            target_pos=target_robot_position.translation,
+            target_quat=target_robot_position.quaternion,
+            joint_names=self.simulator.joint_names,
+            rot_weight=0.5,
+        )
+
+        if result.success:
+            return result.qpos[self.simulator.joint_qpos_ids]
+        print(f"Failed to calculate IK for {target_robot_position}")
+        return None
 
 
 class MujocoRenderer:
