@@ -101,7 +101,7 @@ class Franka(ir.ControlSystem):
             if self.last_q is None:
                 self.last_q = self.robot.current_joint_state.position
             self.last_q = self.robot.inverse_kinematics(pos, self.last_q)
-            motion = franky.JointMotion(self.last_q)
+            motion = franky.JointMotion(self.last_q, return_when_finished=False)
 
         def internal_motion():
             try:
