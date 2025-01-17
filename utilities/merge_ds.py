@@ -4,22 +4,22 @@ import glob
 import fire
 
 
-def merge_ds(d1: str, d2: str):
+def merge_ds(target_dir, *directories):
     """
     Merge first dataset into second dataset.
-    
-    Dataset 1 has structure:
-    - d1/
-        - 001.pt
-        - 002.pt
+
+    Directory 1 has structure:
+    - dir1/
+        - f1.pt
+        - f2.pt
         - ...
-    Dataset 2 has structure:
-    - d2/
-        - 001.pt
-        - 002.pt
+    Directory 2 has structure:
+    - dir2/
+        - f1.pt
+        - f2.pt
         - ...
     Merged dataset has structure:
-    - d2/
+    - target_dir/
         - 001.pt
         - 002.pt
         - ...
@@ -27,21 +27,17 @@ def merge_ds(d1: str, d2: str):
         - N+1.pt
         - ...
     """
-    d1_files = sorted(glob.glob(os.path.join(d1, "*.pt")))
-    d2_files = sorted(glob.glob(os.path.join(d2, "*.pt")))
+    os.makedirs(target_dir, exist_ok=True)
+    if os.listdir(target_dir):
+        raise ValueError(f"Target directory {target_dir} is not empty")
 
-    if len(d2_files) == 0:
-        last_d2_file_idx = 0
-    else:
-        last_d2_file = os.path.basename(d2_files[-1])
-        last_d2_file_idx = int(last_d2_file.split(".")[0])
+    files_saved = 0
 
-    for d1_file in d1_files:
-        d1_file_idx = int(os.path.basename(d1_file).split(".")[0])
-        new_d2_file = os.path.join(d2, f"{last_d2_file_idx + d1_file_idx:03d}.pt")
-        os.symlink(d1_file, new_d2_file)
+    for directory in directories:
+        for f in sorted(glob.glob(os.path.join(directory, "*.pt"))):
+            files_saved += 1  # enumerating from 1 to be consistent with dataset_dumper
+            os.symlink(f, os.path.join(target_dir, f"{files_saved:03d}.pt"))
 
-    assert len(glob.glob(os.path.join(d2, "*.pt"))) == len(d1_files) + len(d2_files)
 
 if __name__ == "__main__":
     fire.Fire(merge_ds)
