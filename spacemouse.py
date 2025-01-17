@@ -52,7 +52,6 @@ class SpacemouseCS(ir.ControlSystem):
         self.thread.start()
 
     async def step(self):
-        self.fps.tick()
         with self.state_lock:
             state = self.latest_data
         pressed = self._get_pressed_buttons(state)
@@ -92,7 +91,7 @@ class SpacemouseCS(ir.ControlSystem):
 
 
     async def _switch_tracking(self, timestamp: int):
-        # TODO: This resambles the teleop system, maybe we should make a generic system for this
+        # TODO: This resembles the teleop system, maybe we should make a generic system for this
         if self.is_tracking:
             logging.info('Stopped tracking')
             self.is_tracking = False
@@ -106,6 +105,7 @@ class SpacemouseCS(ir.ControlSystem):
     def _read_spacemouse(self):
         while not self.stop_event.is_set():
             state = pyspacemouse.read()
+            self.fps.tick()
             with self.state_lock:
                 self.latest_data = state
         pyspacemouse.close()

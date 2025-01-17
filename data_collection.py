@@ -53,7 +53,7 @@ def setup_interface(cfg: DictConfig):
 
         spacemouse = SpacemouseCS(**cfg.spacemouse)
         components.append(spacemouse)
-
+        # TODO: figure out the way to remap inputs/outputs / add empty ones
         inputs['robot_position'] = (spacemouse, 'robot_position')
         inputs['robot_grip'] = None
         inputs['images'] = None
