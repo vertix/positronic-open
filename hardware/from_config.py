@@ -54,11 +54,21 @@ def realsense_camera(cfg: DictConfig):
         return camera
 
 
+def luxonis_camera(cfg: DictConfig):
+    from hardware.camera.luxonis import LuxonisCamera, LuxonisCameraCS
+
+    camera = LuxonisCameraCS(LuxonisCamera())
+
+    return camera
+
+
 def get_camera(cfg: DictConfig):
     if cfg.type == 'sl':
         return sl_camera(cfg)
     elif cfg.type == 'realsense':
         return realsense_camera(cfg)
+    elif cfg.type == 'luxonis':
+        return luxonis_camera(cfg)
     else:
         raise ValueError(f"Invalid camera type: {cfg.type}")
 
