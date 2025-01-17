@@ -46,6 +46,27 @@ def setup_interface(cfg: DictConfig):
         from simulator.mujoco.mujoco_gui import DearpyguiUi
 
         return DearpyguiUi(cfg.mujoco.camera_names), {}
+    elif cfg.type == 'spacemouse':
+        from spacemouse import SpacemouseCS
+
+        components, inputs, outputs = [], {}, {}
+
+        spacemouse = SpacemouseCS(**cfg.spacemouse)
+        components.append(spacemouse)
+        # TODO: figure out the way to remap inputs/outputs / add empty ones
+        inputs['robot_position'] = (spacemouse, 'robot_position')
+        inputs['robot_grip'] = None
+        inputs['images'] = None
+        inputs['robot_state'] = None
+        outputs['robot_target_position'] = (spacemouse, 'robot_target_position')
+        outputs['gripper_target_grasp'] = (spacemouse, 'gripper_target_grasp')
+        outputs['start_tracking'] = (spacemouse, 'start_tracking')
+        outputs['stop_tracking'] = (spacemouse, 'stop_tracking')
+        outputs['start_recording'] = (spacemouse, 'start_recording')
+        outputs['stop_recording'] = (spacemouse, 'stop_recording')
+        outputs['reset'] = (spacemouse, 'reset')
+
+        return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     else:
         raise ValueError(f"Invalid control type: {cfg.type}")
 
