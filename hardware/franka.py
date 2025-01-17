@@ -122,7 +122,7 @@ class Franka(ir.ControlSystem):
             # Signal we're starting the reset
             self._main_loop.call_soon_threadsafe(lambda: start_reset_future.set_result(True))
 
-            self.robot.join_motion()
+            self.robot.join_motion(timeout=0.1)  # we need to set timeout here because with return_when_finished=False, the last motion never finishes
             motion = franky.JointWaypointMotion([franky.JointWaypoint(self.home_joints_config)])
             self.robot.move(motion, asynchronous=False)
             if self.gripper:
