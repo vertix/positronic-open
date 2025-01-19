@@ -7,6 +7,7 @@ from omegaconf import DictConfig
 
 import ironic as ir
 from hardware import from_config
+from tools.audio_notifications import add_notification
 from tools.dataset_dumper import DatasetDumper
 
 logging.basicConfig(level=logging.INFO,
@@ -132,6 +133,10 @@ async def main_async(cfg: DictConfig):
                 robot_data=properties_to_dump,
             )
         )
+
+    if cfg.get('sound_notifications'):
+        add_notification(control.outs.start_recording, 'assets/sounds/recording-has-started.wav')
+        add_notification(control.outs.stop_recording, 'assets/sounds/recording-has-stopped.wav')
 
     # Run the system
     system = ir.compose(*components)
