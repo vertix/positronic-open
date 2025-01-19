@@ -134,9 +134,9 @@ async def main_async(cfg: DictConfig):
             )
         )
 
-    if cfg.sound_notifications:
-        add_notification(control.outs.start_recording, 'recording-has-started')
-        add_notification(control.outs.stop_recording, 'recording-has-stopped')
+    if cfg.get('sound_notifications'):
+        add_notification(control.outs.start_recording, 'assets/sounds/recording-has-started.wav')
+        add_notification(control.outs.stop_recording, 'assets/sounds/recording-has-stopped.wav')
 
     # Run the system
     system = ir.compose(*components)
