@@ -3,6 +3,6 @@ defaults:
   - control_ui: ???
   - _self_
 
-
+sound_notifications: True
 data_output_dir: null
 rerun: False

@@ -40,4 +40,5 @@ dependencies:
     - yappi
     - dm_control
     - pyspacemouse
+    - playsound
 # python /usr/local/zed/get_python_api.py
