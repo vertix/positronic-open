@@ -30,10 +30,11 @@ logging.basicConfig(level=logging.INFO,
                       "reset"
                   ])
 class TeleopSystem(ir.ControlSystem):
-    def __init__(self):
+    def __init__(self, operator_position: str = 'back'):
         super().__init__()
         self.teleop_t = None
         self.offset = None
+        self.operator_position = operator_position
         self.is_tracking = False
         self.is_recording = False
 
@@ -46,8 +47,7 @@ class TeleopSystem(ir.ControlSystem):
             'stick': 0
         }
 
-    @classmethod
-    def _parse_position(cls, value: Transform3D) -> Transform3D:
+    def _parse_position(self, value: Transform3D) -> Transform3D:
         pos = np.array([value.translation[2], value.translation[0], value.translation[1]])
         quat = Quaternion(value.quaternion[0], value.quaternion[3], value.quaternion[1], value.quaternion[2])
 
@@ -56,7 +56,16 @@ class TeleopSystem(ir.ControlSystem):
         res_quat = quat
         rotation_y_90 = Quaternion(np.cos(-np.pi/4), 0, np.sin(-np.pi/4), 0)
         res_quat = rotation_y_90 * quat
-        res_quat = Quaternion(-res_quat[0], res_quat[1], res_quat[2], res_quat[3])
+
+        if self.operator_position == 'back':
+            pos[0] *= -1
+            pos[1] *= -1
+            res_quat = Quaternion(res_quat[0], -res_quat[1], res_quat[2], res_quat[3])
+        elif self.operator_position == 'front':
+            res_quat = Quaternion(-res_quat[0], res_quat[1], res_quat[2], res_quat[3])
+        else:
+            raise ValueError(f"Invalid operator position: {self.operator_position}")
+
         return Transform3D(pos, res_quat)
 
 

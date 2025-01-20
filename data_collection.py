@@ -23,7 +23,7 @@ def setup_interface(cfg: DictConfig):
         webxr = WebXR(port=cfg.webxr.port)
         components.append(webxr)
 
-        teleop = TeleopSystem()
+        teleop = TeleopSystem(operator_position=cfg.operator_position)
         components.append(teleop)
 
         teleop.bind(
