@@ -3,4 +3,4 @@ type: teleop
 webxr:
   port: 5005
 
-# Teleop could potentially configure transformation of frames
+operator_position: back
