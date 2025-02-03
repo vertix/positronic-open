@@ -7,7 +7,6 @@ import rerun as rr
 
 import ironic as ir
 from .state import StateEncoder
-from .action import ActionDecoder
 from .policy import get_policy
 
 
@@ -48,7 +47,7 @@ class Inference(ir.ControlSystem):
         self.policy_factory = lambda: get_policy(cfg.checkpoint_path, cfg.get('policy_args', {}))
         self.cfg = cfg
         self.state_encoder = StateEncoder(hydra.utils.instantiate(cfg.state))
-        self.action_decoder = ActionDecoder(cfg.action)
+        self.action_decoder = hydra.utils.instantiate(cfg.action)
         self.policy = None
         self.running = False
         self.fps = ir.utils.FPSCounter("Inference")
@@ -96,4 +95,3 @@ class Inference(ir.ControlSystem):
 
         await asyncio.gather(*write_ops)
         self.fps.tick()
-

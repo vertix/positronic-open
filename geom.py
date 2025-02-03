@@ -95,27 +95,6 @@ class Transform3D:
         return f"Translation: {translation_str}, Quaternion: {quaternion_str}"
 
 
-def quat_mul(q1, q2):
-    """
-    Multiply two quaternions, expressed as 4-element numpy arrays.
-    Returns a 4-element numpy array. All quaternions are w,
-    """
-    w1, x1, y1, z1 = q1
-    w2, x2, y2, z2 = q2
-
-    w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
-    x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
-    y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
-    z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
-    return np.array([w, x, y, z])
-
-def normalise_quat(q):
-    """
-    Normalise a quaternion, expressed as a 4-element numpy array.
-    """
-    return q / np.linalg.norm(q)
-
-
 class Quaternion(np.ndarray):
     def __new__(cls, w=1.0, x=0.0, y=0.0, z=0.0, dtype=np.float64):
         obj = np.asarray([w, x, y, z], dtype=dtype).view(cls)
@@ -255,6 +234,28 @@ class Quaternion(np.ndarray):
         Compute the angle of the quaternion in radians.
         """
         return 2 * np.arccos(self[0])
+
+
+def quat_mul(q1: Quaternion, q2: Quaternion) -> Quaternion:
+    """
+    Multiply two quaternions, expressed as 4-element numpy arrays.
+    Returns a 4-element numpy array. All quaternions are w,
+    """
+    w1, x1, y1, z1 = q1
+    w2, x2, y2, z2 = q2
+
+    w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+    x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+    y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
+    z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
+    return Quaternion(w, x, y, z)
+
+
+def normalise_quat(q: Quaternion) -> Quaternion:
+    """
+    Normalise a quaternion, expressed as a 4-element numpy array.
+    """
+    return q / np.linalg.norm(q)
 
 
 def degrees_to_radians(degrees):

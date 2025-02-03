@@ -1,6 +1,6 @@
 defaults:
   - state: tqg_352x192
-  - action: baseline
+  - action: absolute
   - _self_
 
 input_dir: _dataset/
