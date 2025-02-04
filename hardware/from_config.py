@@ -39,7 +39,6 @@ def sl_camera(cfg: DictConfig):
 def realsense_camera(cfg: DictConfig):
     from hardware.camera.realsense import RealsenseCamera, RealsenseCameraCS
 
-
     camera = RealsenseCameraCS(RealsenseCamera(
         resolution=cfg.resolution,
         fps=cfg.fps,
