@@ -264,7 +264,7 @@ def properties_dict(**properties):
         # Warn if time range is too large
         if timestamps:
             time_range = (max(timestamps) - min(timestamps)) / 1e6  # Convert ns to ms
-            if time_range > 20:
+            if time_range > 100:
                 # TODO: Refactor to proper logging, so it could be suppressed
                 print(f"Warning: time range for property values is {time_range:.1f} ms")
 

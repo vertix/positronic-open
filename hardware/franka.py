@@ -26,11 +26,13 @@ class Franka(ir.ControlSystem):
                  home_joints_config=None, cartesian_mode: CartesianMode = CartesianMode.LIBFRANKA):
         super().__init__()
         self.robot = franky.Robot(ip, realtime_config=realtime_config)
+        self._set_default_behavior()
         self.robot.relative_dynamics_factor = relative_dynamics_factor
         if collision_behavior is not None:
             self.robot.set_collision_behavior(*collision_behavior)
-        self.robot.set_cartesian_impedance([150, 150, 150, 30, 30, 30])
-        self.robot.set_joint_impedance([150] * 7)
+        self.robot.set_joint_impedance([150, 150, 150, 125, 125, 250, 250])
+        # self.robot.set_cartesian_impedance([150, 150, 150, 300, 300, 300])
+
         self.home_joints_config = home_joints_config or [0.0, -0.31, 0.0, -1.53, 0.0, 1.522, 0.785]
         self.cartesian_mode = cartesian_mode
         self.last_q = None
@@ -194,6 +196,23 @@ class Franka(ir.ControlSystem):
 
     async def step(self) -> ir.State:
         return await super().step()
+
+    def _set_default_behavior(self):
+        self.robot.set_collision_behavior(
+            lower_torque_threshold_acceleration=[20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+            upper_torque_threshold_acceleration=[20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+            lower_torque_threshold_nominal=[10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+            upper_torque_threshold_nominal=[20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+            lower_force_threshold_acceleration=[10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+            upper_force_threshold_acceleration=[10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+            lower_force_threshold_nominal=[10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+            upper_force_threshold_nominal=[20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+        )
+
+        self.robot.set_joint_impedance([3000, 3000, 3000, 2500, 2500, 2000, 2000])
+        self.robot.set_cartesian_impedance([3000, 3000, 3000, 300, 300, 300])
+        self.robot.set_load(0.0, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
+        self.robot.relative_dynamics_factor = 1.0
 
 
 if __name__ == "__main__":
