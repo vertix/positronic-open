@@ -19,6 +19,23 @@ from lerobot.common.datasets.compute_stats import compute_stats
 from inference import StateEncoder
 
 
+def convert_to_seconds(timestamp_units: str, timestamp: torch.Tensor):
+    if timestamp_units == 'ns':
+        return timestamp / 1e9
+    elif timestamp_units == 'us':
+        return timestamp / 1e6
+    elif timestamp_units == 'ms':
+        return timestamp / 1e3
+    elif timestamp_units == 's':
+        return timestamp
+    else:
+        raise ValueError(f"Unknown timestamp units: {timestamp_units}")
+
+
+def start_from_zero(timestamp: torch.Tensor):
+    return timestamp - timestamp[0]
+
+
 @hydra.main(version_base=None, config_path="../configs", config_name="to_lerobot")
 def convert_to_lerobot_dataset(cfg: DictConfig):
     input_dir = Path(cfg.input_dir)
@@ -85,7 +102,12 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
 
         ep_dict["episode_index"] = torch.tensor([episode_idx] * num_frames)
         ep_dict["frame_index"] = torch.arange(0, num_frames, 1)
-        ep_dict["timestamp"] = torch.tensor(episode_data['image_timestamp'])
+        timestamp = torch.tensor(episode_data['image_timestamp'])
+
+        if cfg.start_from_zero:
+            timestamp = start_from_zero(timestamp)
+
+        ep_dict["timestamp"] = convert_to_seconds(cfg.timestamp_units, timestamp)
 
         done = torch.zeros(num_frames, dtype=torch.bool)
         # done[-1] = True
@@ -125,7 +147,7 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
 
     if run_compute_stats:
         logging.info("Computing dataset statistics")
-        stats = compute_stats(lerobot_dataset)
+        stats = compute_stats(lerobot_dataset, batch_size=4, max_num_samples=10_000)
         lerobot_dataset.stats = stats
     else:
         stats = {}

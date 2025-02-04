@@ -6,7 +6,10 @@ defaults:
 input_dir: _dataset/
 output_dir: ???
 
+timestamp_units: 'ns'
+start_from_zero: true
+
 dataset:
-  fps: 15
+  fps: 60
   video: true
   run_compute_stats: true
