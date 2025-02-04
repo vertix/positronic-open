@@ -1,59 +1,78 @@
-from collections import namedtuple
-
-import hydra
-from omegaconf import DictConfig, OmegaConf
 import torch
-
-Field = namedtuple('Field', ['name'])
-InputField = namedtuple('InputField', ['name'])
-OmegaConf.register_new_resolver('field', lambda x: Field(x))
-OmegaConf.register_new_resolver('input', lambda x: InputField(x))
+import geom
 
 
-class ActionDecoder:
-    def __init__(self, cfg: DictConfig):
-        self.cfg = cfg
-
+class AbsolutePositionAction:
     def encode_episode(self, episode_data):
-        def replace_inputs(cfg):
-            if OmegaConf.is_dict(cfg):
-                return {k: replace_inputs(v) for k, v in cfg.items()}
-            elif OmegaConf.is_list(cfg):
-                return [replace_inputs(item) for item in cfg]
-            elif isinstance(cfg, InputField):
-                return episode_data[cfg.name]
-            else:
-                return cfg
+        rotations = torch.zeros(len(episode_data['target_robot_position_quaternion']), 9)
 
-        cfg_copy = OmegaConf.to_container(self.cfg, resolve=False)
-        cfg_copy = OmegaConf.create(cfg_copy)
-        cfg = replace_inputs(cfg_copy.fields)
-        cfg = hydra.utils.instantiate(cfg)
+        # TODO: make this vectorized
+        for i, q in enumerate(episode_data['target_robot_position_quaternion']):
+            q = geom.Quaternion(*q)
+            mtx = q.as_rotation_matrix
+            rotations[i] = torch.from_numpy(mtx.flatten())
 
-        records = [record.value.unsqueeze(1) if record.value.dim() == 1 else record.value for record in cfg.values()]
-        return torch.cat(records, dim=1)
+
+        translations = episode_data['target_robot_position_translation']
+        grips = episode_data['target_grip']
+        if grips.ndim == 1:
+            grips = grips.unsqueeze(1)
+
+        return torch.cat([rotations, translations, grips], dim=1)
 
     def decode(self, action_vector, inputs):
-        start = 0
-        fields = {}
-        for name in self.cfg.fields:
-            fields[name] = action_vector[start:start + self.cfg.fields[name].length]
-            start += self.cfg.fields[name].length
+        mtx = action_vector[:9].reshape(3, 3)
+        q = geom.Quaternion.from_rotation_matrix(mtx)
+        outputs = {
+            'target_robot_position': geom.Transform3D(
+                translation=action_vector[9:12],
+                quaternion=q
+            ),
+            'target_grip': action_vector[12]
+        }
+        return outputs
 
-        def replace_fields(cfg):
-            if OmegaConf.is_dict(cfg):
-                return {k: replace_fields(v) for k, v in cfg.items()}
-            elif OmegaConf.is_list(cfg):
-                return [replace_fields(item) for item in cfg]
-            elif isinstance(cfg, Field):
-                return fields[cfg.name]
-            elif isinstance(cfg, InputField):
-                return inputs[cfg.name]
-            else:
-                return cfg
 
-        cfg_copy = OmegaConf.to_container(self.cfg, resolve=False)
-        cfg_copy = OmegaConf.create(cfg_copy)
-        cfg = replace_fields(cfg_copy.outputs)
-        outputs = hydra.utils.instantiate(cfg)
+class RelativePositionAction:
+    def __init__(self):
+        pass
+
+    def encode_episode(self, episode_data):
+        mtxs = torch.zeros(len(episode_data['target_robot_position_quaternion']), 9)
+
+        # TODO: make this vectorized
+        for i, q in enumerate(episode_data['target_robot_position_quaternion']):
+            q = geom.Quaternion(*q)
+            q_inv = geom.Quaternion(*episode_data['robot_position_quaternion'][i]).inv
+            q_mul = geom.quat_mul(q_inv, q)
+            q_mul = geom.normalise_quat(q_mul)
+
+            mtx = q_mul.as_rotation_matrix
+            mtxs[i] = torch.from_numpy(mtx.flatten())
+
+        translation_diff = episode_data['target_robot_position_translation'] - episode_data['robot_position_translation']
+
+        grips = episode_data['target_grip']
+        if grips.ndim == 1:
+            grips = grips.unsqueeze(1)
+
+        return torch.cat([mtxs, translation_diff, grips], dim=1)
+
+    def decode(self, action_vector, inputs):
+        mtx = action_vector[:9].reshape(3, 3)
+        q_diff = geom.Quaternion.from_rotation_matrix(mtx)
+        tr_diff = action_vector[9:12]
+
+        q_mul = geom.quat_mul(inputs['robot_position_quaternion'], q_diff)
+        q_mul = geom.normalise_quat(q_mul)
+
+        tr_add = inputs['robot_position_translation'] + tr_diff
+
+        outputs = {
+            'target_robot_position': geom.Transform3D(
+                translation=tr_add,
+                quaternion=q_mul
+            ),
+            'target_grip': action_vector[12]
+        }
         return outputs

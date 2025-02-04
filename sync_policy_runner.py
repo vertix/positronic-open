@@ -5,7 +5,6 @@ import rerun as rr
 from tqdm import tqdm
 
 from simulator.mujoco.sim import InverseKinematics, MujocoRenderer, MujocoSimulator
-from inference.action import ActionDecoder
 from inference.state import StateEncoder
 from inference.policy import get_policy
 from inference.inference import rerun_log_action, rerun_log_observation
@@ -38,7 +37,7 @@ def main(cfg: DictConfig):
     policy = get_policy(cfg.inference.checkpoint_path, cfg.get('policy_args', {}))
     policy.to(cfg.inference.device)
     state_encoder = StateEncoder(hydra.utils.instantiate(cfg.inference.state))
-    action_decoder = ActionDecoder(cfg.inference.action)
+    action_decoder = hydra.utils.instantiate(cfg.inference.action)
 
     steps = cfg.inference.inference_time_sec * cfg.mujoco.simulation_hz
     render_hz = cfg.mujoco.simulation_hz // cfg.mujoco.observation_hz
@@ -92,4 +91,3 @@ def main(cfg: DictConfig):
 
 if __name__ == "__main__":
     main()
-
