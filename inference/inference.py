@@ -23,8 +23,10 @@ def rerun_log_observation(ts, obs):
             rr_img = rr_img.compress()
         rr.log(name, rr_img)
 
-    log_image("observation.images.left", obs['observation.images.left'])
-    log_image("observation.images.right", obs['observation.images.right'])
+    for k, v in obs.items():
+        if k.startswith("observation.images."):
+            log_image(k, v)
+
     for i, state in enumerate(obs['observation.state'].squeeze(0)):
         rr.log(f"observation/state/{i}", rr.Scalar(state.item()))
 
