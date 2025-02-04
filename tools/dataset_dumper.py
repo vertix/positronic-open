@@ -43,9 +43,13 @@ class SerialDumper:
     def write(self, data: dict):
         for k, v in data.items():
             if isinstance(v, np.ndarray):
-                self.data[k].append(v.copy())
+                if len(self.data[k]) > 0:
+                    assert self.data[k][-1].ctypes.data != v.ctypes.data, f"Appending the same np.ndarray to {k}. Make a copy of the array."
+                self.data[k].append(v)
             elif isinstance(v, torch.Tensor):
-                self.data[k].append(v.clone())
+                if len(self.data[k]) > 0:
+                    assert self.data[k][-1].data_ptr() != v.data_ptr(), f"Appending the same torch.tensor to {k}. Make a copy of the tensor."
+                self.data[k].append(v)
             elif isinstance(v, list):
                 self.data[k].append(v.copy())
             elif isinstance(v, (int, float, str)):
@@ -134,8 +138,8 @@ class DatasetDumper(ir.ControlSystem):
 
         ep_dict = {**image_message.data}
         ep_dict['target_grip'] = self.target_grip
-        ep_dict['target_robot_position_translation'] = self.target_robot_position.translation
-        ep_dict['target_robot_position_quaternion'] = self.target_robot_position.quaternion
+        ep_dict['target_robot_position_translation'] = self.target_robot_position.translation.copy()
+        ep_dict['target_robot_position_quaternion'] = self.target_robot_position.quaternion.copy()
 
         robot_message = await self.ins.robot_data()
         for name, value in robot_message.data.items():
