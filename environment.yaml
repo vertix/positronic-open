@@ -24,6 +24,7 @@ dependencies:
   - scipy
   - uvicorn[standard]
   - pip
+  - pyaudio
   - pip:
     - click
     - cmake-build-extension
@@ -40,5 +41,4 @@ dependencies:
     - yappi
     - dm_control
     - pyspacemouse
-    - playsound
 # python /usr/local/zed/get_python_api.py

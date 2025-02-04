@@ -3,11 +3,11 @@ import logging
 from typing import List
 
 import hydra
+import numpy as np
 from omegaconf import DictConfig
 
 import ironic as ir
 from hardware import from_config
-from tools.audio_notifications import add_notification
 from tools.dataset_dumper import DatasetDumper
 
 logging.basicConfig(level=logging.INFO,
@@ -109,6 +109,29 @@ async def main_async(cfg: DictConfig):
         )
         components.append(visualizer)  # Add visualizer to components
 
+    if cfg.get('sound'):
+        from hardware.sound import SoundSystem
+
+        sound_system = SoundSystem(master_volume=cfg.sound.get('force_feedback_volume', 0))
+
+        def force_to_level(force: np.ndarray) -> float:
+            # TODO: figure out if L2 norm is better
+            return np.abs(force).max()
+
+        sound_system.bind(
+            level=ir.utils.map_property(force_to_level, hardware.outs.ext_force_ee),
+        )
+
+        if cfg.sound.get('record_notifications'):
+            sound_system.bind(
+                wav_path=ir.utils.map_port(lambda _: 'assets/sounds/recording-has-started.wav', control.outs.start_recording)
+            )
+            sound_system.bind(
+                wav_path=ir.utils.map_port(lambda _: 'assets/sounds/recording-has-stopped.wav', control.outs.stop_recording)
+            )
+
+        components.append(sound_system)
+
     # Setup data collection if enabled
     if cfg.data_output_dir is not None:
         properties_to_dump = ir.utils.properties_dict(
@@ -133,11 +156,6 @@ async def main_async(cfg: DictConfig):
                 robot_data=properties_to_dump,
             )
         )
-
-    if cfg.get('sound_notifications'):
-        add_notification(control.outs.start_recording, 'assets/sounds/recording-has-started.wav')
-        add_notification(control.outs.stop_recording, 'assets/sounds/recording-has-stopped.wav')
-
     # Run the system
     system = ir.compose(*components)
     await ir.utils.run_gracefully(system)
