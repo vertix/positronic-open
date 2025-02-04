@@ -19,6 +19,7 @@ class LuxonisCamera:
         self.xoutColor.setStreamName("image")
 
         self.camColor.isp.link(self.xoutColor.input)
+        self.fps = ir.utils.FPSCounter('luxonis')
 
     def setup(self):
         self.device = dai.Device(self.pipeline, maxUsbSpeed=dai.UsbSpeed.SUPER_PLUS)
@@ -26,7 +27,11 @@ class LuxonisCamera:
         self.queue = self.device.getOutputQueue("image", 8, blocking=False)
 
     def get_frame(self):
-        frame = self.queue.get()
+        frame = self.queue.tryGet()
+        if frame is None:
+            return None, None
+        self.fps.tick()
+
         image = frame.getCvFrame()
         res = {
             'image': image[..., ::-1]
@@ -51,5 +56,6 @@ class LuxonisCameraCS(ir.ControlSystem):
 
     async def step(self):
         frame, timestamp = self.camera.get_frame()
-        await self.outs.frame.write(ir.Message(data=frame, timestamp=timestamp))
+        if frame is not None:
+            await self.outs.frame.write(ir.Message(data=frame, timestamp=timestamp))
         return ir.State.ALIVE
