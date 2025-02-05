@@ -4,7 +4,7 @@ from io import BytesIO
 
 import numpy as np
 import torch
-import imageio.v3 as iio
+import imageio
 
 import ironic as ir
 
@@ -53,7 +53,7 @@ class SerialDumper:
             assert self.video_fps is not None, "Video fps is not set. Please set it using the constructor."
             if k not in self.video_buffers:
                 self.video_buffers[k] = BytesIO()
-                self.video_writers[k] = iio.get_writer(self.video_buffers[k], format='mp4', fps=self.video_fps)
+                self.video_writers[k] = imageio.get_writer(self.video_buffers[k], format='mp4', fps=self.video_fps)
 
             self.video_writers[k].append_data(v)
 
@@ -90,8 +90,11 @@ class SerialDumper:
 
         for k, v in self.video_buffers.items():
             self.video_writers[k].close()
-            self.data[k] = torch.from_numpy(np.frombuffer(v.getvalue(), dtype=np.uint8))
+            self.data[k] = torch.from_numpy(np.frombuffer(v.getvalue(), dtype=np.uint8).copy())
             self.video_buffers[k].close()
+
+        self.video_buffers = {}
+        self.video_writers = {}
 
         if metadata is not None:
             for k in metadata.keys():
@@ -108,9 +111,9 @@ class SerialDumper:
     input_ports=['image', 'start_episode', 'end_episode', 'target_grip', 'target_robot_position'],
     input_props=['robot_data'])
 class DatasetDumper(ir.ControlSystem):
-    def __init__(self,  directory: str, additional_metadata: dict = None):
+    def __init__(self, directory: str, additional_metadata: dict = None, video_fps: int | None = None):
         super().__init__()
-        self.dumper = SerialDumper(directory)
+        self.dumper = SerialDumper(directory, video_fps)
         self.additional_metadata = additional_metadata or {}
 
         self.tracked = False

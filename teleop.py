@@ -11,6 +11,7 @@ import hardware
 import ironic as ir
 from geom import Quaternion, Transform3D
 from tools.dataset_dumper import DatasetDumper
+from tools.buttons import ButtonHandler
 from webxr import WebXR
 
 logging.basicConfig(level=logging.INFO,
@@ -37,15 +38,8 @@ class TeleopSystem(ir.ControlSystem):
         self.operator_position = operator_position
         self.is_tracking = False
         self.is_recording = False
-
+        self.button_handler = ButtonHandler()
         self.fps = ir.utils.FPSCounter("Teleop")
-        self.prev_buttons = {
-            'A': 0,
-            'B': 0,
-            'trigger': 0,
-            'thumb': 0,
-            'stick': 0
-        }
 
     def _parse_position(self, value: Transform3D) -> Transform3D:
         pos = np.array([value.translation[2], value.translation[0], value.translation[1]])
@@ -69,8 +63,7 @@ class TeleopSystem(ir.ControlSystem):
         return Transform3D(pos, res_quat)
 
 
-    @staticmethod
-    def _parse_buttons(value: List[float]) -> Dict[str, float]:
+    def _parse_buttons(self, value: List[float]):
         if len(value) > 6:
             but = {
                 'A': value[4],
@@ -79,15 +72,8 @@ class TeleopSystem(ir.ControlSystem):
                 'thumb': value[1],
                 'stick': value[3]
             }
-        else:
-            but = {'A': 0, 'B': 0, 'trigger': 0, 'thumb': 0, 'stick': 0}
-        return but
 
-    def _get_pressed_buttons(self, value: List[float]) -> Tuple[Dict[str, bool], Dict[str, float]]:
-        current_buttons = self._parse_buttons(value)
-        just_pressed_buttons = {k: v > 0 and self.prev_buttons[k] == 0 for k, v in current_buttons.items()}
-        self.prev_buttons = current_buttons
-        return just_pressed_buttons, current_buttons
+            self.button_handler.update_buttons(but)
 
     @ir.on_message("teleop_transform")
     async def handle_teleop_transform(self, message: ir.Message):
@@ -103,13 +89,13 @@ class TeleopSystem(ir.ControlSystem):
 
     @ir.on_message("teleop_buttons")
     async def handle_teleop_buttons(self, message: ir.Message):
-        just_pressed_buttons, current_buttons = self._get_pressed_buttons(message.data)
+        self._parse_buttons(message.data)
 
-        track_but = just_pressed_buttons['A']
-        record_but = just_pressed_buttons['B']
-        reset_but = just_pressed_buttons['stick']
+        track_but = self.button_handler.is_pressed('A')
+        record_but = self.button_handler.is_pressed('B')
+        reset_but = self.button_handler.is_pressed('stick')
 
-        grasp_but = current_buttons['trigger']
+        grasp_but = self.button_handler.get_value('trigger')
 
         if self.is_tracking:
             await self.outs.gripper_target_grasp.write(ir.Message(grasp_but, message.timestamp))

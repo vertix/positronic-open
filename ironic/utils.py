@@ -252,7 +252,16 @@ def properties_dict(**properties):
     """
     async def result():
         # Gather all property values concurrently
-        messages = await asyncio.gather(*(prop_fn() for prop_fn in properties.values()))
+
+        def try_prop_fn(name, prop_fn):
+            # improve readability for wrongly connected properties
+            try:
+                return prop_fn()
+            except Exception as e:
+                print(f"Error in property {name}: {e}")
+                raise e
+
+        messages = await asyncio.gather(*(try_prop_fn(name, prop_fn) for name, prop_fn in properties.items()))
 
         # Build the dictionaries
         prop_values = {
@@ -324,24 +333,3 @@ class Throttler:
 
     def time_fn(self) -> float:
         return time.time()
-
-
-def port_to_property(port: OutputPort) -> Callable[[], Message]:
-    """
-    Creates a ControlSystem that keeps the latest message from a port and returns it as a property.
-    """
-    @ironic_system(input_ports=[port.name], output_ports=['output'])
-    class PortToPropertySystem(ControlSystem):
-        def __init__(self):
-            super().__init__()
-            self.last_message = None
-
-        @on_message(port.name)
-        async def handle_message(self, message: Message):
-            self.last_message = message
-
-        @property
-        def output(self) -> Message:
-            return self.last_message
-
-    return PortToPropertySystem()

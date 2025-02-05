@@ -198,11 +198,10 @@ def robot_setup(cfg: DictConfig):
 
         outputs['robot_position'] = (umi, 'robot_position')
         outputs['robot_state'] = (umi, 'robot_state')
-        outputs['grip'] = None
-        outputs['ext_force_base'] = None
-        outputs['ext_force_ee'] = None
-        outputs['joint_positions'] = None
-
+        outputs['grip'] = (umi, 'grip')
+        outputs['ext_force_base'] = (umi, 'ext_force_base')
+        outputs['ext_force_ee'] = (umi, 'ext_force_ee')
+        outputs['joint_positions'] = (umi, 'joint_positions')
 
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     else:

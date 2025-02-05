@@ -69,6 +69,25 @@ def setup_interface(cfg: DictConfig):
         outputs['reset'] = (spacemouse, 'reset')
 
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
+    elif cfg.type == 'dualsense':
+        from hardware.controllers.dualsense import DualSenseCS
+
+        components, inputs, outputs = [], {}, {}
+        dualsense = DualSenseCS()
+        components.append(dualsense)
+        inputs['robot_position'] = (dualsense, 'robot_position')
+        inputs['robot_grip'] = None
+        inputs['images'] = None
+        inputs['robot_state'] = None
+        outputs['robot_target_position'] = (dualsense, 'robot_target_position')
+        outputs['gripper_target_grasp'] = (dualsense, 'gripper_target_grasp')
+        outputs['start_tracking'] = (dualsense, 'start_tracking')
+        outputs['stop_tracking'] = (dualsense, 'stop_tracking')
+        outputs['start_recording'] = (dualsense, 'start_recording')
+        outputs['stop_recording'] = (dualsense, 'stop_recording')
+        outputs['reset'] = (dualsense, 'reset')
+
+        return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     else:
         raise ValueError(f"Invalid control type: {cfg.type}")
 
@@ -150,7 +169,7 @@ async def main_async(cfg: DictConfig):
             assert data_output_dir in model_path.parents, f"Mujoco model {model_path} must be in the data output directory {data_output_dir} for transferability"
             metadata['relative_mujoco_model_path'] = str(model_path.relative_to(data_output_dir))
 
-        data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=metadata)
+        data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=metadata, video_fps=cfg.get('video_fps'))
 
         components.append(
             data_dumper.bind(

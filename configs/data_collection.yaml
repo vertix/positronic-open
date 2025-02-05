@@ -7,5 +7,6 @@ sound:
   force_feedback_volume: 0.1
   record_notifications: True
 
+video_fps: ${hardware.camera.fps}
 data_output_dir: null
 rerun: False

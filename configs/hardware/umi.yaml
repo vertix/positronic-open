@@ -1,5 +1,5 @@
 defaults:
-  - camera: opencv
+  - camera: luxonis
   - _self_
 
 type: umi
