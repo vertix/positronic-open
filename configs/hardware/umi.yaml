@@ -1,0 +1,5 @@
+defaults:
+  - camera: opencv
+  - _self_
+
+type: umi

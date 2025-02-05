@@ -1,5 +1,6 @@
 import pytest
 from ironic import ControlSystem, Message, ironic_system, on_message, out_property, OutputPort
+from ironic.utils import port_to_property
 
 
 class MockSystemBase(ControlSystem):
@@ -142,3 +143,9 @@ def test_is_bound_returns_true_after_bind():
     system2 = MockSystem()
     system.bind(sensor=system2.outs.processed)
     assert system.is_bound('sensor')
+
+
+def test_port_to_property():
+    system = MockSystem()
+    property_system = port_to_property(system.outs.processed)
+    assert property_system.output.data == "processed_test"

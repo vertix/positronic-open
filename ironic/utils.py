@@ -324,3 +324,24 @@ class Throttler:
 
     def time_fn(self) -> float:
         return time.time()
+
+
+def port_to_property(port: OutputPort) -> Callable[[], Message]:
+    """
+    Creates a ControlSystem that keeps the latest message from a port and returns it as a property.
+    """
+    @ironic_system(input_ports=[port.name], output_ports=['output'])
+    class PortToPropertySystem(ControlSystem):
+        def __init__(self):
+            super().__init__()
+            self.last_message = None
+
+        @on_message(port.name)
+        async def handle_message(self, message: Message):
+            self.last_message = message
+
+        @property
+        def output(self) -> Message:
+            return self.last_message
+
+    return PortToPropertySystem()

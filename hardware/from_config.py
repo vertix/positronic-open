@@ -61,6 +61,18 @@ def luxonis_camera(cfg: DictConfig):
     return camera
 
 
+def opencv_camera(cfg: DictConfig):
+    from hardware.camera.opencv import OpenCVCamera, OpenCVCameraCS
+
+    camera = OpenCVCameraCS(OpenCVCamera(
+        camera_id=cfg.camera_id,
+        resolution=cfg.resolution,
+        fps=cfg.fps,
+    ))
+
+    return camera
+
+
 def get_camera(cfg: DictConfig):
     if cfg.type == 'sl':
         return sl_camera(cfg)
@@ -68,6 +80,8 @@ def get_camera(cfg: DictConfig):
         return realsense_camera(cfg)
     elif cfg.type == 'luxonis':
         return luxonis_camera(cfg)
+    elif cfg.type == 'opencv':
+        return opencv_camera(cfg)
     else:
         raise ValueError(f"Invalid camera type: {cfg.type}")
 
@@ -165,5 +179,31 @@ def robot_setup(cfg: DictConfig):
 
         metadata = {'mujoco_model_path': cfg.mujoco.model_path, 'simulation_hz': cfg.mujoco.simulation_hz}
         return ir.compose(*components, inputs=inputs, outputs=outputs), metadata
+    elif cfg.type == 'umi':
+        from hardware.umi import UmiCS
+
+        umi = UmiCS()
+        components.append(umi)
+
+        if 'camera' in cfg:
+            camera = get_camera(cfg.camera)
+            components.append(camera)
+            outputs['frame'] = (camera, 'frame')
+        else:
+            outputs['frame'] = None
+
+        inputs['target_position'] = (umi, 'target_position')
+        inputs['target_grip'] = (umi, 'target_grip')
+        inputs['reset'] = None
+
+        outputs['robot_position'] = (umi, 'robot_position')
+        outputs['robot_state'] = (umi, 'robot_state')
+        outputs['grip'] = None
+        outputs['ext_force_base'] = None
+        outputs['ext_force_ee'] = None
+        outputs['joint_positions'] = None
+
+
+        return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     else:
         raise ValueError(f"Invalid robot type: {cfg.type}")

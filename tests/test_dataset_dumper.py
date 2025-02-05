@@ -57,7 +57,7 @@ def test_serial_dumper_metadata_is_saved(tmp_path_factory, sample_data):
     assert data["robot_type"] == "franka"
 
 
-def test_serial_dumper_original_data_modification_does_not_affect_saved_data(tmp_path_factory):
+def test_serial_dumper_original_data_appending_same_tensor_raises_error(tmp_path_factory):
     data_dir = tmp_path_factory.mktemp("data")
 
     tensor = torch.tensor([1, 2, 3])
@@ -66,14 +66,9 @@ def test_serial_dumper_original_data_modification_does_not_affect_saved_data(tmp
     dumper.start_episode()
     dumper.write({"tensor": tensor})
 
-    tensor[0] = 4
+    with pytest.raises(AssertionError):
+        dumper.write({"tensor": tensor})
 
-    dumper.end_episode()
-
-    with open(data_dir / "001.pt", "rb") as f:
-        data = torch.load(f, weights_only=True)
-
-    assert torch.equal(data["tensor"], torch.tensor([[1, 2, 3]]))
 
 
 def test_serial_dumper_metadata_keys_intersecting_with_data_keys_raises_error(tmp_path_factory):

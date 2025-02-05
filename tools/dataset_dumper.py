@@ -1,14 +1,16 @@
 from collections import defaultdict
 import os
+from io import BytesIO
 
 import numpy as np
 import torch
+import imageio.v3 as iio
 
 import ironic as ir
 
 
 class SerialDumper:
-    def __init__(self, directory: str):
+    def __init__(self, directory: str, video_fps: int | None = None):
         """
         Dumps serial data to a directory as torch tensors.
 
@@ -23,8 +25,11 @@ class SerialDumper:
             >>> dumper.end_episode(metadata={"robot_type": "franka"})
         """
         self.directory = directory
+        self.video_fps = video_fps
         os.makedirs(self.directory, exist_ok=True)
         self.data = defaultdict(list)
+        self.video_buffers = {}
+        self.video_writers = {}
 
         episode_files = [f for f in os.listdir(directory) if f.endswith('.pt')]
         if episode_files:
@@ -40,7 +45,18 @@ class SerialDumper:
         self.dump_episode(metadata=metadata)
         self.data = defaultdict(list)
 
-    def write(self, data: dict):
+    def write(self, data: dict | None = None, video_frames: dict | None = None):
+        video_frames = video_frames or {}
+        data = data or {}
+
+        for k, v in video_frames.items():
+            assert self.video_fps is not None, "Video fps is not set. Please set it using the constructor."
+            if k not in self.video_buffers:
+                self.video_buffers[k] = BytesIO()
+                self.video_writers[k] = iio.get_writer(self.video_buffers[k], format='mp4', fps=self.video_fps)
+
+            self.video_writers[k].append_data(v)
+
         for k, v in data.items():
             if isinstance(v, np.ndarray):
                 if len(self.data[k]) > 0:
@@ -71,6 +87,11 @@ class SerialDumper:
             else:
                 # TODO: It's currently assumed, but in the future we might want to support different length tensors.
                 assert len(self.data[k]) == n_frames, f"All tensors must have the same length. Got {len(self.data[k])} and {n_frames} for {k} and {tensor_key}."
+
+        for k, v in self.video_buffers.items():
+            self.video_writers[k].close()
+            self.data[k] = torch.from_numpy(np.frombuffer(v.getvalue(), dtype=np.uint8))
+            self.video_buffers[k].close()
 
         if metadata is not None:
             for k in metadata.keys():
@@ -136,7 +157,7 @@ class DatasetDumper(ir.ControlSystem):
             print("No target robot position")
             return
 
-        ep_dict = {**image_message.data}
+        ep_dict = {}
         ep_dict['target_grip'] = self.target_grip
         ep_dict['target_robot_position_translation'] = self.target_robot_position.translation.copy()
         ep_dict['target_robot_position_quaternion'] = self.target_robot_position.quaternion.copy()
@@ -149,4 +170,4 @@ class DatasetDumper(ir.ControlSystem):
         ep_dict['robot_timestamp'] = robot_message.timestamp
         ep_dict['target_timestamp'] = self.target_ts
 
-        self.dumper.write(ep_dict)
+        self.dumper.write(data=ep_dict, video_frames=image_message.data)
