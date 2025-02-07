@@ -10,7 +10,7 @@ def add_image_mapping(mapping: Dict[str, str], camera: ir.ControlSystem):
 
     map_system = ir.utils.MapControlSystem(map_images)
     map_system.bind(input=camera.outs.frame)
-    return ir.compose(camera, map_system, outputs={'frame': (map_system, 'output')})
+    return ir.compose(camera, map_system, outputs={'frame': map_system.outs.output})
 
 def sl_camera(cfg: DictConfig):
     from hardware.camera.sl import SLCamera
@@ -112,28 +112,29 @@ def robot_setup(cfg: DictConfig):
 
         franka = franka.Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force, **kwargs)
         components.append(franka)
-        outputs['robot_position'] = (franka, 'position')
-        outputs['joint_positions'] = (franka, 'joint_positions')
-        outputs['ext_force_base'] = (franka, 'ext_force_base')
-        outputs['ext_force_ee'] = (franka, 'ext_force_ee')
-        outputs['robot_state'] = (franka, 'state')
         inputs['target_position'] = (franka, 'target_position')
         inputs['reset'] = (franka, 'reset')
+
+        outputs['robot_position'] = franka.outs.position
+        outputs['joint_positions'] = franka.outs.joint_positions
+        outputs['ext_force_base'] = franka.outs.ext_force_base
+        outputs['ext_force_ee'] = franka.outs.ext_force_ee
+        outputs['robot_state'] = franka.outs.state
 
         if 'dh_gripper' in cfg:
             from hardware.dhgrp import DHGripper
             gripper = DHGripper(cfg.dh_gripper)
             components.append(gripper)
-            outputs['grip'] = (gripper, 'grip')
+            outputs['grip'] = gripper.outs.grip
             inputs['target_grip'] = (gripper, 'target_grip')
         else:
-            outputs['grip'] = (franka, 'grip')
+            outputs['grip'] = franka.outs.grip
             inputs['target_grip'] = (franka, 'target_grip')
 
         if 'camera' in cfg:
             camera = get_camera(cfg.camera)
             components.append(camera)
-            outputs['frame'] = (camera, 'frame')
+            outputs['frame'] = camera.outs.frame
         else:
             outputs['frame'] = None
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
@@ -169,13 +170,14 @@ def robot_setup(cfg: DictConfig):
         inputs['target_position'] = (simulator_cs, 'robot_target_position')
         inputs['target_grip'] = (simulator_cs, 'gripper_target_grasp')
         inputs['reset'] = (simulator_cs, 'reset')
-        outputs['robot_position'] = (simulator_cs, 'robot_position')
-        outputs['joint_positions'] = (simulator_cs, 'actuator_values')
-        outputs['ext_force_base'] = (simulator_cs, 'ext_force_base')
-        outputs['ext_force_ee'] = (simulator_cs, 'ext_force_ee')
-        outputs['grip'] = (simulator_cs, 'grip')
-        outputs['frame'] = (simulator_cs, 'images')
-        outputs['robot_state'] = (simulator_cs, 'robot_state')
+
+        outputs['robot_position'] = simulator_cs.outs.robot_position
+        outputs['joint_positions'] = simulator_cs.outs.actuator_values
+        outputs['ext_force_base'] = simulator_cs.outs.ext_force_base
+        outputs['ext_force_ee'] = simulator_cs.outs.ext_force_ee
+        outputs['grip'] = simulator_cs.outs.grip
+        outputs['frame'] = simulator_cs.outs.images
+        outputs['robot_state'] = simulator_cs.outs.robot_state
 
         metadata = {'mujoco_model_path': cfg.mujoco.model_path, 'simulation_hz': cfg.mujoco.simulation_hz}
         return ir.compose(*components, inputs=inputs, outputs=outputs), metadata
@@ -188,20 +190,17 @@ def robot_setup(cfg: DictConfig):
         if 'camera' in cfg:
             camera = get_camera(cfg.camera)
             components.append(camera)
-            outputs['frame'] = (camera, 'frame')
+            outputs['frame'] = camera.outs.frame
         else:
             outputs['frame'] = None
 
-        inputs['target_position'] = (umi, 'target_position')
+        inputs['target_position'] = (umi, 'tracker_position')
         inputs['target_grip'] = (umi, 'target_grip')
         inputs['reset'] = None
 
-        outputs['robot_position'] = (umi, 'robot_position')
-        outputs['robot_state'] = (umi, 'robot_state')
-        outputs['grip'] = (umi, 'grip')
-        outputs['ext_force_base'] = (umi, 'ext_force_base')
-        outputs['ext_force_ee'] = (umi, 'ext_force_ee')
-        outputs['joint_positions'] = (umi, 'joint_positions')
+        outputs['robot_position'] = umi.outs.ee_position
+        outputs['grip'] = umi.outs.grip
+        outputs['robot_state'] = umi.outs.ee_state
 
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     else:

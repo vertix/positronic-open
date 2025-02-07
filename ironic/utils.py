@@ -4,7 +4,7 @@ import time
 import signal
 from typing import Any, Callable, Optional
 
-from ironic.system import ControlSystem, Message, OutputPort, State, ironic_system, on_message
+from ironic.system import ControlSystem, Message, OutputPort, State, ironic_system, on_message, out_property
 
 Change = namedtuple('Change', ['prev', 'current'])
 
@@ -197,10 +197,13 @@ def map_property(function: Callable[[Any], Any], property: Callable[[], Message]
         )
         ```
     """
-    async def result():
+    @out_property
+    async def mapped_property():
         original_message = await property()
         return Message(data=function(original_message.data), timestamp=original_message.timestamp)
-    return result
+
+    return mapped_property
+
 
 @ironic_system(input_ports=['input'], output_ports=['output'])
 class MapControlSystem(ControlSystem):
@@ -230,7 +233,7 @@ def map_port(function: Callable[[Any], Any], port: OutputPort) -> OutputPort:
     the timestamp of the original message while transforming its data content.
     """
     fn_name = getattr(function, '__name__', 'mapped_port')
-    mapped_port = OutputPort(f"{port.name}_{fn_name}")
+    mapped_port = OutputPort(f"{port.name}_{fn_name}", port.parent_system)
 
     async def handler(message: Message):
         transformed_data = function(message.data)

@@ -1,6 +1,7 @@
 defaults:
   - hardware: ???
   - control_ui: ???
+  - state_mappings: ???
   - _self_
 
 sound:

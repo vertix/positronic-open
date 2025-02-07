@@ -1,49 +1,38 @@
 import numpy as np
 
 import ironic as ir
-
+import geom
 
 @ir.ironic_system(
-    output_props=['robot_position', 'robot_state', 'joint_positions', 'ext_force_base', 'ext_force_ee', 'grip'],
-    input_ports=['target_position', 'target_grip']
+    input_ports=['tracker_position', 'target_grip'],
+    output_props=['ee_position', 'ee_state', 'grip'],
 )
 class UmiCS(ir.ControlSystem):
     def __init__(self):
         super().__init__()
-        self.target_position = None
+        self.tracker_position = geom.Transform3D()
         self.target_grip = None
 
     @ir.out_property
-    async def robot_position(self):
+    async def ee_position(self):
         # TODO: here we will put registered robot position
-        return ir.Message(data=self.target_position, timestamp=ir.system_clock())
-
-    @ir.out_property
-    async def robot_state(self):
-        # TODO: here we could put robot state like force sensors, IMU, etc.
-        return ir.Message(data=np.array([0, 0, 0]), timestamp=ir.system_clock())
-
-    @ir.out_property
-    async def ext_force_base(self):
-        # TODO: here we could put robot state like force sensors, IMU, etc.
-        return ir.Message(data=np.array([0, 0, 0]), timestamp=ir.system_clock())
-
-    @ir.out_property
-    async def ext_force_ee(self):
-        # TODO: here we could put robot state like force sensors, IMU, etc.
-        return ir.Message(data=np.array([0, 0, 0]), timestamp=ir.system_clock())
+        return ir.Message(data=self.tracker_position, timestamp=ir.system_clock())
 
     @ir.out_property
     async def grip(self):
-        return ir.Message(data=0, timestamp=ir.system_clock())
+        return ir.Message(data=self.target_grip, timestamp=ir.system_clock())
 
     @ir.out_property
-    async def joint_positions(self):
-        return ir.Message(data=np.array([0, 0, 0]), timestamp=ir.system_clock())
+    async def ee_state(self):
+        state = {
+            'ee_position': self.tracker_position,
+            'grip': self.target_grip,
+        }
+        return ir.Message(data=state, timestamp=ir.system_clock())
 
-    @ir.on_message('target_position')
-    async def on_target_position(self, message: ir.Message):
-        self.target_position = message.data
+    @ir.on_message('tracker_position')
+    async def on_tracker_position(self, message: ir.Message):
+        self.tracker_position = message.data
 
     @ir.on_message('target_grip')
     async def on_target_grip(self, message: ir.Message):

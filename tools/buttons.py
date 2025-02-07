@@ -5,6 +5,21 @@ class ButtonHandler:
     def __init__(self):
         """
         Accepts button states and converts them into is_pressed/is_released events.
+
+        Useful when you want to convert immeadiate button states into events.
+
+        Example:
+            >>> button_handler = ButtonHandler()
+            >>> current_button_state = {"button1": 0.0, "button2": 1.0, "trigger_value": 0.1234}
+            >>> button_handler.update_buttons(current_button_state)
+            >>> assert button_handler.is_pressed("button1") is False
+            >>> assert button_handler.is_pressed("button2") is True
+            >>> assert button_handler.get_value("trigger_value") == 0.1234
+            >>> current_button_state = {"button1": 0.0, "button2": 1.0, "trigger_value": 0.5678}
+            >>> button_handler.update_buttons(current_button_state)
+            >>> assert button_handler.is_pressed("button1") is False
+            >>> assert button_handler.is_pressed("button2") is False
+            >>> assert button_handler.get_value("trigger_value") == 0.5678
         """
         self._button_states = {}
         self._prev_states = {}
