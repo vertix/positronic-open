@@ -1,10 +1,20 @@
 defaults:
-  - mujoco: franka.yaml
+  - mujoco: franka
+  - mujoco/loaders: stack_cubes
   - _self_
 
 image_name_mapping:
   left: handcam_left
   right: handcam_right
+  side_view: side_view
+  table_view: table_view
 
 input_dir: null
 data_output_dir: null
+
+mujoco:
+  camera_names:
+    - handcam_left
+    - handcam_right
+    - side_view
+    - table_view

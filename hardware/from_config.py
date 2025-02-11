@@ -124,25 +124,20 @@ def robot_setup(cfg: DictConfig):
             outputs['frame'] = None
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'mujoco':
-        import mujoco
         from simulator.mujoco.sim import MujocoSimulator, MujocoRenderer, InverseKinematics
         from simulator.mujoco.environment import MujocoSimulatorCS
 
-        model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
-        data = mujoco.MjData(model)
-
-        simulator = MujocoSimulator(
-            model=model,
-            data=data,
+        simulator = MujocoSimulator.load_from_xml_path(
+            model_path=cfg.mujoco.model_path,
             simulation_rate=1/cfg.mujoco.simulation_hz
         )
         renderer = MujocoRenderer(
-            model=model,
-            data=data,
+            model=simulator.model,
+            data=simulator.data,
             camera_names=cfg.mujoco.camera_names,
             render_resolution=(cfg.mujoco.camera_width, cfg.mujoco.camera_height)
         )
-        inverse_kinematics = InverseKinematics(data=data)
+        inverse_kinematics = InverseKinematics(simulator)
 
         simulator.reset()
 

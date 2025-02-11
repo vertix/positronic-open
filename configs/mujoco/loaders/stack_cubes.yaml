@@ -1,0 +1,14 @@
+- _target_: simulator.mujoco.scene.transforms.AddCameras
+  additional_cameras:
+    side_view:
+      pos: [1.235, -0.839, 1.092]
+      xyaxes: [0.712, 0.702, -0.000, -0.420, 0.425, 0.802]
+    table_view:
+      pos: [0.985, -0.008, 0.744]
+      xyaxes: [0.003, 1.000, 0.000, -0.855, 0.003, 0.518]
+- _target_: simulator.mujoco.scene.transforms.RecolorObject
+  object_name: box_0_g0_vis
+  color: [1, 0, 0, 1]
+- _target_: simulator.mujoco.scene.transforms.RecolorObject
+  object_name: box_1_g0_vis
+  color: [1, 0, 0, 1]

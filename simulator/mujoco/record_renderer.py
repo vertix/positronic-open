@@ -1,8 +1,8 @@
 import os
+from pathlib import Path
 
 from tqdm import tqdm
 import hydra
-import mujoco
 import torch
 
 from simulator.mujoco.environment import MujocoRenderer
@@ -14,10 +14,16 @@ def process_episode(episode_path, cfg, output_dir):
     data = torch.load(episode_path)
     n_frames = len(data['image_timestamp'])
 
-    mj_model = mujoco.MjModel.from_xml_path(data['mujoco_model_path'])
-    mj_data = mujoco.MjData(mj_model)
-    simulator = MujocoSimulator(mj_model, mj_data, simulation_rate=1 / cfg.mujoco.simulation_hz)
-    renderer = MujocoRenderer(mj_model, mj_data, camera_names=cfg.mujoco.camera_names, render_resolution=(cfg.mujoco.camera_width, cfg.mujoco.camera_height))
+    loaders = hydra.utils.instantiate(cfg.mujoco.loaders)
+    model_path = Path(episode_path).parent / data['relative_mujoco_model_path']
+    simulator = MujocoSimulator.load_from_xml_path(model_path, loaders, simulation_rate=1 / cfg.mujoco.simulation_hz)
+    renderer = MujocoRenderer(
+        simulator.model,
+        simulator.data,
+        cfg.mujoco.camera_names,
+        (cfg.mujoco.camera_width, cfg.mujoco.camera_height),
+        model_suffix=simulator.model_suffix,
+    )
     dataset_writer = SerialDumper(cfg.data_output_dir)
 
     simulator.reset()
@@ -68,7 +74,7 @@ def process_episode(episode_path, cfg, output_dir):
     dataset_writer.end_episode()
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="record_renderer")
+@hydra.main(version_base=None, config_path="../../configs", config_name="record_renderer")
 def main(cfg):
     # Get all episode files from input directory
     input_files = [f for f in os.listdir(cfg.input_dir) if f.endswith('.pt')]

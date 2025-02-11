@@ -1,6 +1,5 @@
 import hydra
 from omegaconf import DictConfig
-import mujoco
 import rerun as rr
 from tqdm import tqdm
 
@@ -21,11 +20,17 @@ def main(cfg: DictConfig):
             rr.save(cfg.rerun)
 
     # Initialize MuJoCo environment
-    model = mujoco.MjModel.from_xml_path(cfg.mujoco.model_path)
-    data = mujoco.MjData(model)
-    ik = InverseKinematics(data)
-    renderer = MujocoRenderer(model, data, ['handcam_left', 'handcam_right'], [cfg.mujoco.camera_width, cfg.mujoco.camera_height])
-    simulator = MujocoSimulator(model, data, simulation_rate=1/cfg.mujoco.simulation_hz)
+    loaders = hydra.utils.instantiate(cfg.mujoco.loaders)
+    simulator = MujocoSimulator.load_from_xml_path(cfg.mujoco.model_path, loaders, simulation_rate=1/cfg.mujoco.simulation_hz)
+
+    ik = InverseKinematics(simulator)
+    renderer = MujocoRenderer(
+        simulator.model,
+        simulator.data,
+        cfg.mujoco.camera_names,
+        (cfg.mujoco.camera_width, cfg.mujoco.camera_height),
+        model_suffix=simulator.model_suffix,
+    )
 
     # Initialize renderer
     renderer.initialize()
@@ -40,13 +45,14 @@ def main(cfg: DictConfig):
     action_decoder = hydra.utils.instantiate(cfg.inference.action)
 
     steps = cfg.inference.inference_time_sec * cfg.mujoco.simulation_hz
-    render_hz = cfg.mujoco.simulation_hz // cfg.mujoco.observation_hz
+    frame_count = 0
 
     for i in tqdm(range(steps)):
         simulator.step()
 
         # Get observations
-        if i % render_hz == 0:
+        if simulator.ts_sec >= frame_count / cfg.mujoco.observation_hz:
+            frame_count += 1
             rr.set_time_seconds('time', simulator.ts_sec)
             images = renderer.render()
 
