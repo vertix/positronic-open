@@ -151,7 +151,7 @@ def generate_scene(
 
     # add panda to world
     origin_site = world_spec.worldbody.add_site(name="origin", pos=[0, 0, 0])
-    origin_site.attach(panda_spec.worldbody, '', '_ph')  # suffix is required by .attach()
+    origin_site.attach_body(panda_spec.worldbody, '', '_ph')  # suffix is required by .attach()
 
     # Add keyframe data
     keyframe_actuator = generate_initial_actuator_values()
@@ -170,6 +170,8 @@ def generate_scene(
     world_spec.meshdir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
     world_spec.texturedir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
 
+    world_spec.assets = asset_dict
+
     # Using custom texts to store metadata about the model
     world_spec.add_text(name='model_suffix', data='_ph')
 
@@ -185,7 +187,7 @@ def construct_scene(scene_path: Union[str, pathlib.Path]):
 
     spec.add_text(name='relative_assets_path', data=str(relative_assets_path))
 
-    spec.compile(assets)
+    spec.compile()
 
     with open(scene_path, "w") as f:
         f.write(spec.to_xml())

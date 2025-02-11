@@ -1,5 +1,6 @@
 from typing import Dict
 
+import hydra
 from omegaconf import DictConfig
 
 import ironic as ir
@@ -150,13 +151,19 @@ def robot_setup(cfg: DictConfig):
         from simulator.mujoco.sim import MujocoSimulator, MujocoRenderer, InverseKinematics
         from simulator.mujoco.environment import MujocoSimulatorCS
 
+        if cfg.mujoco.model_path is None:
+            from simulator.mujoco.scene.utils import generate_scene_in_separate_process
+            cfg.mujoco.model_path = generate_scene_in_separate_process(cfg.data_output_dir)
+
+        loaders = hydra.utils.instantiate(cfg.mujoco_loaders)
+
         simulator = MujocoSimulator.load_from_xml_path(
             model_path=cfg.mujoco.model_path,
-            simulation_rate=1/cfg.mujoco.simulation_hz
+            loaders=loaders,
+            simulation_rate=1 / cfg.mujoco.simulation_hz
         )
         renderer = MujocoRenderer(
-            model=simulator.model,
-            data=simulator.data,
+            simulator,
             camera_names=cfg.mujoco.camera_names,
             render_resolution=(cfg.mujoco.camera_width, cfg.mujoco.camera_height)
         )
@@ -167,8 +174,8 @@ def robot_setup(cfg: DictConfig):
         # Create MujocoSimulatorCS
         simulator_cs = MujocoSimulatorCS(
             simulator=simulator,
-            simulation_rate=1/cfg.mujoco.simulation_hz,
-            render_rate=1/cfg.mujoco.observation_hz,
+            simulation_rate=1 / cfg.mujoco.simulation_hz,
+            render_rate=1 / cfg.mujoco.observation_hz,
             renderer=renderer,
             inverse_kinematics=inverse_kinematics,
         )

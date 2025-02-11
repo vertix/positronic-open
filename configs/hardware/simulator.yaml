@@ -1,9 +1,16 @@
+defaults:
+  - _self_
+  - mujoco_loaders: default
+
 type: mujoco
 
 mujoco:
-  model_path: 'assets/mujoco/mjx_single_cube.xml'
+  model_path: null
   camera_names: ['handcam_left', 'handcam_right']
   camera_width: 352
   camera_height: 192
   simulation_hz: 500
   observation_hz: 60
+
+camera:
+  fps: ${hardware.mujoco.observation_hz}

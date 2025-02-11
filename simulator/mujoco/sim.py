@@ -110,7 +110,7 @@ class MujocoSimulator:
 
     @property
     def grip(self):
-        return self.data.actuator(self.name('actuator8')).ctrl
+        return float(self.data.actuator(self.name('actuator8')).ctrl)
 
     @property
     def joints(self):
@@ -202,30 +202,23 @@ class InverseKinematics:
 class MujocoRenderer:
     def __init__(
             self,
-            model: mujoco.MjModel,
-            data: mujoco.MjData,
+            simulator: MujocoSimulator,
             camera_names: Sequence[str],
             render_resolution: Tuple[int, int] = (320, 240),
-            model_suffix: str = '',
     ):
         super().__init__()
-        self.model = model
-        self.data = data
+        self.simulator = simulator
         self.renderer = None
         self.render_resolution = render_resolution
         self.observation_fps_counter = FPSCounter('Renderer')
         self.camera_names = camera_names
-        self.model_suffix = model_suffix
-
-    def name(self, name: str):
-        return f'{name}{self.model_suffix}'
 
     def render_frames(self):
         views = {}
 
         for cam_name in self.camera_names:
-            camera_name = self.name(cam_name)
-            self.renderer.update_scene(self.data, camera=camera_name)
+            camera_name = self.simulator.name(cam_name)
+            self.renderer.update_scene(self.simulator.data, camera=camera_name)
             views[cam_name] = self.renderer.render()
 
         self.observation_fps_counter.tick()
@@ -236,7 +229,7 @@ class MujocoRenderer:
         Initialize the renderer. This must be called before calling render().
         """
         # in case we have other code which works with OpenGL, we need to initialize the renderer in a separate thread to avoid conflicts
-        self.renderer = mujoco.Renderer(self.model, height=self.render_resolution[1], width=self.render_resolution[0])
+        self.renderer = mujoco.Renderer(self.simulator.model, height=self.render_resolution[1], width=self.render_resolution[0])
 
     def render(self) -> Dict[str, np.ndarray]:
         assert self.renderer is not None, "You must call initialize() before calling render()"

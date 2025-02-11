@@ -61,7 +61,7 @@ class DesiredAction:
 @ir.ironic_system(
     input_ports=["images", "robot_status"],
     input_props=["robot_position", "actuator_values", "robot_grip", "metrics"],
-    output_ports=["start_tracking", "stop_tracking", "gripper_target_grasp", "robot_target_position", "reset"],
+    output_ports=["start_tracking", "stop_tracking", "gripper_target_grasp", "robot_target_position", "reset", "start_recording", "stop_recording"],
 )
 class DearpyguiUi(ir.ControlSystem):
     speed_meters_per_second = 0.1
@@ -123,7 +123,7 @@ class DearpyguiUi(ir.ControlSystem):
 
         _, _, robot_position = await asyncio.gather(
             self.outs.gripper_target_grasp.write(ir.Message(self.desired_action.grip)),
-            self.outs.robot_target_position.write(ir.Message(target_pos)),
+            self.outs.robot_target_position.write(ir.Message(target_pos.copy())),
             self.ins.robot_position()
         )
 
@@ -174,14 +174,14 @@ class DearpyguiUi(ir.ControlSystem):
 
     async def _stop_recording(self):
         if self.recording:
-            await self.outs.stop_tracking.write(ir.Message({}))
+            await self.outs.stop_recording.write(ir.Message({}))
             self.recording = False
 
     async def _switch_recording(self):
         if self.recording:
             await self._stop_recording()
         else:
-            await self.outs.start_tracking.write(ir.Message(True))
+            await self.outs.start_recording.write(ir.Message(True))
             self.recording = True
 
     def move(self):
@@ -340,11 +340,9 @@ async def _main(cfg: DictConfig):
     loaders = hydra.utils.instantiate(cfg.mujoco.loaders)
     simulator = MujocoSimulator.load_from_xml_path(cfg.mujoco.model_path, simulation_rate=1 / cfg.mujoco.simulation_hz, loaders=loaders)
     renderer = MujocoRenderer(
-        model=simulator.model,
-        data=simulator.data,
+        simulator,
         render_resolution=(width, height),
         camera_names=cfg.mujoco.camera_names,
-        model_suffix=simulator.model_suffix,
     )
     inverse_kinematics = InverseKinematics(simulator)
 

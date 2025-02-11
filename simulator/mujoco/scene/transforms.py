@@ -58,8 +58,8 @@ def load_model_from_spec_file(xml_path: str, loaders: Sequence[MujocoSceneTransf
         assets_path = Path(xml_path).parent / assets
         with open(assets_path, 'rb') as f:
             assets = pickle.load(f)
-        model = spec.compile(assets)
-    else:
-        model = spec.compile()
+        spec.assets = assets
+
+    model = spec.compile()
 
     return model, metadata

@@ -94,6 +94,8 @@ class Transform3D:
         quaternion_str = np.array2string(self.quaternion, precision=3)
         return f"Translation: {translation_str}, Quaternion: {quaternion_str}"
 
+    def copy(self):
+        return Transform3D(self.translation.copy(), self.quaternion.copy())
 
 class Quaternion(np.ndarray):
     def __new__(cls, w=1.0, x=0.0, y=0.0, z=0.0, dtype=np.float64):
