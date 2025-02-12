@@ -96,7 +96,7 @@ def extract_assets(spec: mujoco.MjSpec, parent_dir: Optional[str] = None) -> Dic
 # TODO: In theory this could be implemented via series of scene transformations. But this is a bit of a pain. :_)
 def generate_scene(
     num_boxes: int = 2,
-    table_height: RANGE_OR_VALUE = (0.1, 0.2),
+    table_height: RANGE_OR_VALUE = (0.2, 0.3),
     table_size: Tuple[float, float, float] = (0.4, 0.6, 0.05),
     box_size: RANGE_OR_VALUE = 0.02,
     portable: bool = True,
@@ -160,12 +160,21 @@ def generate_scene(
     origin_site.attach_body(panda_spec.worldbody, '', '_ph')  # suffix is required by .attach()
 
     # Add keyframe data
-    keyframe_actuator = generate_initial_actuator_values()
-    qpos = box_pos + keyframe_actuator + [0.04]
-    world_spec.add_key(name="home", qpos=qpos, ctrl=keyframe_actuator)
+    for i in range(100):
+        keyframe_actuator = generate_initial_actuator_values()
+        box_pos = []
+        for _ in range(num_boxes):
+            tabletop_x, tabletop_y, tabletop_z = mujoco_arena.table_top_abs
+
+            tabletop_z += box_size / 2
+            tabletop_x += random.uniform(-table_size[0] / 2 + box_size, table_size[0] / 2 - box_size * 2)
+            tabletop_y += random.uniform(-table_size[1] / 2 + box_size, table_size[1] / 2 - box_size * 2)
+            box_pos.extend([tabletop_x, tabletop_y, tabletop_z, 1, 0, 0, 0])
+        qpos = box_pos + keyframe_actuator + [0.04]
+        world_spec.add_key(name=f"home_{i}", qpos=qpos, ctrl=keyframe_actuator)
 
     # Configure visual settings
-    g = getattr(panda_spec.visual, "global")
+    g = getattr(world_spec.visual, "global")
     g.azimuth = 120
     g.elevation = -20
     g.offwidth = 1920

@@ -9,10 +9,13 @@
     front_view:
       pos: [1.756, 0.061, 0.850]
       xyaxes: [-0.009, 1.000, 0.000, -0.328, -0.003, 0.945]
+    back_view:
+      pos: [-0.451, 0.978, 0.629]
+      xyaxes: [-0.544, -0.839, -0.000, 0.242, -0.157, 0.958]
 
 - _target_: simulator.mujoco.scene.transforms.RecolorObject
   object_name: box_0_g0_vis
   color: [1, 0, 0, 1]
 - _target_: simulator.mujoco.scene.transforms.RecolorObject
   object_name: box_1_g0_vis
-  color: [1, 0, 0, 1]
+  color: [0, 1, 0, 1]

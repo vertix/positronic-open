@@ -169,7 +169,7 @@ def robot_setup(cfg: DictConfig):
         )
         inverse_kinematics = InverseKinematics(simulator)
 
-        simulator.reset()
+        simulator.reset('home_0')
 
         # Create MujocoSimulatorCS
         simulator_cs = MujocoSimulatorCS(

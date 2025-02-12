@@ -44,6 +44,7 @@ class MujocoSimulatorCS(ir.ControlSystem):
 
         self.inverse_kinematics = inverse_kinematics
         self.metric_calculator = CompositeMujocoMetricCalculator(metric_calculators or [])
+        self.keyframe = 0
 
     @ir.out_property
     async def robot_position(self):
@@ -94,7 +95,9 @@ class MujocoSimulatorCS(ir.ControlSystem):
 
     async def _init_position(self):
         await self.outs.robot_status.write(ir.Message(RobotStatus.RESETTING, self.ts))
-        self.simulator.reset()
+        self.simulator.reset(f"home_{self.keyframe}")
+        self.keyframe += 1
+        self.keyframe %= 100
         self.metric_calculator.reset()
         await self.outs.robot_status.write(ir.Message(RobotStatus.AVAILABLE, self.ts))
 
