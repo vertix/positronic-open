@@ -92,7 +92,6 @@ class MujocoSimulator:
         self.data = data
         self.model.opt.timestep = simulation_rate
         self.simulation_fps_counter = FPSCounter('Simulation')
-        self.pending_actions = []
         self._initial_position = None
         self.model_suffix = model_suffix
         self.joint_names = [self.name(f'joint{i}') for i in range(1, 8)]
@@ -178,7 +177,6 @@ class InverseKinematics:
         super().__init__()
         self.simulator = simulator
         self.physics = dm_mujoco.Physics.from_model(simulator.data)
-
 
     def recalculate_ik(self, target_robot_position: Transform3D) -> Optional[np.ndarray]:
         """

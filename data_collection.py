@@ -99,17 +99,33 @@ def setup_interface(cfg: DictConfig):
                 quaternion=new_quat
             )
 
+        @ir.ironic_system(input_ports=['stop_recording'], input_props=['keyframe'], output_ports=['stop_recording'])
+        class SendKeyframeSystem(ir.ControlSystem):
+            @ir.on_message('stop_recording')
+            async def on_stop_recording(self, message: ir.Message):
+                data = {
+                    'keyframe': (await self.ins.keyframe()).data,
+                }
+                await self.outs.stop_recording.write(ir.Message(data, message.timestamp))
+
+        send_keyframe = SendKeyframeSystem()
+        send_keyframe.bind(
+            stop_recording=teleop.outs.stop_recording,
+        )
+        components.append(send_keyframe)
+
         inputs['robot_position'] = [(teleop, 'robot_position'), (gui, 'robot_position')]
         inputs['robot_grip'] = (gui, 'robot_grip')
         inputs['images'] = (gui, 'images')
         inputs['robot_state'] = (gui, 'robot_state')
+        inputs['keyframe'] = (send_keyframe, 'keyframe')
 
         outputs['robot_target_position'] = ir.utils.map_port(adjust_rotations, teleop.outs.robot_target_position)
         outputs['gripper_target_grasp'] = teleop.outs.gripper_target_grasp
         outputs['start_tracking'] = teleop.outs.start_tracking
         outputs['stop_tracking'] = teleop.outs.stop_tracking
         outputs['start_recording'] = teleop.outs.start_recording
-        outputs['stop_recording'] = teleop.outs.stop_recording
+        outputs['stop_recording'] = send_keyframe.outs.stop_recording
         outputs['reset'] = teleop.outs.reset
 
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
@@ -157,6 +173,7 @@ async def main_async(cfg: DictConfig):
         robot_position=hardware.outs.robot_position,
         images=hardware.outs.frame,
         robot_state=hardware.outs.robot_state,
+        keyframe=getattr(hardware.outs, 'keyframe', None),
     )
     hardware.bind(
         target_position=control.outs.robot_target_position,
