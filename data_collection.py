@@ -81,11 +81,22 @@ def setup_interface(cfg: DictConfig):
 
         def adjust_rotations(transform: geom.Transform3D) -> geom.Transform3D:
             """
-            Adjust the rotations of the transform to match Franka robot coordinate system
+            Adjust the rotations of the transform by swapping roll and yaw angles.
             """
+            q = transform.quaternion
+
+            # Convert quaternion to Euler angles [roll, pitch, yaw]
+            euler = q.as_euler
+
+            # Swap roll and yaw angles
+            new_euler = [-euler[2], np.pi + euler[1], euler[0]]  # [roll, pitch, yaw] -> [yaw, pitch, roll]
+
+            # Convert back to quaternion
+            new_quat = geom.Quaternion.from_euler(new_euler)
+
             return geom.Transform3D(
                 translation=transform.translation,
-                rotation=geom.Quaternion(*(np.array(transform.quaternion) * [-1, 1, 1, 1]))
+                quaternion=new_quat
             )
 
         inputs['robot_position'] = [(teleop, 'robot_position'), (gui, 'robot_position')]
