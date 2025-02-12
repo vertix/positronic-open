@@ -1,7 +1,7 @@
 import abc
 from pathlib import Path
 import pickle
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, Sequence, Tuple
 
 import mujoco
 import numpy as np
@@ -41,7 +41,14 @@ class RecolorObject(MujocoSceneTransform):
         return spec
 
 
-def load_model_from_spec_file(xml_path: str, loaders: Sequence[MujocoSceneTransform] = ()) -> mujoco.MjModel:
+def load_model_from_spec_file(xml_path: str, loaders: Sequence[MujocoSceneTransform] = ()) -> Tuple[mujoco.MjModel, Dict[str, str]]:
+    spec, metadata = load_spec_from_file(xml_path, loaders)
+    model = spec.compile()
+
+    return model, metadata
+
+
+def load_spec_from_file(xml_path: str, loaders: Sequence[MujocoSceneTransform] = ()) -> Tuple[mujoco.MjSpec, Dict[str, str]]:
     with open(xml_path, 'r') as f:
         xml_string = f.read()
 
@@ -60,6 +67,4 @@ def load_model_from_spec_file(xml_path: str, loaders: Sequence[MujocoSceneTransf
             assets = pickle.load(f)
         spec.assets = assets
 
-    model = spec.compile()
-
-    return model, metadata
+    return spec, metadata

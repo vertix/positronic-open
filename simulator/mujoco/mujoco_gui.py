@@ -89,6 +89,7 @@ class DearpyguiUi(ir.ControlSystem):
         self.height = None
         self.camera_names = camera_names
 
+        self.ui_thread_started = False
         self.ui_thread = threading.Thread(target=self.ui_thread_main, daemon=True)
         self.ui_stop_event = threading.Event()
         self.swap_buffer_lock = threading.Lock()
@@ -114,6 +115,9 @@ class DearpyguiUi(ir.ControlSystem):
         self.second_buffer = None
 
     async def update(self):
+        if not self.ui_thread.is_alive():
+            return
+
         self.move()
 
         if self.desired_action is None:
@@ -319,7 +323,8 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.destroy_context()
 
     async def step(self):
-        if self.width is not None and self.height is not None and not self.ui_thread.is_alive():
+        if self.width is not None and self.height is not None and not self.ui_thread_started:
+            self.ui_thread_started = True
             self.ui_thread.start()
 
         if self.width is None or self.height is None:

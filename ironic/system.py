@@ -302,7 +302,7 @@ class ControlSystem:
             elif name in self._input_props:
                 setattr(self.ins, name, incoming_output)  # Property is just a callback, so assignment is enough
             else:
-                raise ValueError(f"Unknown input: {name}")
+                raise ValueError(f"Unknown input: {name}. Inputs of {self.__class__.__name__}: {self._input_ports}")
         return self
 
     async def setup(self):

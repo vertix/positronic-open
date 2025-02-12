@@ -1,0 +1,11 @@
+type: teleop_gui
+
+webxr:
+  port: 5005
+
+mujoco:
+  camera_width: 352
+  camera_height: 192
+  camera_names: ['front_view']
+
+operator_position: front

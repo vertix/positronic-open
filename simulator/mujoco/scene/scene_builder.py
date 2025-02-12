@@ -99,6 +99,7 @@ def generate_scene(
     table_height: RANGE_OR_VALUE = (0.1, 0.2),
     table_size: Tuple[float, float, float] = (0.4, 0.6, 0.05),
     box_size: RANGE_OR_VALUE = 0.02,
+    portable: bool = True,
 ) -> mujoco.MjModel:
     table_height = random_range(table_height)
     table_offset = (-0.3, 0, table_height)
@@ -134,13 +135,18 @@ def generate_scene(
         world.worldbody.append(object)
         box_pos.extend([tabletop_x, tabletop_y, tabletop_z, 1, 0, 0, 0])
 
+    asset_dict = {}
     # Load Panda robot specification as base
     panda_spec = mujoco.MjSpec.from_file("assets/mujoco/mjx_panda.xml")
-    panda_assets = extract_assets(panda_spec, "assets/mujoco")
+    if portable:
+        panda_assets = extract_assets(panda_spec, "assets/mujoco")
+        asset_dict = {**panda_assets}
 
     # Create temporary spec from the world to merge into Panda spec
     world_spec = mujoco.MjSpec.from_string(world.get_xml())
-    world_assets = extract_assets(world_spec, "")
+    if portable:
+        world_assets = extract_assets(world_spec, "")
+        asset_dict = {**asset_dict, **world_assets}
 
     # Adjust lighting
     world_spec.lights[0].pos = [1.8, 3.0, 1.5]
@@ -165,12 +171,13 @@ def generate_scene(
     g.offwidth = 1920
     g.offheight = 1080
 
-    asset_dict = {**panda_assets, **world_assets}
+    if portable:
+        world_spec.meshdir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
+        world_spec.texturedir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
 
-    world_spec.meshdir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
-    world_spec.texturedir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
-
-    world_spec.assets = asset_dict
+        world_spec.assets = asset_dict
+    else:
+        world_spec.meshdir = "assets/mujoco/assets/"
 
     # Using custom texts to store metadata about the model
     world_spec.add_text(name='model_suffix', data='_ph')

@@ -7,6 +7,7 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig
 
+import geom
 import ironic as ir
 from hardware import from_config
 from ironic.compose import extend
@@ -59,6 +60,45 @@ def setup_interface(cfg: DictConfig):
         from simulator.mujoco.mujoco_gui import DearpyguiUi
 
         return DearpyguiUi(cfg.mujoco.camera_names), {}
+    elif cfg.type == 'teleop_gui':
+        from simulator.mujoco.mujoco_gui import DearpyguiUi
+        from teleop import TeleopSystem
+        from webxr import WebXR
+
+        components, inputs, outputs = [], {}, {}
+
+        webxr = WebXR(port=cfg.webxr.port)
+        components.append(webxr)
+        teleop = TeleopSystem(operator_position=cfg.operator_position)
+        components.append(teleop)
+        gui = DearpyguiUi(cfg.mujoco.camera_names)
+        components.append(gui)
+
+        teleop.bind(
+            teleop_transform=webxr.outs.transform,
+            teleop_buttons=webxr.outs.buttons,
+        )
+
+        def adjust_rotations(transform: geom.Transform3D) -> geom.Transform3D:
+            return geom.Transform3D(
+                translation=transform.translation,
+                rotation=geom.Quaternion(*(np.array(transform.quaternion) * [-1, 1, 1, 1]))
+            )
+
+        inputs['robot_position'] = [(teleop, 'robot_position'), (gui, 'robot_position')]
+        inputs['robot_grip'] = (gui, 'robot_grip')
+        inputs['images'] = (gui, 'images')
+        inputs['robot_state'] = (gui, 'robot_state')
+
+        outputs['robot_target_position'] = ir.utils.map_port(adjust_rotations, teleop.outs.robot_target_position)
+        outputs['gripper_target_grasp'] = teleop.outs.gripper_target_grasp
+        outputs['start_tracking'] = teleop.outs.start_tracking
+        outputs['stop_tracking'] = teleop.outs.stop_tracking
+        outputs['start_recording'] = teleop.outs.start_recording
+        outputs['stop_recording'] = teleop.outs.stop_recording
+        outputs['reset'] = teleop.outs.reset
+
+        return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'spacemouse':
         from spacemouse import SpacemouseCS
 
