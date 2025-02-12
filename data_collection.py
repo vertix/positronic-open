@@ -80,6 +80,9 @@ def setup_interface(cfg: DictConfig):
         )
 
         def adjust_rotations(transform: geom.Transform3D) -> geom.Transform3D:
+            """
+            Adjust the rotations of the transform to match Franka robot coordinate system
+            """
             return geom.Transform3D(
                 translation=transform.translation,
                 rotation=geom.Quaternion(*(np.array(transform.quaternion) * [-1, 1, 1, 1]))

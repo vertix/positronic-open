@@ -89,7 +89,8 @@ class DearpyguiUi(ir.ControlSystem):
         self.height = None
         self.camera_names = camera_names
 
-        self.ui_thread_started = False
+        self.ui_thread_started = False  # this flag is needed to prevent thread re-initialization
+        self.gui_ready = False  # this flag is needed to prevent update before GUI is ready
         self.ui_thread = threading.Thread(target=self.ui_thread_main, daemon=True)
         self.ui_stop_event = threading.Event()
         self.swap_buffer_lock = threading.Lock()
@@ -115,7 +116,7 @@ class DearpyguiUi(ir.ControlSystem):
         self.second_buffer = None
 
     async def update(self):
-        if not self.ui_thread.is_alive():
+        if not self.gui_ready:
             return
 
         self.move()
@@ -306,7 +307,7 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.set_viewport_resize_callback(callback=self._viewport_resize)
         dpg.setup_dearpygui()
         dpg.show_viewport(maximized=True)
-
+        self.gui_ready = True
         fps_counter = FPSCounter("UI")
 
         while not self.ui_stop_event.is_set() and dpg.is_dearpygui_running():
