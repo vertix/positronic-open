@@ -4,3 +4,4 @@ webxr:
   port: 5005
 
 operator_position: back
+stream_to_webxr: 'image'

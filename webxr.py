@@ -8,6 +8,8 @@ from fastapi import FastAPI, WebSocket
 from starlette.responses import FileResponse
 import uvicorn
 import numpy as np
+import turbojpeg
+import base64
 
 import ironic as ir
 
@@ -15,8 +17,12 @@ from ironic.utils import FPSCounter
 from geom import Transform3D
 
 
-def run_server(data_queue, port, ssl_keyfile, ssl_certfile):
+def run_server(data_queue, frame_queue, port, ssl_keyfile, ssl_certfile):
     app = FastAPI()
+
+    async def get_latest_frame():
+        frame = frame_queue.get()
+        return frame
 
     @app.get("/")
     async def root():
@@ -25,6 +31,26 @@ def run_server(data_queue, port, ssl_keyfile, ssl_certfile):
     @app.get("/webxr-button.js")
     async def webxr_button():
         return FileResponse("assets/webxr/webxr-button.js")
+
+    @app.get("/video-player.js")
+    async def video_player():
+        return FileResponse("assets/webxr/video-player.js")
+
+    @app.websocket("/video")
+    async def video_stream(websocket: WebSocket):
+        await websocket.accept()
+        print("Video WebSocket connection accepted")
+        try:
+            fps = FPSCounter("Video Stream")
+            while True:
+                base64_frame = await get_latest_frame()
+                await websocket.send_text(base64_frame)
+                fps.tick()
+
+        except Exception as e:
+            print(f"Video WebSocket error: {e}")
+        finally:
+            print("Video WebSocket connection closed")
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
@@ -73,7 +99,7 @@ def run_server(data_queue, port, ssl_keyfile, ssl_certfile):
     server.run()
 
 
-@ir.ironic_system(output_ports=["transform", "buttons"])
+@ir.ironic_system(input_ports=["frame"], output_ports=["transform", "buttons"])
 class WebXR(ir.ControlSystem):
     def __init__(self, port: int, ssl_keyfile: str = "key.pem", ssl_certfile: str = "cert.pem"):
         super().__init__()
@@ -82,16 +108,26 @@ class WebXR(ir.ControlSystem):
         self.ssl_certfile = ssl_certfile
 
         self.data_queue = multiprocessing.Queue(maxsize=10)
+        self.frame_queue = multiprocessing.Queue(maxsize=1)
         self.server_process = None
         self.fps = ir.utils.FPSCounter("WebXR")
+        self.jpeg_encoder = turbojpeg.TurboJPEG()
 
     async def setup(self):
         """Start the WebXR server process"""
         self.server_process = multiprocessing.Process(
             target=run_server,
-            args=(self.data_queue, self.port, self.ssl_keyfile, self.ssl_certfile)
+            args=(self.data_queue, self.frame_queue, self.port, self.ssl_keyfile, self.ssl_certfile)
         )
         self.server_process.start()
+
+    @ir.on_message("frame")
+    async def update_frame(self, message: ir.Message):
+        """Update the latest frame to be streamed"""
+        if not self.frame_queue.full():
+            buffer = self.jpeg_encoder.encode(message.data, quality=50)
+            base64_frame = base64.b64encode(buffer).decode('utf-8')
+            self.frame_queue.put(base64_frame)
 
     async def cleanup(self):
         """Clean up the server process"""
@@ -106,7 +142,6 @@ class WebXR(ir.ControlSystem):
 
     async def step(self):
         data = None
-        # Process all available data, keeping only the most recent
         while not self.data_queue.empty():
             data, timestamp = self.data_queue.get()
 
