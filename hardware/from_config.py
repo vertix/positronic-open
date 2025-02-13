@@ -200,7 +200,7 @@ def robot_setup(cfg: DictConfig):
 
         outputs['robot_position'] = umi.outs.ee_position
         outputs['grip'] = umi.outs.grip
-        outputs['robot_state'] = umi.outs.ee_state
+        outputs['robot_state'] = None
 
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     else:

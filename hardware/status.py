@@ -1,6 +1,6 @@
 from enum import Enum
 
-class RobotState(Enum):
+class RobotStatus(Enum):
     INVALID = "invalid"
     AVAILABLE = "available"
     RESETTING = "resetting"

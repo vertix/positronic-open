@@ -1,2 +1,2 @@
 from . import from_config
-from .state import RobotState
+from .status import RobotStatus

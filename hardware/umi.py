@@ -22,14 +22,6 @@ class UmiCS(ir.ControlSystem):
     async def grip(self):
         return ir.Message(data=self.target_grip, timestamp=ir.system_clock())
 
-    @ir.out_property
-    async def ee_state(self):
-        state = {
-            'ee_position': self.tracker_position,
-            'grip': self.target_grip,
-        }
-        return ir.Message(data=state, timestamp=ir.system_clock())
-
     @ir.on_message('tracker_position')
     async def on_tracker_position(self, message: ir.Message):
         self.tracker_position = message.data
