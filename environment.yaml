@@ -41,5 +41,4 @@ dependencies:
     - yappi
     - dm_control
     - pyspacemouse
-    - pydualsense
 # python /usr/local/zed/get_python_api.py

@@ -72,25 +72,6 @@ def setup_interface(cfg: DictConfig):
         outputs['reset'] = spacemouse.outs.reset
 
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
-    elif cfg.type == 'dualsense':
-        from hardware.controllers.dualsense import DualSenseCS
-
-        components, inputs, outputs = [], {}, {}
-        dualsense = DualSenseCS()
-        components.append(dualsense)
-        inputs['robot_position'] = (dualsense, 'robot_position')
-        inputs['robot_grip'] = None
-        inputs['images'] = None
-        inputs['robot_state'] = None
-        outputs['robot_target_position'] = dualsense.outs.robot_target_position
-        outputs['gripper_target_grasp'] = dualsense.outs.gripper_target_grasp
-        outputs['start_tracking'] = dualsense.outs.start_tracking
-        outputs['stop_tracking'] = dualsense.outs.stop_tracking
-        outputs['start_recording'] = dualsense.outs.start_recording
-        outputs['stop_recording'] = dualsense.outs.stop_recording
-        outputs['reset'] = dualsense.outs.reset
-
-        return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     else:
         raise ValueError(f"Invalid control type: {cfg.type}")
 
