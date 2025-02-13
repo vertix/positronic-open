@@ -34,8 +34,10 @@ class AbsolutePositionAction:
 
 
 class RelativePositionAction:
-    def __init__(self):
-        pass
+    def __init__(self, position_key, current_position_key, idx_offset):
+        self.position_key = position_key
+        self.current_position_key = current_position_key
+        self.idx_offset = idx_offset
 
     def encode_episode(self, episode_data):
         mtxs = torch.zeros(len(episode_data['target_robot_position_quaternion']), 9)
