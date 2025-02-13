@@ -114,10 +114,70 @@ async def test_nested_composition():
 
     await composed_lvl2.setup()
 
+    # Run for a few steps
+    for _ in range(3):
+        await composed_lvl2.step()
+
+    await composed_lvl2.cleanup()
+
+    # Check that data flowed through all components
+    assert processor.received == [0, 1, 2]
+    assert sink.received == [(0, 0), (2, 1), (4, 3)]  # Doubled values and accumulated counter
+
+
+@pytest.mark.asyncio
+async def test_composition_with_not_included_components_produces_exception():
+    not_included_source = DataSource()
+    processor = Processor()
+    sink = DataSink()
+
+    with pytest.raises(CompositionError):
+        compose(
+            processor.bind(counter=not_included_source.outs.counter,
+                          in_data=not_included_source.outs.data),
+            sink.bind(data=processor.outs.processed,
+                     counter_accumulated=processor.outs.counter_accumulated)
+        )
+
+
+@pytest.mark.asyncio
+async def test_composition_with_not_included_input_component_produces_exception():
+    processor_1 = Processor()
+    processor_2 = Processor()
+
+    with pytest.raises(CompositionError, match="Input mappings reference components not in composition"):
+        compose(
+            processor_1,
+            inputs={
+                'data': (processor_2, 'in_data'),
+                'counter': (processor_2, 'counter')
+            }
+        )
+
+@pytest.mark.asyncio
+async def test_composition_with_not_included_output_component_produces_exception():
+    source = DataSource()
+    processor_1 = Processor()
+    processor_2 = Processor()
+
+    processor_2.bind(
+        in_data=processor_1.outs.processed,
+        counter=processor_1.outs.counter_accumulated
+    )
+
+    with pytest.raises(CompositionError, match="Output mappings reference components not in composition"):
+        compose(
+            source,
+            processor_1.bind(counter=source.outs.counter,
+                          in_data=source.outs.data),
+            outputs={
+                'result': processor_2.outs.processed,
+                'counter': processor_2.outs.counter_accumulated
+            }
+        )
 
 @pytest.mark.asyncio
 async def test_exposed_outputs():
-    """Test composing systems with exposed outputs"""
     source = DataSource()
     processor = Processor()
 
@@ -153,7 +213,6 @@ async def test_exposed_outputs():
 
 @pytest.mark.asyncio
 async def test_exposed_inputs():
-    """Test composing systems with exposed inputs"""
     processor = Processor()
     sink = DataSink()
 
@@ -303,12 +362,11 @@ async def test_extend_composed_system_appends_output():
     value = await extended.outs.counter_squared()
     assert value.data == 100  # (0 + 1 + 2 + 3 + 4) ** 2
 
-
     await extended.cleanup()
 
 
 @pytest.mark.asyncio
-async def test_extend_composed_system_preserves_bound_inputs():
+async def test_extend_composed_system_inputs_could_be_bound_after_extension():
     """Test extending a composed system with additional outputs"""
     source = DataSource()
     processor = Processor()
@@ -328,45 +386,59 @@ async def test_extend_composed_system_preserves_bound_inputs():
         }
     )
 
-    composed.bind(data=source.outs.data, counter=source.outs.counter)
-
-
     extended = extend(composed, {'counter_squared': ir.utils.map_property(lambda x: x ** 2, composed.outs.counter_accumulated)})
 
-    await extended.setup()
+    source_with_extended = compose(
+        source,
+        extended.bind(data=source.outs.data, counter=source.outs.counter),
+        outputs={
+            'counter_squared': extended.outs.counter_squared
+        }
+    )
 
-    await extended.step()
-    value = await extended.outs.counter_squared()
+    await source_with_extended.setup()
+
+    await source_with_extended.step()
+    value = await source_with_extended.outs.counter_squared()
     assert value.data == 0
 
+    await source_with_extended.step()
+    value = await source_with_extended.outs.counter_squared()
+    assert value.data == 1
+
+    await source_with_extended.step()
+    value = await source_with_extended.outs.counter_squared()
+    assert value.data == 9  # (0 + 1 + 2) ** 2
 
 @pytest.mark.asyncio
-async def test_extend_composed_system_preserves_unbound_inputs():
-    """Test extending a composed system with additional outputs"""
+async def test_compose_system_appears_twice_in_composition_produces_exception():
+    source = DataSource()
+
+    with pytest.raises(CompositionError, match=".*DataSource.*"):
+        compose(
+            source,
+            source
+        )
+
+@pytest.mark.asyncio
+async def test_compose_system_appears_twice_in_subsystem_composition_produces_exception():
     source = DataSource()
     processor = Processor()
     sink = DataSink()
 
     composed = compose(
+        source,
         processor,
         sink.bind(data=processor.outs.processed,
                  counter_accumulated=processor.outs.counter_accumulated),
-        inputs={
-            'data': (processor, 'in_data'),
-            'counter': (processor, 'counter')
-        },
         outputs={
             'result': processor.outs.processed,
             'counter_accumulated': processor.outs.counter_accumulated
         }
     )
 
-    extended = extend(composed, {'counter_squared': ir.utils.map_property(lambda x: x ** 2, composed.outs.counter_accumulated)})
-
-    extended.bind(data=source.outs.data, counter=source.outs.counter)
-
-    await extended.setup()
-
-    await extended.step()
-    value = await extended.outs.counter_squared()
-    assert value.data == 0
+    with pytest.raises(CompositionError, match=".*DataSource.*"):
+        compose(
+            source,
+            composed
+        )

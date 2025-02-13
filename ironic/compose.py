@@ -37,10 +37,36 @@ Example usage:
 """
 
 import asyncio
-from typing import Callable, Dict, Sequence, Set, Tuple, Optional
+from typing import Any, Callable, Dict, Sequence, Set, Tuple, Optional
 from types import SimpleNamespace
 
 from .system import ControlSystem, OutputPort, ironic_system, State
+
+
+def get_parent_system(obj: Any) -> Optional[ControlSystem]:
+    """
+    Get the parent system of an object if possible.
+
+    For OutputPort objects, the parent system is the system that owns the port.
+    For output properties, which are the methods decorated with @out_property, the parent system is the instance that defines the property.
+    For other objects, the parent system is None. That could be an objects created with functions like `ironic.utils.map_property`.
+
+    Args:
+        obj: The object to get the parent system of
+
+    Returns:
+        The parent system of the object, or None if the object is not a ControlSystem
+    """
+    if obj is None:
+        return None
+
+    if isinstance(obj, OutputPort):
+        return obj.parent_system
+
+    if hasattr(obj, '__self__'):
+        return obj.__self__
+
+    return None
 
 
 class CompositionError(Exception):
@@ -49,21 +75,30 @@ class CompositionError(Exception):
 
 def _gather_components(components: Sequence[ControlSystem]) -> Set[ControlSystem]:
     """
-    Recursively gather all components from a sequence of control systems
+    Recursively gather all components from a sequence of control systems.
 
     Args:
         components: A sequence of control systems to gather components from
 
     Returns:
         A set of all components in the composition
+
+    Raises:
+        CompositionError: If a component appears more than once in the composition
     """
     res = set()
 
     for component in components:
+        if component in res:
+            raise CompositionError(f"Component {component} appears more than once in composition.")
         res.add(component)
 
         if isinstance(component, ComposedSystem):
-            res.update(_gather_components(component._components))
+            subsystems = _gather_components(component._components)
+            intersection = subsystems.intersection(res)
+            if intersection:
+                raise CompositionError(f"Subsystem {component} contains components that are already in the composition: {intersection}")
+            res.update(subsystems)
 
     return res
 
@@ -83,15 +118,13 @@ class ComposedSystem(ControlSystem):
 
         if outputs:
             for name, out in outputs.items():
-                if out is None:
-                    continue
+                parent_system = get_parent_system(out)
 
-                if isinstance(out, OutputPort):
-                    if out.parent_system is not None and out.parent_system not in components_set:
-                        raise CompositionError(f"Output mappings reference components not in composition. Output: '{name}'. Parent system: {out.parent_system}")
-                elif hasattr(out, '__self__'):
-                    if out.__self__ not in components_set:
-                        raise CompositionError(f"Output mappings reference components not in composition. Output: '{name}'. Parent system: {out.__self__}")
+                if parent_system is not None and parent_system not in components_set:
+                    raise CompositionError(f"Output mappings reference components not in composition. Output: '{name}'. Parent system: {parent_system}")
+
+
+        self._validate_bound_inputs(components, components_set)
 
         # Get input/output ports from mappings
         input_ports = list(inputs.keys()) if inputs else []
@@ -147,7 +180,24 @@ class ComposedSystem(ControlSystem):
         self.ins = SimpleNamespace(**binds)
         return self
 
+    def _validate_bound_inputs(self, components: Sequence[ControlSystem], components_set: Set[ControlSystem]):
+        """Validate that all bound inputs reference components in the composition"""
+        for c in components:
+            if c.ins is not None:
+                for name, binding in c.ins.__dict__.items():
+                    parent_system = get_parent_system(binding)
 
+                    if parent_system is not None and parent_system not in components_set:
+                        raise CompositionError(
+                            f"Bound input references component not in composition. \n"
+                            f"  Input: '{name}'. \n"
+                            f"  Component: {parent_system}. \n"
+                            f"  Systems in composition: {components_set} \n"
+                        )
+
+
+# TODO: ideally we want inputs to be constructed from the components directly like outputs.
+# Figure out the way to do this since we currently don't have any InputPort class.
 def compose(*components: ControlSystem,
            inputs: Dict[str, Tuple[ControlSystem, str]] = None,
            outputs: Dict[str, OutputPort | Callable] = None) -> ComposedSystem:
