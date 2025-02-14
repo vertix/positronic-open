@@ -4,7 +4,7 @@ import time
 import signal
 from typing import Any, Callable, Optional
 
-from ironic.system import ControlSystem, Message, OutputPort, State, ironic_system, on_message, out_property
+from ironic.system import ControlSystem, Message, OutputPort, State, ironic_system, on_message, out_property, out_property, system_clock
 
 Change = namedtuple('Change', ['prev', 'current'])
 
@@ -336,3 +336,44 @@ class Throttler:
 
     def time_fn(self) -> float:
         return time.time()
+
+
+def port_to_property(port: OutputPort) -> Callable[[], Message]:
+    """Creates a property that returns the last value received from an output port.
+
+    This utility function creates a property that caches and returns the last value
+    received from the given output port. The property will return None until the first
+    value is received.
+
+    Args:
+        port: The output port to monitor
+
+    Returns:
+        An async function that returns a Message with the last received value
+
+    Example:
+        ```python
+        # Create a property that returns the last value from a port
+        system.bind(
+            last_position=port_to_property(robot.outs.position)
+        )
+        ```
+    """
+    last_value = None
+    last_timestamp = None
+
+    async def handler(message: Message):
+        nonlocal last_value, last_timestamp
+        last_value = message.data
+        last_timestamp = message.timestamp
+
+    port.subscribe(handler)
+
+    @out_property
+    async def property():
+        if last_timestamp is None:
+            return Message(data=None, timestamp=system_clock())
+
+        return Message(data=last_value, timestamp=last_timestamp)
+
+    return property

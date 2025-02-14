@@ -1,5 +1,6 @@
 import pytest
 from ironic import ControlSystem, Message, ironic_system, on_message, out_property, OutputPort
+from ironic.utils import port_to_property
 
 
 class MockSystemBase(ControlSystem):
@@ -142,3 +143,76 @@ def test_is_bound_returns_true_after_bind():
     system2 = MockSystem()
     system.bind(sensor=system2.outs.processed)
     assert system.is_bound('sensor')
+
+
+@pytest.mark.asyncio
+async def test_port_to_property_returns_none_initially():
+    """Test that port_to_property returns None before receiving any messages."""
+    port = OutputPort("test")
+    prop = port_to_property(port)
+
+    msg = await prop()
+    assert msg.data is None
+    assert msg.timestamp is not None  # Should have system clock timestamp
+
+
+@pytest.mark.asyncio
+async def test_port_to_property_returns_last_received_value():
+    """Test that port_to_property returns the last received value after a message is sent."""
+    port = OutputPort("test")
+    prop = port_to_property(port)
+
+    test_message = Message(data="test_value", timestamp=123)
+    await port.write(test_message)
+
+    msg = await prop()
+    assert msg.data == "test_value"
+    assert msg.timestamp == 123
+
+
+@pytest.mark.asyncio
+async def test_port_to_property_updates_with_new_messages():
+    """Test that port_to_property updates when new messages are received."""
+    port = OutputPort("test")
+    prop = port_to_property(port)
+
+    # Send first message
+    msg1 = Message(data="value1", timestamp=100)
+    await port.write(msg1)
+
+    # Verify first message
+    result1 = await prop()
+    assert result1.data == "value1"
+    assert result1.timestamp == 100
+
+    # Send second message
+    msg2 = Message(data="value2", timestamp=200)
+    await port.write(msg2)
+
+    # Verify property updated to second message
+    result2 = await prop()
+    assert result2.data == "value2"
+    assert result2.timestamp == 200
+
+
+@pytest.mark.asyncio
+async def test_port_to_property_in_control_system():
+    """Test that port_to_property works when used in a control system binding."""
+    # Create test systems
+    source = MockSystem()
+    target = MockSystem()
+
+    # Create property from source's processed port
+    processed_prop = port_to_property(source.outs.processed)
+
+    # Bind target's config to the property
+    target.bind(config=processed_prop)
+
+    # Send message through source system
+    test_message = Message(data="test_data", timestamp=300)
+    await source.handle_sensor(test_message)
+
+    # Verify target receives processed value through property
+    config_msg = await target.ins.config()
+    assert config_msg.data == "processed_test_data"
+    assert config_msg.timestamp == 300
