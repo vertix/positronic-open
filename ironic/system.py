@@ -10,6 +10,11 @@ from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, List, Optional
 
 
+# Object that represents no value
+# It is used to make a distinction between a value that is not set and a value that is set to None
+NoValue = object()
+
+
 class State(Enum):
     ALIVE = 0
     FINISHED = 1

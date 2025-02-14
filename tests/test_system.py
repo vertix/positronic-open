@@ -1,6 +1,6 @@
 import pytest
-from ironic import ControlSystem, Message, ironic_system, on_message, out_property, OutputPort
-from ironic.utils import port_to_property
+from ironic import ControlSystem, Message, ironic_system, on_message, out_property, OutputPort, NoValue
+from ironic.utils import last_value
 
 
 class MockSystemBase(ControlSystem):
@@ -146,21 +146,21 @@ def test_is_bound_returns_true_after_bind():
 
 
 @pytest.mark.asyncio
-async def test_port_to_property_returns_none_initially():
-    """Test that port_to_property returns None before receiving any messages."""
+async def test_last_value_returns_no_value_initially():
+    """Test that last_value returns NoValue before receiving any messages."""
     port = OutputPort("test")
-    prop = port_to_property(port)
+    prop = last_value(port)
 
     msg = await prop()
-    assert msg.data is None
+    assert msg.data is NoValue
     assert msg.timestamp is not None  # Should have system clock timestamp
 
 
 @pytest.mark.asyncio
-async def test_port_to_property_returns_last_received_value():
-    """Test that port_to_property returns the last received value after a message is sent."""
+async def test_last_value_returns_last_received_value():
+    """Test that last_value returns the last received value after a message is sent."""
     port = OutputPort("test")
-    prop = port_to_property(port)
+    prop = last_value(port)
 
     test_message = Message(data="test_value", timestamp=123)
     await port.write(test_message)
@@ -171,10 +171,10 @@ async def test_port_to_property_returns_last_received_value():
 
 
 @pytest.mark.asyncio
-async def test_port_to_property_updates_with_new_messages():
-    """Test that port_to_property updates when new messages are received."""
+async def test_last_value_updates_with_new_messages():
+    """Test that last_value updates when new messages are received."""
     port = OutputPort("test")
-    prop = port_to_property(port)
+    prop = last_value(port)
 
     # Send first message
     msg1 = Message(data="value1", timestamp=100)
@@ -196,14 +196,14 @@ async def test_port_to_property_updates_with_new_messages():
 
 
 @pytest.mark.asyncio
-async def test_port_to_property_in_control_system():
-    """Test that port_to_property works when used in a control system binding."""
+async def test_last_value_in_control_system():
+    """Test that last_value works when used in a control system binding."""
     # Create test systems
     source = MockSystem()
     target = MockSystem()
 
     # Create property from source's processed port
-    processed_prop = port_to_property(source.outs.processed)
+    processed_prop = last_value(source.outs.processed)
 
     # Bind target's config to the property
     target.bind(config=processed_prop)
