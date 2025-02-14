@@ -128,7 +128,7 @@ def robot_setup(cfg: DictConfig):
         outputs['joint_positions'] = franka.outs.joint_positions
         outputs['ext_force_base'] = franka.outs.ext_force_base
         outputs['ext_force_ee'] = franka.outs.ext_force_ee
-        outputs['robot_state'] = franka.outs.state
+        outputs['robot_status'] = franka.outs.status
 
         if 'dh_gripper' in cfg:
             from hardware.dhgrp import DHGripper
@@ -192,7 +192,7 @@ def robot_setup(cfg: DictConfig):
         outputs['ext_force_ee'] = simulator_cs.outs.ext_force_ee
         outputs['grip'] = simulator_cs.outs.grip
         outputs['frame'] = simulator_cs.outs.images
-        outputs['robot_state'] = simulator_cs.outs.robot_state
+        outputs['robot_status'] = simulator_cs.outs.robot_status
         outputs['keyframe'] = simulator_cs.outs.keyframe
 
         metadata = {'mujoco_model_path': cfg.mujoco.model_path, 'simulation_hz': cfg.mujoco.simulation_hz}
@@ -216,7 +216,7 @@ def robot_setup(cfg: DictConfig):
 
         outputs['robot_position'] = umi.outs.ee_position
         outputs['grip'] = umi.outs.grip
-        outputs['robot_state'] = None
+        outputs['robot_status'] = None
 
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     else:

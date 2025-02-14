@@ -132,7 +132,7 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
 
         ep_dict["episode_index"] = torch.tensor([episode_idx] * num_frames)
         ep_dict["frame_index"] = torch.arange(0, num_frames, 1)
-        timestamp = torch.tensor(episode_data['image_timestamp'])
+        timestamp = episode_data['image_timestamp'].clone()
 
         if cfg.start_from_zero:
             timestamp = start_from_zero(timestamp)

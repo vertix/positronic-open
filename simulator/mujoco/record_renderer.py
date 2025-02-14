@@ -33,6 +33,8 @@ def process_episode(episode_path, cfg, output_dir):
     tqdm_iter = tqdm(total=n_frames, desc=f"Processing {os.path.basename(episode_path)}")
     frames_rendered = 0
 
+    data['image_timestamp'] = data['image_timestamp'] - data['image_timestamp'][0]
+
     while event_idx < n_frames:
         if data['image_timestamp'][event_idx] <= simulator.ts_ns:
             simulator.set_actuator_values(data['robot_joints'][event_idx])
@@ -61,9 +63,9 @@ def process_episode(episode_path, cfg, output_dir):
                     'target_grip': data['target_grip'][actual_event_idx].clone(),
                     'target_robot_position_quaternion': data['target_robot_position_quaternion'][actual_event_idx].clone(),
                     'target_robot_position_translation': data['target_robot_position_translation'][actual_event_idx].clone(),
-                    'image_timestamp': simulator.ts_sec,
-                    'robot_timestamp': simulator.ts_sec,
-                    'target_timestamp': simulator.ts_sec,
+                    'image_timestamp': simulator.ts_ns,
+                    'robot_timestamp': simulator.ts_ns,
+                    'target_timestamp': simulator.ts_ns,
                 },
                 video_frames={
                     f'image.{mapped_name}': images[orig_name] for mapped_name, orig_name in cfg.image_name_mapping.items()

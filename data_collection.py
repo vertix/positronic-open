@@ -46,7 +46,7 @@ def setup_interface(cfg: DictConfig):
 
         inputs['robot_position'] = (teleop, 'robot_position')
         inputs['robot_grip'] = None
-        inputs['robot_state'] = None
+        inputs['robot_status'] = None
 
         outputs['robot_target_position'] = teleop.outs.robot_target_position
         outputs['gripper_target_grasp'] = teleop.outs.gripper_target_grasp
@@ -117,7 +117,7 @@ def setup_interface(cfg: DictConfig):
         inputs['robot_position'] = [(teleop, 'robot_position'), (gui, 'robot_position')]
         inputs['robot_grip'] = (gui, 'robot_grip')
         inputs['images'] = (gui, 'images')
-        inputs['robot_state'] = (gui, 'robot_state')
+        inputs['robot_status'] = (gui, 'robot_status')
         inputs['keyframe'] = (send_keyframe, 'keyframe')
 
         outputs['robot_target_position'] = ir.utils.map_port(adjust_rotations, teleop.outs.robot_target_position)
@@ -140,7 +140,7 @@ def setup_interface(cfg: DictConfig):
         inputs['robot_position'] = (spacemouse, 'robot_position')
         inputs['robot_grip'] = None
         inputs['images'] = None
-        inputs['robot_state'] = None
+        inputs['robot_status'] = None
 
         outputs['robot_target_position'] = spacemouse.outs.robot_target_position
         outputs['gripper_target_grasp'] = spacemouse.outs.gripper_target_grasp
@@ -172,7 +172,7 @@ async def main_async(cfg: DictConfig):
         robot_grip=hardware.outs.grip,
         robot_position=hardware.outs.robot_position,
         images=hardware.outs.frame,
-        robot_state=hardware.outs.robot_state,
+        robot_status=hardware.outs.robot_status,
         keyframe=getattr(hardware.outs, 'keyframe', None),
     )
     hardware.bind(
