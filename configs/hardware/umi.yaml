@@ -1,0 +1,5 @@
+defaults:
+  - camera: luxonis
+  - _self_
+
+type: umi

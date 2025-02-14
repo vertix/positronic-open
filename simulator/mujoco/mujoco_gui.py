@@ -12,7 +12,7 @@ import numpy as np
 from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
 
-from hardware import RobotState
+from hardware import RobotStatus
 import ironic as ir
 from geom import Transform3D
 from ironic.utils import FPSCounter
@@ -59,7 +59,7 @@ class DesiredAction:
 
 
 @ir.ironic_system(
-    input_ports=["images", "robot_state"],
+    input_ports=["images", "robot_status"],
     input_props=["robot_position", "actuator_values", "robot_grip", "metrics"],
     output_ports=["start_tracking", "stop_tracking", "gripper_target_grasp", "robot_target_position", "reset"],
 )
@@ -95,7 +95,7 @@ class DearpyguiUi(ir.ControlSystem):
         self.loop = asyncio.get_running_loop()
 
         self.desired_action = None
-        self.last_robot_state = None
+        self.last_robot_status = None
 
         self.recording = False
         self.last_move_ts = None
@@ -254,14 +254,14 @@ class DearpyguiUi(ir.ControlSystem):
                 except KeyError as e:
                     raise ValueError(f"Camera {cam_name} not found among {images.keys()}") from e
 
-    @ir.on_message('robot_state')
-    async def on_robot_state(self, message: ir.Message):
-        if message.data == RobotState.RESETTING and self.last_robot_state != RobotState.RESETTING:
+    @ir.on_message('robot_status')
+    async def on_robot_status(self, message: ir.Message):
+        if message.data == RobotStatus.RESETTING and self.last_robot_status != RobotStatus.RESETTING:
             await self._stop_recording()
-        elif message.data == RobotState.AVAILABLE and self.last_robot_state != RobotState.AVAILABLE:
+        elif message.data == RobotStatus.AVAILABLE and self.last_robot_status != RobotStatus.AVAILABLE:
             await self._reset_desired_action()
 
-        self.last_robot_state = message.data
+        self.last_robot_status = message.data
 
     def ui_thread_main(self):
         dpg.create_context()

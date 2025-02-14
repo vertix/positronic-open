@@ -7,7 +7,7 @@ from typing import Optional
 
 import franky
 import ironic as ir
-from .state import RobotState
+from .status import RobotStatus
 from geom import Transform3D
 
 class CartesianMode(Enum):
@@ -17,7 +17,7 @@ class CartesianMode(Enum):
 
 @ir.ironic_system(
     input_ports=['target_position', 'target_grip', 'reset'],
-    output_ports=['state'],
+    output_ports=['status'],
     output_props=['position', 'grip', 'joint_positions', 'ext_force_base', 'ext_force_ee']
 )
 class Franka(ir.ControlSystem):
@@ -133,14 +133,14 @@ class Franka(ir.ControlSystem):
 
             self._main_loop.call_soon_threadsafe(lambda: reset_done_future.set_result(True))
 
-        async def handle_state_transitions():
+        async def handle_status_transitions():
             await start_reset_future
-            await self.outs.state.write(ir.Message(RobotState.RESETTING, ir.system_clock()))
+            await self.outs.status.write(ir.Message(RobotStatus.RESETTING, ir.system_clock()))
 
             await reset_done_future
-            await self.outs.state.write(ir.Message(RobotState.AVAILABLE, ir.system_clock()))
+            await self.outs.status.write(ir.Message(RobotStatus.AVAILABLE, ir.system_clock()))
 
-        self._main_loop.create_task(handle_state_transitions())
+        self._main_loop.create_task(handle_status_transitions())
         self._submit_motion(_internal_reset, asynchronous=False)
 
     @ir.on_message('target_grip')

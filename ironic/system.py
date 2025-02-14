@@ -7,7 +7,7 @@ import warnings
 from dataclasses import dataclass
 from enum import Enum
 from types import SimpleNamespace
-from typing import Any, Awaitable, Callable, List
+from typing import Any, Awaitable, Callable, List, Optional
 
 
 class State(Enum):
@@ -38,10 +38,15 @@ def system_clock() -> int:
 
 
 class OutputPort:
-    def __init__(self, name: str):
+    def __init__(self, name: str, parent_system: Optional["ControlSystem"] = None):
         self._name = name
         self._handlers = []
         self._logging = False
+        self._parent_system = parent_system
+
+    @property
+    def parent_system(self):
+        return self._parent_system
 
     def enable_logging(self):
         self._logging = True
@@ -104,10 +109,12 @@ def out_property(method: Callable[..., Awaitable[Message]]) -> Callable[..., Awa
             f"Output property '{method.__name__}' must be an async method"
         )
 
-    async def wrapper(self, *args, **kwargs) -> Message:
-        return await method(self, *args, **kwargs)
+    async def wrapper(*args, **kwargs) -> Message:
+        return await method(*args, **kwargs)
+
     wrapper.__is_output_property__ = True
     wrapper.__output_property_name__ = method.__name__
+
     return wrapper
 
 
@@ -252,7 +259,7 @@ class ControlSystem:
             for method in self.__class__.__dict__.values()
             if hasattr(method, '__is_output_property__')
         }
-        outs = {port: OutputPort(port) for port in self._output_ports}
+        outs = {port: OutputPort(port, self) for port in self._output_ports}
         outs.update(self._output_props)
         self.outs = SimpleNamespace(**outs)
         self.ins = None

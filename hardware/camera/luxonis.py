@@ -4,14 +4,14 @@ import ironic as ir
 
 # TODO: make this configurable
 class LuxonisCamera:
-    def __init__(self):
+    def __init__(self, fps: int = 60):
         super().__init__()
         self.pipeline = dai.Pipeline()
         self.pipeline.setXLinkChunkSize(0)  # increases speed
 
         self.camColor = self.pipeline.create(dai.node.ColorCamera)
         self.camColor.setBoardSocket(dai.CameraBoardSocket.RGB)
-        self.camColor.setFps(60)
+        self.camColor.setFps(fps)
         self.camColor.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
         self.camColor.setColorOrder(dai.ColorCameraProperties.ColorOrder.RGB)
 

@@ -1,6 +1,6 @@
 from typing import Optional, Sequence
 
-from hardware import RobotState
+from hardware import RobotStatus
 from ironic.utils import Throttler
 import ironic as ir
 from geom import Transform3D
@@ -9,7 +9,7 @@ from simulator.mujoco.sim import CompositeMujocoMetricCalculator, InverseKinemat
 
 @ir.ironic_system(
     input_ports=["actuator_values", "gripper_target_grasp", "reset", "robot_target_position"],
-    output_ports=["images", "robot_state"],
+    output_ports=["images", "robot_status"],
     output_props=[
         "robot_position",
         "grip",
@@ -93,10 +93,10 @@ class MujocoSimulatorCS(ir.ControlSystem):
             await self.outs.images.write(ir.Message(images, self.ts))
 
     async def _init_position(self):
-        await self.outs.robot_state.write(ir.Message(RobotState.RESETTING, self.ts))
+        await self.outs.robot_status.write(ir.Message(RobotStatus.RESETTING, self.ts))
         self.simulator.reset()
         self.metric_calculator.reset()
-        await self.outs.robot_state.write(ir.Message(RobotState.AVAILABLE, self.ts))
+        await self.outs.robot_status.write(ir.Message(RobotStatus.AVAILABLE, self.ts))
 
     def _init_renderer(self):
         if self.renderer is not None:

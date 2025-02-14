@@ -52,7 +52,10 @@ class SoundSystem(ir.ControlSystem):
         self.current_phase = 0.0
 
     async def step(self) -> ir.State:
-        level = (await self.ins.level()).data
+        if self.is_bound('level'):
+            level = (await self.ins.level()).data
+        else:
+            level = 0.0
 
         if level < self.enable_threshold:
             self.master_volume.value = 0.0

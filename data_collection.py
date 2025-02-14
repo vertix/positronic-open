@@ -9,6 +9,7 @@ from omegaconf import DictConfig
 
 import ironic as ir
 from hardware import from_config
+from ironic.compose import extend
 from tools.dataset_dumper import DatasetDumper
 
 logging.basicConfig(level=logging.INFO,
@@ -36,13 +37,14 @@ def setup_interface(cfg: DictConfig):
         inputs['robot_grip'] = None
         inputs['images'] = None
         inputs['robot_state'] = None
-        outputs['robot_target_position'] = (teleop, 'robot_target_position')
-        outputs['gripper_target_grasp'] = (teleop, 'gripper_target_grasp')
-        outputs['start_tracking'] = (teleop, 'start_tracking')
-        outputs['stop_tracking'] = (teleop, 'stop_tracking')
-        outputs['start_recording'] = (teleop, 'start_recording')
-        outputs['stop_recording'] = (teleop, 'stop_recording')
-        outputs['reset'] = (teleop, 'reset')
+
+        outputs['robot_target_position'] = teleop.outs.robot_target_position
+        outputs['gripper_target_grasp'] = teleop.outs.gripper_target_grasp
+        outputs['start_tracking'] = teleop.outs.start_tracking
+        outputs['stop_tracking'] = teleop.outs.stop_tracking
+        outputs['start_recording'] = teleop.outs.start_recording
+        outputs['stop_recording'] = teleop.outs.stop_recording
+        outputs['reset'] = teleop.outs.reset
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'gui':
         from simulator.mujoco.mujoco_gui import DearpyguiUi
@@ -60,13 +62,14 @@ def setup_interface(cfg: DictConfig):
         inputs['robot_grip'] = None
         inputs['images'] = None
         inputs['robot_state'] = None
-        outputs['robot_target_position'] = (spacemouse, 'robot_target_position')
-        outputs['gripper_target_grasp'] = (spacemouse, 'gripper_target_grasp')
-        outputs['start_tracking'] = (spacemouse, 'start_tracking')
-        outputs['stop_tracking'] = (spacemouse, 'stop_tracking')
-        outputs['start_recording'] = (spacemouse, 'start_recording')
-        outputs['stop_recording'] = (spacemouse, 'stop_recording')
-        outputs['reset'] = (spacemouse, 'reset')
+
+        outputs['robot_target_position'] = spacemouse.outs.robot_target_position
+        outputs['gripper_target_grasp'] = spacemouse.outs.gripper_target_grasp
+        outputs['start_tracking'] = spacemouse.outs.start_tracking
+        outputs['stop_tracking'] = spacemouse.outs.stop_tracking
+        outputs['start_recording'] = spacemouse.outs.start_recording
+        outputs['stop_recording'] = spacemouse.outs.stop_recording
+        outputs['reset'] = spacemouse.outs.reset
 
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     else:
@@ -80,6 +83,11 @@ async def main_async(cfg: DictConfig):
 
     hardware, md = from_config.robot_setup(cfg.hardware)
     metadata.update(md)
+
+    hardware = extend(hardware, {
+        'robot_position_translation': ir.utils.map_property(lambda t: t.translation.copy(), hardware.outs.robot_position),
+        'robot_position_quaternion': ir.utils.map_property(lambda t: t.quaternion.copy(), hardware.outs.robot_position),
+    })
 
     control.bind(
         robot_grip=hardware.outs.grip,
@@ -113,15 +121,17 @@ async def main_async(cfg: DictConfig):
     if cfg.get('sound'):
         from hardware.sound import SoundSystem
 
-        sound_system = SoundSystem(master_volume=cfg.sound.get('force_feedback_volume', 0))
+        force_feedback_volume = cfg.sound.get('force_feedback_volume', 0)
+        sound_system = SoundSystem(master_volume=force_feedback_volume)
 
-        def force_to_level(force: np.ndarray) -> float:
-            # TODO: figure out if L2 norm is better
-            return np.abs(force).max()
+        if force_feedback_volume > 0:
+            def force_to_level(force: np.ndarray) -> float:
+                # TODO: figure out if L2 norm is better
+                return np.abs(force).max()
 
-        sound_system.bind(
-            level=ir.utils.map_property(force_to_level, hardware.outs.ext_force_ee),
-        )
+            sound_system.bind(
+                level=ir.utils.map_property(force_to_level, hardware.outs.ext_force_ee),
+            )
 
         if cfg.sound.get('record_notifications'):
             sound_system.bind(
@@ -135,14 +145,12 @@ async def main_async(cfg: DictConfig):
 
     # Setup data collection if enabled
     if cfg.data_output_dir is not None:
-        properties_to_dump = ir.utils.properties_dict(
-            robot_joints=hardware.outs.joint_positions,
-            robot_position_translation=ir.utils.map_property(lambda t: t.translation, hardware.outs.robot_position),
-            robot_position_quaternion=ir.utils.map_property(lambda t: t.quaternion, hardware.outs.robot_position),
-            ext_force_ee=hardware.outs.ext_force_ee,
-            ext_force_base=hardware.outs.ext_force_base,
-            grip=hardware.outs.grip if hardware.outs.grip else None
-        )
+        robot_properties = {}
+
+        for stored_name, property_name in cfg.state_mappings.items():
+            robot_properties[stored_name] = getattr(hardware.outs, property_name)
+
+        properties_to_dump = ir.utils.properties_dict(**robot_properties)
 
         if 'mujoco_model_path' in metadata:
             model_path = Path(metadata['mujoco_model_path'])
@@ -150,7 +158,7 @@ async def main_async(cfg: DictConfig):
             assert data_output_dir in model_path.parents, f"Mujoco model {model_path} must be in the data output directory {data_output_dir} for transferability"
             metadata['relative_mujoco_model_path'] = str(model_path.relative_to(data_output_dir))
 
-        data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=metadata)
+        data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=metadata, video_fps=cfg.get('video_fps'))
 
         components.append(
             data_dumper.bind(
