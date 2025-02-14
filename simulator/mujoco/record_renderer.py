@@ -22,11 +22,10 @@ def process_episode(episode_path, cfg, output_dir):
         cfg.hardware.mujoco.camera_names,
         (cfg.hardware.mujoco.camera_width, cfg.hardware.mujoco.camera_height),
     )
-    dataset_writer = SerialDumper(cfg.data_output_dir)
 
     simulator.reset(data['keyframe'])
     renderer.initialize()
-    dataset_writer = SerialDumper(output_dir)
+    dataset_writer = SerialDumper(output_dir, video_fps=cfg.hardware.mujoco.observation_hz)
 
     dataset_writer.start_episode()
 
@@ -50,22 +49,26 @@ def process_episode(episode_path, cfg, output_dir):
 
             actual_event_idx = max(0, event_idx - 1)
 
-            dataset_writer.write({
-                **{f'image.{mapped_name}': images[orig_name] for mapped_name, orig_name in cfg.image_name_mapping.items()},
-                'actuator_values': simulator.actuator_values,
-                'grip': simulator.grip,
-                'robot_position_translation': simulator.robot_position.translation.copy(),
-                'robot_position_quaternion': simulator.robot_position.quaternion.copy(),
-                'ext_force_ee': simulator.ext_force_ee.copy(),
-                'ext_force_base': simulator.ext_force_base.copy(),
-                'robot_joints': simulator.joints.copy(),
-                'target_grip': data['target_grip'][actual_event_idx].clone(),
-                'target_robot_position_quaternion': data['target_robot_position_quaternion'][actual_event_idx].clone(),
-                'target_robot_position_translation': data['target_robot_position_translation'][actual_event_idx].clone(),
-                'image_timestamp': simulator.ts_sec,
-                'robot_timestamp': simulator.ts_sec,
-                'target_timestamp': simulator.ts_sec,
-            })
+            dataset_writer.write(
+                data = {
+                    'actuator_values': simulator.actuator_values,
+                    'grip': simulator.grip,
+                    'robot_position_translation': simulator.robot_position.translation.copy(),
+                    'robot_position_quaternion': simulator.robot_position.quaternion.copy(),
+                    'ext_force_ee': simulator.ext_force_ee.copy(),
+                    'ext_force_base': simulator.ext_force_base.copy(),
+                    'robot_joints': simulator.joints.copy(),
+                    'target_grip': data['target_grip'][actual_event_idx].clone(),
+                    'target_robot_position_quaternion': data['target_robot_position_quaternion'][actual_event_idx].clone(),
+                    'target_robot_position_translation': data['target_robot_position_translation'][actual_event_idx].clone(),
+                    'image_timestamp': simulator.ts_sec,
+                    'robot_timestamp': simulator.ts_sec,
+                    'target_timestamp': simulator.ts_sec,
+                },
+                video_frames={
+                    f'image.{mapped_name}': images[orig_name] for mapped_name, orig_name in cfg.image_name_mapping.items()
+                },
+            )
 
 
     tqdm_iter.close()
@@ -83,7 +86,6 @@ def main(cfg):
     for episode_file in tqdm(input_files, desc="Processing episodes"):
         episode_path = os.path.join(cfg.input_dir, episode_file)
         process_episode(episode_path, cfg, cfg.data_output_dir)
-
 
 
 if __name__ == "__main__":
