@@ -20,21 +20,21 @@ def main(cfg: DictConfig):
             rr.save(cfg.rerun)
 
     # Initialize MuJoCo environment
-    loaders = hydra.utils.instantiate(cfg.mujoco.loaders)
-    simulator = MujocoSimulator.load_from_xml_path(cfg.mujoco.model_path, loaders, simulation_rate=1/cfg.mujoco.simulation_hz)
+    loaders = hydra.utils.instantiate(cfg.hardware.mujoco_loaders)
+    simulator = MujocoSimulator.load_from_xml_path(cfg.hardware.mujoco.model_path, loaders, simulation_rate=1/cfg.hardware.mujoco.simulation_hz)
 
     ik = InverseKinematics(simulator)
     renderer = MujocoRenderer(
         simulator,
-        cfg.mujoco.camera_names,
-        (cfg.mujoco.camera_width, cfg.mujoco.camera_height),
+        cfg.hardware.mujoco.camera_names,
+        (cfg.hardware.mujoco.camera_width, cfg.hardware.mujoco.camera_height),
     )
 
     # Initialize renderer
     renderer.initialize()
 
     # Reset simulator to initial state
-    simulator.reset()
+    simulator.reset('home_0')
 
     # Initialize policy and encoders
     policy = get_policy(cfg.inference.checkpoint_path, cfg.get('policy_args', {}))
@@ -42,14 +42,14 @@ def main(cfg: DictConfig):
     state_encoder = StateEncoder(hydra.utils.instantiate(cfg.inference.state))
     action_decoder = hydra.utils.instantiate(cfg.inference.action)
 
-    steps = cfg.inference.inference_time_sec * cfg.mujoco.simulation_hz
+    steps = cfg.inference.inference_time_sec * cfg.hardware.mujoco.simulation_hz
     frame_count = 0
 
     for i in tqdm(range(steps)):
         simulator.step()
 
         # Get observations
-        if simulator.ts_sec >= frame_count / cfg.mujoco.observation_hz:
+        if simulator.ts_sec >= frame_count / cfg.hardware.mujoco.observation_hz:
             frame_count += 1
             rr.set_time_seconds('time', simulator.ts_sec)
             images = renderer.render()

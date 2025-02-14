@@ -1,7 +1,7 @@
 defaults:
   - state: tqg_352x192
   - action: baseline
-  - mujoco: franka
+  - hardware: franka_mujoco
   - _self_
 
 rerun: null
@@ -21,12 +21,10 @@ policy_args:
   use_temporal_ensembler: false
 
 image_name_mapping:
-  left: handcam_left
-  right: handcam_right
+  front: handcam_front
+  back: handcam_back
 
 mujoco:
   camera_names:
-    - handcam_left
-    - handcam_right
-    - side_view
-    - table_view
+    - handcam_front
+    - handcam_back
