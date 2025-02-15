@@ -38,13 +38,13 @@ class RelativeTargetPositionAction:
         mtxs = torch.zeros(len(episode_data['target_robot_position_quaternion']), 9)
 
         # TODO: make this vectorized
-        for i, q in enumerate(episode_data['target_robot_position_quaternion']):
-            q = geom.Quaternion(*q)
-            q_inv = geom.Quaternion(*episode_data['robot_position_quaternion'][i]).inv
-            q_mul = geom.quat_mul(q_inv, q)
-            q_mul = geom.normalise_quat(q_mul)
+        for i, q_target in enumerate(episode_data['target_robot_position_quaternion']):
+            q_target = geom.Quaternion(*q_target)
+            q_current = geom.Quaternion(*episode_data['robot_position_quaternion'][i])
+            q_relative = geom.quat_mul(q_current.inv, q_target)
+            q_relative = geom.normalise_quat(q_relative)
 
-            mtx = q_mul.as_rotation_matrix
+            mtx = q_relative.as_rotation_matrix
             mtxs[i] = torch.from_numpy(mtx.flatten())
 
         translation_diff = episode_data['target_robot_position_translation'] - episode_data['robot_position_translation']
@@ -84,17 +84,17 @@ class RelativeRobotPositionAction:
         translation_diff = -episode_data['robot_position_translation'].clone()
 
         # TODO: make this vectorized
-        for i, q in enumerate(episode_data['robot_position_quaternion']):
+        for i, q_current in enumerate(episode_data['robot_position_quaternion']):
             if i + self.offset >= len(episode_data['robot_position_quaternion']):
                 mtxs[i] = torch.eye(3).flatten()
                 translation_diff[i] = torch.zeros(3)
                 continue
-            q = geom.Quaternion(*q)
-            q_inv = geom.Quaternion(*episode_data['robot_position_quaternion'][i + self.offset]).inv
-            q_mul = geom.quat_mul(q_inv, q)
-            q_mul = geom.normalise_quat(q_mul)
+            q_current = geom.Quaternion(*q_current)
+            q_target = geom.Quaternion(*episode_data['robot_position_quaternion'][i + self.offset])
+            q_relative = geom.quat_mul(q_current.inv, q_target)
+            q_relative = geom.normalise_quat(q_relative)
 
-            mtx = q_mul.as_rotation_matrix
+            mtx = q_relative.as_rotation_matrix
             mtxs[i] = torch.from_numpy(mtx.flatten())
             translation_diff[i] += episode_data['robot_position_translation'][i + self.offset]
 
