@@ -82,6 +82,7 @@ class RelativeRobotPositionAction:
     def encode_episode(self, episode_data):
         mtxs = torch.zeros(len(episode_data['robot_position_quaternion']), 9)
         translation_diff = -episode_data['robot_position_translation'].clone()
+        grips = torch.zeros_like(episode_data['grip'])
 
         # TODO: make this vectorized
         for i, q_current in enumerate(episode_data['robot_position_quaternion']):
@@ -97,8 +98,8 @@ class RelativeRobotPositionAction:
             mtx = q_relative.as_rotation_matrix
             mtxs[i] = torch.from_numpy(mtx.flatten())
             translation_diff[i] += episode_data['robot_position_translation'][i + self.offset]
+            grips[i] = episode_data['grip'][i + self.offset]
 
-        grips = episode_data['grip']
         if grips.ndim == 1:
             grips = grips.unsqueeze(1)
 
