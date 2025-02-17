@@ -33,10 +33,18 @@ def setup_interface(cfg: DictConfig):
             teleop_buttons=webxr.outs.buttons,
         )
 
+        if cfg.get('stream_to_webxr'):
+            get_frame_for_webxr = ir.utils.MapControlSystem(lambda frame: frame[cfg.stream_to_webxr])
+            components.append(get_frame_for_webxr)
+            inputs['images'] = (get_frame_for_webxr, 'input')
+            webxr.bind(
+                frame=get_frame_for_webxr.outs.output,
+            )
+        else:
+            inputs['images'] = None
+
         inputs['robot_position'] = (teleop, 'robot_position')
         inputs['robot_grip'] = None
-        inputs['images'] = None
-        inputs['webxr_frame'] = (webxr, 'frame')
         inputs['robot_state'] = None
 
         outputs['robot_target_position'] = teleop.outs.robot_target_position
@@ -96,14 +104,6 @@ async def main_async(cfg: DictConfig):
         images=hardware.outs.frame,
         robot_state=hardware.outs.robot_state,
     )
-
-    # TODO: implement something like `map_input_port` and move this to `setup_interface`
-    if cfg.control_ui.get('stream_to_webxr'):
-        image_name = cfg.control_ui.get('stream_to_webxr')
-        print(f'Streaming {image_name} to WebXR')
-        control.bind(
-            webxr_frame=ir.utils.map_port(lambda image: image[image_name], hardware.outs.frame),
-        )
 
     hardware.bind(
         target_position=control.outs.robot_target_position,

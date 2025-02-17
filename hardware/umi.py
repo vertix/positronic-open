@@ -5,7 +5,7 @@ import geom
 
 @ir.ironic_system(
     input_ports=['tracker_position', 'target_grip'],
-    output_props=['ee_position', 'ee_state', 'grip'],
+    output_props=['ee_position', 'grip'],
 )
 class UmiCS(ir.ControlSystem):
     def __init__(self):

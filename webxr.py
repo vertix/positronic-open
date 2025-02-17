@@ -21,12 +21,22 @@ def run_server(data_queue, frame_queue, port, ssl_keyfile, ssl_certfile):
     app = FastAPI()
 
     async def get_latest_frame():
-        frame = frame_queue.get()
+        frame = None
+        while frame is None:
+            try:
+                frame = frame_queue.get(block=False)
+            except multiprocessing.queues.Empty:
+                await asyncio.sleep(1 / 30)
+
         return frame
 
     @app.get("/")
     async def root():
         return FileResponse("assets/webxr/index.html")
+
+    @app.get("/three.min.js")
+    async def three_min():
+        return FileResponse("assets/webxr/three.min.js")
 
     @app.get("/webxr-button.js")
     async def webxr_button():

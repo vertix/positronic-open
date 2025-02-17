@@ -1,4 +1,3 @@
-
 /**
  * WebXR Video Player class that displays a video stream on a plane in AR
  */
