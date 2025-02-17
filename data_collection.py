@@ -104,7 +104,6 @@ async def main_async(cfg: DictConfig):
         images=hardware.outs.frame,
         robot_state=hardware.outs.robot_state,
     )
-
     hardware.bind(
         target_position=control.outs.robot_target_position,
         target_grip=control.outs.gripper_target_grasp,
