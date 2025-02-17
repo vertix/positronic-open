@@ -206,6 +206,50 @@ class Quaternion(np.ndarray):
 
         return cls(w, x, y, z)
 
+    @classmethod
+    def from_rotvec(cls, rotvec: np.ndarray) -> 'Quaternion':
+        """
+        Convert a rotation vector to a quaternion.
+
+        Args:
+            rotvec: (numpy.ndarray) 3D rotation vector representing axis-angle rotation
+
+        Returns:
+            Quaternion object representing the same rotation
+        """
+        angle = np.linalg.norm(rotvec)
+        if angle < 1e-10:  # Handle small angles to avoid division by zero
+            return cls(1.0, 0.0, 0.0, 0.0)
+
+        axis = rotvec / angle
+        sin_theta_2 = np.sin(angle/2)
+        cos_theta_2 = np.cos(angle/2)
+
+        w = cos_theta_2
+        x = axis[0] * sin_theta_2
+        y = axis[1] * sin_theta_2
+        z = axis[2] * sin_theta_2
+
+        return cls(w, x, y, z)
+
+    @property
+    def as_rotvec(self) -> np.ndarray:
+        """
+        Convert quaternion to rotation vector representation.
+
+        Returns:
+            numpy.ndarray: 3D rotation vector representing axis-angle rotation. The direction
+                          of the vector indicates the axis of rotation and its magnitude
+                          represents the angle in radians.
+        """
+        angle = 2 * np.arccos(self[0])
+        if angle < 1e-10:  # Handle small angles to avoid division by zero
+            return np.zeros(3)
+
+        sin_theta_2 = np.sin(angle/2)
+        axis = np.array([self[1], self[2], self[3]]) / sin_theta_2
+        return axis * angle
+
     @property
     def as_euler(self):
         """

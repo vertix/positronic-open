@@ -104,6 +104,36 @@ class TestQuaternion(unittest.TestCase):
         expected_result = np.array([np.pi / 2, 0, 0])
         np.testing.assert_array_almost_equal(euler, expected_result, decimal=4)
 
+    def test_from_rotvec_zero_rotation_returns_identity_quaternion(self):
+        rotvec = np.array([0.0, 0.0, 0.0])
+        q = Quaternion.from_rotvec(rotvec)
+        expected_result = Quaternion(1.0, 0.0, 0.0, 0.0)
+        np.testing.assert_array_almost_equal(q, expected_result)
+
+    def test_from_rotvec_x_axis_90_degrees_returns_correct_quaternion(self):
+        rotvec = np.array([np.pi / 2, 0.0, 0.0])  # 90 degrees around x-axis
+        q = Quaternion.from_rotvec(rotvec)
+        expected_result = Quaternion(0.7071, 0.7071, 0.0, 0.0)
+        np.testing.assert_array_almost_equal(q, expected_result, decimal=4)
+
+    def test_as_rotvec_zero_quaternion_returns_zero_vector(self):
+        q = Quaternion(1.0, 0.0, 0.0, 0.0)  # Identity quaternion
+        rotvec = q.as_rotvec
+        expected_result = np.array([0.0, 0.0, 0.0])
+        np.testing.assert_array_almost_equal(rotvec, expected_result)
+
+    def test_as_rotvec_x_axis_90_degrees_returns_correct_vector(self):
+        q = Quaternion(0.7071, 0.7071, 0.0, 0.0)  # 90 degrees around x-axis
+        rotvec = q.as_rotvec
+        expected_result = np.array([np.pi / 2, 0.0, 0.0])
+        np.testing.assert_array_almost_equal(rotvec, expected_result, decimal=4)
+
+    def test_rotvec_conversion_cycle_consistency(self):
+        original_rotvec = np.array([0.5, -0.3, 0.8])
+        q = Quaternion.from_rotvec(original_rotvec)
+        recovered_rotvec = q.as_rotvec
+        np.testing.assert_array_almost_equal(original_rotvec, recovered_rotvec, decimal=4)
+
 class TestUtils(unittest.TestCase):
 
     def test_degrees_to_radians(self):

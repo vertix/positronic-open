@@ -1,2 +1,3 @@
 _target_: inference.action.RelativeRobotPositionAction
 offset: 1
+rotation_representation: rotvec
