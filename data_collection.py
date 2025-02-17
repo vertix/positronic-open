@@ -33,9 +33,18 @@ def setup_interface(cfg: DictConfig):
             teleop_buttons=webxr.outs.buttons,
         )
 
+        if cfg.get('stream_to_webxr'):
+            get_frame_for_webxr = ir.utils.MapControlSystem(lambda frame: frame[cfg.stream_to_webxr])
+            components.append(get_frame_for_webxr)
+            inputs['images'] = (get_frame_for_webxr, 'input')
+            webxr.bind(
+                frame=get_frame_for_webxr.outs.output,
+            )
+        else:
+            inputs['images'] = None
+
         inputs['robot_position'] = (teleop, 'robot_position')
         inputs['robot_grip'] = None
-        inputs['images'] = None
         inputs['robot_state'] = None
 
         outputs['robot_target_position'] = teleop.outs.robot_target_position

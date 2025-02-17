@@ -7,6 +7,7 @@
     <meta name='apple-mobile-web-app-capable' content='yes'>
 
     <title>Input Tracking</title>
+    <script src="/three.min.js"></script>
   </head>
   <body>
     <header>
@@ -19,11 +20,14 @@
     </header>
     <script type="module">
         import { WebXRButton } from './webxr-button.js';
+        import { WebXRVideoPlayer } from './video-player.js';
 
         let xrButton = null;
         let xrImmersiveRefSpace = null;
         let gl = null;
         let websocket = null;
+        let scene, camera, renderer;
+        let videoPlayer = null;
 
         function initXR() {
           xrButton = new WebXRButton({
@@ -36,24 +40,32 @@
             navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
               xrButton.enabled = supported;
             });
-
-            navigator.xr.requestSession('inline').then(onSessionStarted);
           }
         }
 
         function initGL() {
           if (gl) return;
 
+          scene = new THREE.Scene();
+          camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
           let webglCanvas = document.createElement('canvas');
-          gl = webglCanvas.getContext('webgl', { xrCompatible: true }) ||
-               webglCanvas.getContext('experimental-webgl', { xrCompatible: true });
+          renderer = new THREE.WebGLRenderer({
+            canvas: webglCanvas,
+            antialias: true,
+            alpha: true,
+            xrCompatible: true
+          });
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          renderer.setPixelRatio(window.devicePixelRatio);
+          renderer.xr.enabled = true;
+          document.body.appendChild(renderer.domElement);
 
-          if (!gl) {
-            console.error('This browser does not support WebGL.');
-            return;
-          }
+          gl = renderer.getContext();
 
-          document.body.appendChild(webglCanvas);
+          // Add some ambient light to make sure objects are visible
+          const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+          scene.add(ambientLight);
         }
 
         function onRequestSession() {
@@ -65,13 +77,16 @@
           });
         }
 
-        function onSessionStarted(session) {
+        async function onSessionStarted(session) {
           session.addEventListener('end', onSessionEnded);
 
           initGL();
 
-          let glLayer = new XRWebGLLayer(session, gl);
-          session.updateRenderState({ baseLayer: glLayer });
+          renderer.xr.setSession(session);
+
+          // Initialize video player after WebXR session starts
+          videoPlayer = new WebXRVideoPlayer();
+          await videoPlayer.init(scene, camera);
 
           let refSpaceType = 'local';
           session.requestReferenceSpace(refSpaceType).then((refSpace) => {
@@ -122,6 +137,27 @@
           let session = frame.session;
           let refSpace = xrImmersiveRefSpace;
           let pose = frame.getViewerPose(refSpace);
+
+          if (pose) {
+            let glLayer = session.renderState.baseLayer;
+            gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+
+            // Update camera matrices from pose
+            for (let view of pose.views) {
+              const viewport = glLayer.getViewport(view);
+              gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+              camera.matrix.fromArray(view.transform.matrix);
+              camera.projectionMatrix.fromArray(view.projectionMatrix);
+              camera.updateMatrixWorld(true);
+            }
+
+            renderer.render(scene, camera);
+
+            if (videoPlayer) {
+              videoPlayer.update();
+            }
+          }
+
           session.requestAnimationFrame(onXRFrame);
           updateInputSources(session, frame, refSpace);
         }
@@ -153,4 +189,3 @@
       </script>
   </body>
 </html>
-
