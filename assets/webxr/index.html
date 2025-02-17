@@ -40,8 +40,6 @@
             navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
               xrButton.enabled = supported;
             });
-
-            navigator.xr.requestSession('inline').then(onSessionStarted);
           }
         }
 
