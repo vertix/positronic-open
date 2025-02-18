@@ -237,7 +237,8 @@ def map_port(function: Callable[[Any], Any], port: OutputPort) -> OutputPort:
 
     async def handler(message: Message):
         transformed_data = function(message.data)
-        await mapped_port.write(Message(transformed_data, timestamp=message.timestamp))
+        if transformed_data != NoValue:
+            await mapped_port.write(Message(transformed_data, timestamp=message.timestamp))
 
     port.subscribe(handler)
     return mapped_port
