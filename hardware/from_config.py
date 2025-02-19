@@ -73,17 +73,25 @@ def opencv_camera(cfg: DictConfig):
     return camera
 
 
+def linuxpy_video_camera(cfg: DictConfig):
+    from hardware.camera.linuxpy_video import LinuxPyCamera
+    return LinuxPyCamera(cfg.device_path, cfg.width, cfg.height, cfg.fps, cfg.pixel_format)
+
+
 def get_camera(cfg: DictConfig):
-    if cfg.type == 'sl':
-        return sl_camera(cfg)
-    elif cfg.type == 'realsense':
-        return realsense_camera(cfg)
-    elif cfg.type == 'luxonis':
-        return luxonis_camera(cfg)
-    elif cfg.type == 'opencv':
-        return opencv_camera(cfg)
-    else:
-        raise ValueError(f"Invalid camera type: {cfg.type}")
+    match cfg.type:
+        case 'sl':
+            return sl_camera(cfg)
+        case 'realsense':
+            return realsense_camera(cfg)
+        case 'luxonis':
+            return luxonis_camera(cfg)
+        case 'opencv':
+            return opencv_camera(cfg)
+        case 'linuxpy_video':
+            return linuxpy_video_camera(cfg)
+        case _:
+            raise ValueError(f"Invalid camera type: {cfg.type}")
 
 
 def robot_setup(cfg: DictConfig):
