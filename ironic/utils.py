@@ -229,15 +229,53 @@ class MapControlSystem(ControlSystem):
 def map_port(function: Callable[[Any], Any], port: OutputPort) -> OutputPort:
     """Creates a new port that transforms the data of another port using a mapping function.
 
-    This utility is useful for connecting systems that expect different data formats. It preserves
-    the timestamp of the original message while transforming its data content.
+    This utility creates a new output port that receives messages from the source port,
+    transforms their data using the provided function, and emits the transformed messages.
+    The timestamp of the original message is preserved.
+
+    The mapping function can be either synchronous or asynchronous (coroutine).
+
+    If the mapping function returns NoValue, the message will be filtered out and not emitted
+    on the mapped port. This allows the mapping function to selectively filter messages.
+
+    Args:
+        function: A function that transforms the data from one format to another.
+                 Can be sync or async. If it returns NoValue, the message will be filtered out.
+        port: The source output port to transform messages from
+
+    Returns:
+        A new OutputPort that emits the transformed messages
+
+    Example:
+        ```python
+        # Synchronous transformation
+        doubled_port = map_port(lambda x: x * 2, source_port)
+
+        # Asynchronous transformation
+        async def async_transform(x):
+            await asyncio.sleep(0.1)  # Some async operation
+            return x * 2
+        async_port = map_port(async_transform, source_port)
+
+        # Filtering with NoValue
+        def filter_transform(x):
+            if x < 0:  # Filter out negative values
+                return NoValue
+            return x * 2
+        filtered_port = map_port(filter_transform, source_port)
+        ```
     """
     fn_name = getattr(function, '__name__', 'mapped_port')
     mapped_port = OutputPort(f"{port.name}_{fn_name}", port.parent_system)
 
     async def handler(message: Message):
-        transformed_data = function(message.data)
-        await mapped_port.write(Message(transformed_data, timestamp=message.timestamp))
+        if asyncio.iscoroutinefunction(function):
+            transformed_data = await function(message.data)
+        else:
+            transformed_data = function(message.data)
+
+        if transformed_data != NoValue:
+            await mapped_port.write(Message(transformed_data, timestamp=message.timestamp))
 
     port.subscribe(handler)
     return mapped_port
@@ -251,7 +289,13 @@ def properties_dict(**properties):
             that return Messages
 
     Returns:
-        An async function that returns a Message containing a dictionary of property values
+        An async function that returns a Message containing a dictionary of property values.
+        The timestamp of the output message is set to the minimum timestamp among all input
+        messages.
+
+    Note:
+        If the timestamps of the input messages span more than 100ms, a warning will be
+        printed since this may indicate synchronization issues between properties.
     """
     async def result():
         # Gather all property values concurrently
