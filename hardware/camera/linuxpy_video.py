@@ -12,14 +12,25 @@ import ironic as ir
 
 @ir.ironic_system(output_ports=['frame'])
 class LinuxPyCamera(ir.ControlSystem):
-    """Video4Linux camera control system using linuxpy library"""
+    device_path: str
+    width: int
+    height: int
+    fps: int
+    pixel_format: str
+
+    _device: Optional[Device] = None
+    _aiter: Optional[AsyncIterator[Frame]] = None
+    _fps_counter: ir.utils.FPSCounter
+    _frame_queue: asyncio.Queue
+    _reader_task: Optional[asyncio.Task] = None
+    _stopped: asyncio.Event
 
     def __init__(self, device_path: str,
                  width: int = 640,
                  height: int = 480,
                  fps: int = 30,
                  pixel_format: str = "MJPG"):
-        """Initialize the camera system
+        """Video4Linux camera that uses linuxpy library
 
         Args:
             device_path: Path to video device (e.g. "/dev/video0")
@@ -35,25 +46,55 @@ class LinuxPyCamera(ir.ControlSystem):
         self.fps = fps
         self.pixel_format = pixel_format
 
-        self._device: Optional[Device] = None
-        self._aiter: Optional[AsyncIterator[Frame]] = None
         self._fps_counter = ir.utils.FPSCounter(f"Camera {self.device_path}")
+        self._frame_queue = asyncio.Queue(maxsize=1)
+        self._reader_task = None
+        self._stopped = asyncio.Event()
+
+    async def _frame_reader(self):
+        """Background coroutine that reads frames and puts them in the queue"""
+        try:
+            while not self._stopped.is_set():
+                try:
+                    frame = await anext(self._aiter)
+                    if self._frame_queue.full():
+                        try:
+                            self._frame_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                    await self._frame_queue.put(frame)
+                except StopAsyncIteration:
+                    break
+        except Exception:
+            raise
+        finally:
+            self._stopped.set()
 
     async def setup(self):
         """Set up the camera device and configure format"""
         self._device = Device(self.device_path)
         self._device.open()
 
-        # Configure format
-        self._device.set_format(self._device.info.buffers[0],  # VIDEO_CAPTURE
+        self._device.set_format(self._device.info.buffers[0],
                                 self.width, self.height, self.pixel_format)
 
-        # Set FPS
         self._device.set_fps(self._device.info.buffers[0], self.fps)
         self._aiter = aiter(self._device)
 
+        self._stopped.clear()
+        self._reader_task = asyncio.create_task(self._frame_reader())
+
     async def cleanup(self):
         """Clean up camera resources"""
+        self._stopped.set()
+        if self._reader_task:
+            self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except asyncio.CancelledError:
+                pass
+            self._reader_task = None
+
         if self._device:
             if self._aiter:
                 await self._aiter.aclose()
@@ -62,13 +103,15 @@ class LinuxPyCamera(ir.ControlSystem):
             self._device = None
 
     async def step(self):
-        frame = await anext(self._aiter)
-        if frame is None:
-            await asyncio.sleep(0)
-            return ir.State.ALIVE
+        if self._stopped.is_set():
+            return ir.State.FINISHED
 
-        await self.outs.frame.write(ir.Message(data=self._process_frame(frame)))
-        self._fps_counter.tick()
+        try:
+            frame = self._frame_queue.get_nowait()
+            self._fps_counter.tick()
+            await self.outs.frame.write(ir.Message(data=self._process_frame(frame)))
+        except asyncio.QueueEmpty:
+            pass
         return ir.State.ALIVE
 
     def _process_frame(self, frame: Frame) -> dict:
