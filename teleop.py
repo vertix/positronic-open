@@ -147,7 +147,7 @@ def main(cfg: DictConfig):
 
 
 async def main_async(cfg: DictConfig):
-    from hardware.franka import Franka
+    from hardware.roboarms.franka import Franka
     from hardware.dhgrp import DHGripper
 
     webxr = WebXR(port=cfg.webxr.port)
