@@ -229,8 +229,33 @@ class MapControlSystem(ControlSystem):
 def map_port(function: Callable[[Any], Any], port: OutputPort) -> OutputPort:
     """Creates a new port that transforms the data of another port using a mapping function.
 
-    This utility is useful for connecting systems that expect different data formats. It preserves
-    the timestamp of the original message while transforming its data content.
+    This utility creates a new output port that receives messages from the source port,
+    transforms their data using the provided function, and emits the transformed messages.
+    The timestamp of the original message is preserved.
+
+    If the mapping function returns NoValue, the message will be filtered out and not emitted
+    on the mapped port. This allows the mapping function to selectively filter messages.
+
+    Args:
+        function: A function that transforms the data from one format to another.
+                 If it returns NoValue, the message will be filtered out.
+        port: The source output port to transform messages from
+
+    Returns:
+        A new OutputPort that emits the transformed messages
+
+    Example:
+        ```python
+        # Basic transformation
+        doubled_port = map_port(lambda x: x * 2, source_port)
+
+        # Filtering with NoValue
+        def filter_transform(x):
+            if x < 0:  # Filter out negative values
+                return NoValue
+            return x * 2
+        filtered_port = map_port(filter_transform, source_port)
+        ```
     """
     fn_name = getattr(function, '__name__', 'mapped_port')
     mapped_port = OutputPort(f"{port.name}_{fn_name}", port.parent_system)
