@@ -1,6 +1,6 @@
 defaults:
-  - state: tqg_352x192
-  - action: baseline
+  - state: ee
+  - action: relative_robot_position
   - hardware: franka_mujoco
   - _self_
 

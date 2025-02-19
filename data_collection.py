@@ -85,13 +85,11 @@ def setup_interface(cfg: DictConfig):
             """
             q = transform.quaternion
 
-            # Convert quaternion to Euler angles [roll, pitch, yaw]
             euler = q.as_euler
 
-            # Swap roll and yaw angles
-            new_euler = [-euler[2], np.pi + euler[1], euler[0]]  # [roll, pitch, yaw] -> [yaw, pitch, roll]
+            # empirically found transformation that works
+            new_euler = [-euler[2], np.pi + euler[1], euler[0]]
 
-            # Convert back to quaternion
             new_quat = geom.Quaternion.from_euler(new_euler)
 
             return geom.Transform3D(
