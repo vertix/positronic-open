@@ -110,7 +110,7 @@ def robot_setup(cfg: DictConfig):
     """
     components, inputs, outputs = [], {}, {}
     if cfg.type == 'physical':
-        from drivers.roboarms import franka
+        from drivers.roboarm import franka
         kwargs = {}
         if 'collision_behavior' in cfg.franka:
             kwargs['collision_behavior'] = cfg.franka.collision_behavior
@@ -131,7 +131,7 @@ def robot_setup(cfg: DictConfig):
         outputs['robot_status'] = franka.outs.status
 
         if 'dh_gripper' in cfg:
-            from drivers.dhgrp import DHGripper
+            from drivers.gripper.dh import DHGripper
             gripper = DHGripper(cfg.dh_gripper)
             components.append(gripper)
             outputs['grip'] = gripper.outs.grip

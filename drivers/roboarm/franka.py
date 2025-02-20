@@ -15,6 +15,7 @@ class CartesianMode(Enum):
     POSITRONIC = "positronic"
 
 
+# TODO: Extract gripper into a separate control system
 @ir.ironic_system(
     input_ports=['target_position', 'target_grip', 'reset'],
     output_ports=['status'],

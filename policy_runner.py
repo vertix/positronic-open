@@ -8,8 +8,8 @@ import rerun as rr
 
 import drivers
 import ironic as ir
-from drivers.roboarms.franka import Franka
-from drivers.dhgrp import DHGripper
+from drivers.roboarm.franka import Franka
+from drivers.gripper.dh import DHGripper
 from inference import Inference
 
 logging.basicConfig(level=logging.INFO,
