@@ -110,7 +110,7 @@ def robot_setup(cfg: DictConfig):
     """
     components, inputs, outputs = [], {}, {}
     if cfg.type == 'physical':
-        from hardware.roboarms.franka import Franka
+        from hardware.roboarms import franka
         kwargs = {}
         if 'collision_behavior' in cfg.franka:
             kwargs['collision_behavior'] = cfg.franka.collision_behavior
@@ -119,7 +119,7 @@ def robot_setup(cfg: DictConfig):
         if 'cartesian_mode' in cfg.franka:
             kwargs['cartesian_mode'] = getattr(franka.CartesianMode, cfg.franka.cartesian_mode)
 
-        franka = Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force, **kwargs)
+        franka = franka.Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force, **kwargs)
         components.append(franka)
         inputs['target_position'] = (franka, 'target_position')
         inputs['reset'] = (franka, 'reset')
