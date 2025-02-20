@@ -126,13 +126,10 @@ class ComposedSystem(ControlSystem):
                 if input_mapping is None:
                     continue
                 if isinstance(input_mapping, tuple):
-                    comp = input_mapping[0]
+                    input_mapping = [input_mapping]
+                for comp, _ in input_mapping:
                     if comp not in components_set:
                         raise CompositionError(f"Input mappings reference components not in composition")
-                else:  # List of tuples
-                    for comp, _ in input_mapping:
-                        if comp not in components_set:
-                            raise CompositionError(f"Input mappings reference components not in composition")
 
         if outputs:
             for name, out in outputs.items():
@@ -192,11 +189,10 @@ class ComposedSystem(ControlSystem):
                 continue
 
             if isinstance(input_mapping, tuple):
-                component, port_name = input_mapping
+                input_mapping = [input_mapping]
+
+            for component, port_name in input_mapping:
                 component.bind(**{port_name: binding})
-            else:  # List of tuples
-                for component, port_name in input_mapping:
-                    component.bind(**{port_name: binding})
 
             binds[name] = binding
 

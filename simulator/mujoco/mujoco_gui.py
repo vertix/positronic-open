@@ -61,7 +61,15 @@ class DesiredAction:
 @ir.ironic_system(
     input_ports=["images", "robot_status"],
     input_props=["robot_position", "actuator_values", "robot_grip", "metrics"],
-    output_ports=["start_tracking", "stop_tracking", "gripper_target_grasp", "robot_target_position", "reset", "start_recording", "stop_recording"],
+    output_ports=[
+        "start_tracking",
+        "stop_tracking",
+        "gripper_target_grasp",
+        "robot_target_position",
+        "reset",
+        "start_recording",
+        "stop_recording",
+    ],
 )
 class DearpyguiUi(ir.ControlSystem):
     speed_meters_per_second = 0.1

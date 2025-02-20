@@ -18,7 +18,7 @@ from simulator.mujoco.sim import CompositeMujocoMetricCalculator, InverseKinemat
         "ext_force_base",
         "actuator_values",
         "metrics",
-        "keyframe",
+        "episode_metadata",
     ])
 class MujocoSimulatorCS(ir.ControlSystem):
     def __init__(
@@ -82,8 +82,10 @@ class MujocoSimulatorCS(ir.ControlSystem):
         return ir.Message(self.metric_calculator.get_metrics(), self.ts)
 
     @ir.out_property
-    async def keyframe(self):
-        return ir.Message(f"home_{self._keyframe_idx}", self.ts)
+    async def episode_metadata(self):
+        return ir.Message({
+            'keyframe': f"home_{self._keyframe_idx}",
+        }, self.ts)
 
     @property
     def ts(self) -> int:

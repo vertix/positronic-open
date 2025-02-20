@@ -193,7 +193,7 @@ def robot_setup(cfg: DictConfig):
         outputs['grip'] = simulator_cs.outs.grip
         outputs['frame'] = simulator_cs.outs.images
         outputs['robot_status'] = simulator_cs.outs.robot_status
-        outputs['keyframe'] = simulator_cs.outs.keyframe
+        outputs['episode_metadata'] = simulator_cs.outs.episode_metadata
 
         metadata = {'mujoco_model_path': cfg.mujoco.model_path, 'simulation_hz': cfg.mujoco.simulation_hz}
         return ir.compose(*components, inputs=inputs, outputs=outputs), metadata

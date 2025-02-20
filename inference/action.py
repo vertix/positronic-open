@@ -1,29 +1,39 @@
+from enum import Enum
+
 import torch
+
 import geom
 
 
-def get_representation_size(representation: str) -> int:
-    if representation == 'quat':
+class RotationRepresentation(str, Enum):
+    QUAT = 'quat'
+    EULER = 'euler'
+    ROTATION_MATRIX = 'rotation_matrix'
+    ROTVEC = 'rotvec'
+
+
+def get_representation_size(representation: RotationRepresentation | str) -> int:
+    if representation == RotationRepresentation.QUAT:
         return 4
-    elif representation == 'euler':
+    elif representation == RotationRepresentation.EULER:
         return 3
-    elif representation == 'rotation_matrix':
+    elif representation == RotationRepresentation.ROTATION_MATRIX:
         return 9
-    elif representation == 'rotvec':
+    elif representation == RotationRepresentation.ROTVEC:
         return 3
     else:
         raise ValueError(f"Invalid rotation representation: {representation}")
 
 
-def convert_quat_to(q: geom.Quaternion, representation: str) -> torch.Tensor:
+def convert_quat_to(q: geom.Quaternion, representation: RotationRepresentation | str) -> torch.Tensor:
     array = None
-    if representation == 'quat':
+    if representation == RotationRepresentation.QUAT:
         array = q
-    elif representation == 'euler':
+    elif representation == RotationRepresentation.EULER:
         array = q.as_euler
-    elif representation == 'rotation_matrix':
+    elif representation == RotationRepresentation.ROTATION_MATRIX:
         array = q.as_rotation_matrix
-    elif representation == 'rotvec':
+    elif representation == RotationRepresentation.ROTVEC:
         array = q.as_rotvec
     else:
         raise ValueError(f"Invalid rotation representation: {representation}")
@@ -31,22 +41,22 @@ def convert_quat_to(q: geom.Quaternion, representation: str) -> torch.Tensor:
     return torch.from_numpy(array).flatten()
 
 
-def convert_to_quat(array: torch.Tensor, representation: str) -> geom.Quaternion:
-    if representation == 'quat':
+def convert_to_quat(array: torch.Tensor, representation: RotationRepresentation | str) -> geom.Quaternion:
+    if representation == RotationRepresentation.QUAT:
         return geom.Quaternion(*array)
-    elif representation == 'euler':
+    elif representation == RotationRepresentation.EULER:
         return geom.Quaternion.from_euler(*array)
-    elif representation == 'rotation_matrix':
+    elif representation == RotationRepresentation.ROTATION_MATRIX:
         array = array.reshape(3, 3)
         return geom.Quaternion.from_rotation_matrix(array)
-    elif representation == 'rotvec':
+    elif representation == RotationRepresentation.ROTVEC:
         return geom.Quaternion.from_rotvec(array)
     else:
         raise ValueError(f"Invalid rotation representation: {representation}")
 
 
 class AbsolutePositionAction:
-    def __init__(self, rotation_representation: str = 'quat'):
+    def __init__(self, rotation_representation: RotationRepresentation | str = RotationRepresentation.QUAT):
         self.rotation_representation = rotation_representation
         self.rotation_size = get_representation_size(rotation_representation)
 
@@ -81,7 +91,7 @@ class AbsolutePositionAction:
 
 
 class RelativeTargetPositionAction:
-    def __init__(self, rotation_representation: str = 'quat'):
+    def __init__(self, rotation_representation: RotationRepresentation | str = RotationRepresentation.QUAT):
         self.rotation_representation = rotation_representation
         self.rotation_size = get_representation_size(rotation_representation)
 
@@ -127,7 +137,14 @@ class RelativeTargetPositionAction:
 
 
 class RelativeRobotPositionAction:
-    def __init__(self, offset: int, rotation_representation: str = 'quat'):
+    def __init__(self, offset: int, rotation_representation: RotationRepresentation | str = RotationRepresentation.QUAT):
+        """
+        Action that represents the relative position between the current robot position and the robot position after `offset` timesteps.
+
+        Args:
+            offset: (int) The number of timesteps to look ahead.
+            rotation_representation: (RotationRepresentation | str) The representation of the rotation.
+        """
         self.offset = offset
         self.rotation_representation = rotation_representation
         self.rotation_size = get_representation_size(rotation_representation)
