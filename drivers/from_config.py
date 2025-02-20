@@ -14,7 +14,7 @@ def add_image_mapping(mapping: Dict[str, str], camera: ir.ControlSystem):
     return ir.compose(camera, map_system, outputs={'frame': map_system.outs.output})
 
 def sl_camera(cfg: DictConfig):
-    from hardware.camera.sl import SLCamera
+    from drivers.camera.sl import SLCamera
     import pyzed.sl as sl
 
     view = getattr(sl.VIEW, cfg.view)
@@ -38,7 +38,7 @@ def sl_camera(cfg: DictConfig):
 
 
 def realsense_camera(cfg: DictConfig):
-    from hardware.camera.realsense import RealsenseCamera, RealsenseCameraCS
+    from drivers.camera.realsense import RealsenseCamera, RealsenseCameraCS
 
     camera = RealsenseCameraCS(RealsenseCamera(
         resolution=cfg.resolution,
@@ -55,7 +55,7 @@ def realsense_camera(cfg: DictConfig):
 
 
 def luxonis_camera(cfg: DictConfig):
-    from hardware.camera.luxonis import LuxonisCamera, LuxonisCameraCS
+    from drivers.camera.luxonis import LuxonisCamera, LuxonisCameraCS
 
     camera = LuxonisCameraCS(LuxonisCamera())
 
@@ -63,7 +63,7 @@ def luxonis_camera(cfg: DictConfig):
 
 
 def opencv_camera(cfg: DictConfig):
-    from hardware.camera.opencv import OpenCVCamera, OpenCVCameraCS
+    from drivers.camera.opencv import OpenCVCamera, OpenCVCameraCS
 
     camera = OpenCVCameraCS(OpenCVCamera(
         camera_id=cfg.camera_id,
@@ -75,7 +75,7 @@ def opencv_camera(cfg: DictConfig):
 
 
 def linuxpy_video_camera(cfg: DictConfig):
-    from hardware.camera.linuxpy_video import LinuxPyCamera
+    from drivers.camera.linuxpy_video import LinuxPyCamera
     return LinuxPyCamera(cfg.device_path, cfg.width, cfg.height, cfg.fps, cfg.pixel_format)
 
 
@@ -110,7 +110,7 @@ def robot_setup(cfg: DictConfig):
     """
     components, inputs, outputs = [], {}, {}
     if cfg.type == 'physical':
-        from hardware.roboarms import franka
+        from drivers.roboarms import franka
         kwargs = {}
         if 'collision_behavior' in cfg.franka:
             kwargs['collision_behavior'] = cfg.franka.collision_behavior
@@ -131,7 +131,7 @@ def robot_setup(cfg: DictConfig):
         outputs['robot_status'] = franka.outs.status
 
         if 'dh_gripper' in cfg:
-            from hardware.dhgrp import DHGripper
+            from drivers.dhgrp import DHGripper
             gripper = DHGripper(cfg.dh_gripper)
             components.append(gripper)
             outputs['grip'] = gripper.outs.grip
@@ -198,7 +198,7 @@ def robot_setup(cfg: DictConfig):
         metadata = {'mujoco_model_path': cfg.mujoco.model_path, 'simulation_hz': cfg.mujoco.simulation_hz}
         return ir.compose(*components, inputs=inputs, outputs=outputs), metadata
     elif cfg.type == 'umi':
-        from hardware.umi import UmiCS
+        from drivers.umi import UmiCS
 
         umi = UmiCS()
         components.append(umi)

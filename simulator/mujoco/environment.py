@@ -1,6 +1,6 @@
 from typing import Optional, Sequence
 
-from hardware import RobotStatus
+from drivers.roboarms import RobotStatus
 from ironic.utils import Throttler
 import ironic as ir
 from geom import Transform3D
