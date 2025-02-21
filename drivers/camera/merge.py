@@ -21,45 +21,31 @@ def _merge_frames(cam2frame_dicts: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     return result
 
 
-def merge_on_pulse(cameras: Dict[str, ir.ControlSystem], pulse: ir.OutputPort) -> ir.ControlSystem:
-    """Merge multiple cameras into a single virtual camera system, triggered by an external pulse.
+def merge_on_pulse(cameras: Dict[str, ir.ControlSystem], fps: float) -> ir.ControlSystem:
+    """Merge multiple cameras into a single virtual camera system with pulse-based triggering.
 
-    Creates a new control system that combines frames from multiple cameras into a single
-    output frame. The merged frames are emitted when triggered by the pulse signal.
-
-    The merged frame contains all images from the input frames, with keys prefixed by the camera name.
-    For example, if camera "cam1" outputs {"image": img1} and camera "cam2" outputs {"depth": img2},
-    the merged frame will be {"cam1.image": img1, "cam2.depth": img2}.
-
-    If any camera hasn't produced a frame yet when the pulse arrives, the system will output ir.NoValue.
+    Combines frames from multiple cameras into a single output frame, triggered by a pulse signal.
+    Output frame keys are prefixed with camera names (e.g. "cam1.image", "cam2.depth").
+    Outputs ir.NoValue if any camera hasn't produced a frame yet.
 
     Args:
-        cameras: Dictionary mapping camera names to their control systems. Each camera system must have
-                an output port named 'frame' that emits dictionaries mapping image names to numpy arrays.
-        pulse: OutputPort that triggers when frames should be merged. When this triggers, the system will
-               emit a merged frame containing the most recent frame from each camera.
+        cameras: Dict mapping camera names to control systems with 'frame' output ports
+        fps: Frames per second to emit
 
     Returns:
-        A new control system with a single output port 'frame' that emits merged frames.
+        Control system with 'frame' output port emitting merged frames
 
     Example:
         ```python
-        # Merge two cameras using external trigger
-        cam1 = SLCamera()  # Outputs {"left": img1, "right": img2}
-        cam2 = RealsenseCamera()  # Outputs {"image": img3, "depth": img4}
-        cameras = {"cam1": cam1, "cam2": cam2}
-        trigger = some_trigger_port
-
-        merged = merge_on_pulse(cameras, trigger)
-        # When triggered, will output:
-        # {
-        #   "cam1.left": img1,
-        #   "cam1.right": img2,
-        #   "cam2.image": img3,
-        #   "cam2.depth": img4
-        # }
+        cam1 = SLCamera()  # {"left": img1, "right": img2}
+        cam2 = RealsenseCamera()  # {"image": img3, "depth": img4}
+        merged = merge_on_pulse({"cam1": cam1, "cam2": cam2}, fps=10)
+        # Output: {"cam1.left": img1, "cam1.right": img2,
+        #          "cam2.image": img3, "cam2.depth": img4}
         ```
     """
+    pulse = ir.utils.Pulse(fps)
+
     last_values = {name: ir.utils.last_value(camera.outs.frame) for name, camera in cameras.items()}
     merge_dict = ir.utils.properties_dict(**last_values)
 
@@ -67,52 +53,35 @@ def merge_on_pulse(cameras: Dict[str, ir.ControlSystem], pulse: ir.OutputPort) -
         cam2frame_dicts = await merge_dict()
         return _merge_frames(cam2frame_dicts.data)
 
-    return ir.compose(*cameras.values(), outputs={'frame': ir.utils.map_port(merge_frames, pulse)})
+    return ir.compose(*cameras.values(), pulse, outputs={'frame': ir.utils.map_port(merge_frames, pulse.outs.pulse)})
 
 
 def merge_on_camera(main_camera: Tuple[str, ir.ControlSystem], extension_cameras: Dict[str, ir.ControlSystem]) -> ir.ControlSystem:
     """Merge multiple cameras into a single virtual camera system, triggered by a main camera.
 
-    Creates a new control system that combines frames from multiple cameras into a single
-    output frame. The merged frames are emitted whenever the main camera produces a new frame.
-
-    The merged frame contains all images from the input frames, with keys prefixed by the camera name.
-    For example, if main camera "cam1" outputs {"image": img1} and extension camera "cam2" outputs
-    {"depth": img2}, the merged frame will be {"cam1.image": img1, "cam2.depth": img2}.
-
-    If any extension camera hasn't produced a frame yet when the main camera emits a frame,
-    the system will output ir.NoValue.
+    Combines frames from multiple cameras into a single output frame, triggered by the main camera.
+    Output frame keys are prefixed with camera names (e.g. "cam1.image", "cam2.depth").
+    Outputs ir.NoValue if any extension camera hasn't produced a frame yet.
 
     Args:
-        main_camera: Tuple of (name, camera) where camera is the control system that triggers frame merging.
-                    The camera must have an output port named 'frame' that emits dictionaries mapping
-                    image names to numpy arrays.
-        extension_cameras: Dictionary mapping camera names to their control systems. Each camera system
-                         must have an output port named 'frame' that emits dictionaries mapping image
-                         names to numpy arrays.
+        main_camera: (name, camera) tuple where camera triggers frame merging. Camera must have
+                    'frame' output port emitting image dict.
+        extension_cameras: Dict mapping names to camera systems with 'frame' output ports.
 
     Returns:
-        A new control system with a single output port 'frame' that emits merged frames.
+        Control system with 'frame' output port emitting merged frames.
 
     Example:
         ```python
-        # Merge cameras using main camera as trigger
-        main = SLCamera()  # Outputs {"left": img1, "right": img2}
-        ext = RealsenseCamera()  # Outputs {"image": img3, "depth": img4}
-        extension_cameras = {"ext": ext}
-
-        merged = merge_on_camera(("main", main), extension_cameras)
-        # When main camera emits a frame, will output:
-        # {
-        #   "main.left": img1,
-        #   "main.right": img2,
-        #   "ext.image": img3,
-        #   "ext.depth": img4
-        # }
+        main = SLCamera()  # {"left": img1, "right": img2}
+        ext = RealsenseCamera()  # {"image": img3, "depth": img4}
+        merged = merge_on_camera(("main", main), {"ext": ext})
+        # Output: {"main.left": img1, "main.right": img2,
+        #          "ext.image": img3, "ext.depth": img4}
         ```
 
     Raises:
-        AssertionError: If the main camera name conflicts with an extension camera name.
+        AssertionError: If main camera name conflicts with extension cameras.
     """
     last_values = {name: ir.utils.last_value(camera.outs.frame) for name, camera in extension_cameras.items()}
     merge_dict = ir.utils.properties_dict(**last_values)

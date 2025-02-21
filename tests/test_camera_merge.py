@@ -31,11 +31,8 @@ async def test_merge_on_pulse():
     cam2 = MockCamera("cam2")
     cameras = {"cam1": cam1, "cam2": cam2}
 
-    # Create pulse port
-    pulse_port = ir.OutputPort("pulse")
-
-    # Create merged camera system using external pulse
-    merged = merge_on_pulse(cameras, pulse_port)
+    # Create merged camera system using fps parameter
+    merged = merge_on_pulse(cameras, fps=10)
     await merged.setup()
 
     # Create frame receiver
@@ -44,20 +41,24 @@ async def test_merge_on_pulse():
         received_frames.append(message.data)
     merged.outs.frame.subscribe(frame_handler)
 
+    # Run system for a few steps to allow pulse generation
+    for _ in range(5):
+        await merged.step()
+        await asyncio.sleep(0.1)  # Give time for pulse to trigger
+
     # Emit test frames from cameras
     frame1 = {"image": np.zeros((10, 10, 3))}
     frame2 = {"image": np.ones((10, 10, 3))}
 
     await cam1.emit_frame(frame1)
     await cam2.emit_frame(frame2)
-    await asyncio.sleep(0)
-    assert len(received_frames) == 0  # Should not emit until pulse signal
 
-    # Send pulse signal
-    await pulse_port.write(ir.Message(True))
-    await asyncio.sleep(0)
+    # Run a few more steps to allow processing
+    for _ in range(3):
+        await merged.step()
+        await asyncio.sleep(0.1)
 
-    assert len(received_frames) == 1
+    assert len(received_frames) >= 1
     merged_frame = received_frames[0]
     assert "cam1.image" in merged_frame
     assert "cam2.image" in merged_frame

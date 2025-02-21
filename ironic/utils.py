@@ -1,5 +1,5 @@
 import asyncio
-from collections import namedtuple
+from collections import deque, namedtuple
 import time
 import signal
 from typing import Any, Callable, Optional
@@ -421,3 +421,32 @@ def last_value(port: OutputPort, initial_value: Any = NoValue) -> Callable[[], M
         return Message(data=last_value, timestamp=last_timestamp)
 
     return property
+
+
+@ironic_system(output_ports=['pulse'])
+class Pulse(ControlSystem):
+    """A control system that emits a pulse at a specified frequency.
+
+    This system emits pulses at a specified frequency. If the system falls behind schedule,
+    it will emit multiple pulses to catch up while maintaining the correct intervals.
+
+    Args:
+        fps: Target frequency of pulses
+    """
+    def __init__(self, fps: float):
+        super().__init__()
+        self.fps = fps
+        self._period = 1.0 / fps
+        self._next_pulse_time = None
+
+    async def setup(self):
+        self._next_pulse_time = time.monotonic()
+
+    async def step(self):
+        now = time.monotonic()
+        # Emit pulses until we're caught up with the schedule
+        while now >= self._next_pulse_time:
+            await self.outs.pulse.write(Message(data=None))
+            self._next_pulse_time += self._period
+
+        return State.ALIVE
