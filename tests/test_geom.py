@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from geom import Transform3D, Quaternion, degrees_to_radians, radians_to_degrees
+from geom import Transform3D, Quaternion, degrees_to_radians, get_representation_shape, get_representation_size, radians_to_degrees, RotationRepresentation
 
 class TestTransform3D(unittest.TestCase):
 
@@ -133,6 +133,60 @@ class TestQuaternion(unittest.TestCase):
         q = Quaternion.from_rotvec(original_rotvec)
         recovered_rotvec = q.as_rotvec
         np.testing.assert_array_almost_equal(original_rotvec, recovered_rotvec, decimal=4)
+
+    def test_to_representation_euler_same_as_as_euler(self):
+        q = Quaternion(0.7071, 0.7071, 0, 0)  # 90 degrees rotation around x-axis
+        euler = q.as_euler
+        np.testing.assert_array_almost_equal(euler, q.to(RotationRepresentation.EULER), decimal=4)
+
+    def test_to_representation_quat_same_as_as_quat(self):
+        q = Quaternion(0.7071, 0.7071, 0, 0)  # 90 degrees rotation around x-axis
+        np.testing.assert_array_almost_equal(q, q.to(RotationRepresentation.QUAT), decimal=4)
+
+    def test_to_representation_rotation_matrix_same_as_as_rotation_matrix(self):
+        q = Quaternion(0.7071, 0.7071, 0, 0)  # 90 degrees rotation around x-axis
+        np.testing.assert_array_almost_equal(q.as_rotation_matrix, q.to(RotationRepresentation.ROTATION_MATRIX), decimal=4)
+
+    def test_to_representation_rotvec_same_as_as_rotvec(self):
+        q = Quaternion(0.7071, 0.7071, 0, 0)  # 90 degrees rotation around x-axis
+        np.testing.assert_array_almost_equal(q.as_rotvec, q.to(RotationRepresentation.ROTVEC), decimal=4)
+
+    def test_create_from_euler_same_as_from_euler(self):
+        euler = np.array([np.pi / 2, 0, 0])  # 90 degrees rotation around x-axis
+        q = Quaternion.create_from(euler, RotationRepresentation.EULER)
+        np.testing.assert_array_almost_equal(q, Quaternion.from_euler(euler), decimal=4)
+
+    def test_create_from_rotation_matrix_same_as_from_rotation_matrix(self):
+        matrix = np.array([
+            [1, 0, 0],
+            [0, 0, -1],
+            [0, 1, 0]
+        ])
+        q = Quaternion.create_from(matrix, RotationRepresentation.ROTATION_MATRIX)
+        np.testing.assert_array_almost_equal(q, Quaternion.from_rotation_matrix(matrix), decimal=4)
+
+    def test_create_from_rotvec_same_as_from_rotvec(self):
+        rotvec = np.array([0.5, -0.3, 0.8])
+        q = Quaternion.create_from(rotvec, RotationRepresentation.ROTVEC)
+        np.testing.assert_array_almost_equal(q, Quaternion.from_rotvec(rotvec), decimal=4)
+
+    def test_create_from_quat_same_as_from_quat(self):
+        q = Quaternion(0.7071, 0.7071, 0, 0)  # 90 degrees rotation around x-axis
+        np.testing.assert_array_almost_equal(q, Quaternion.create_from(q, RotationRepresentation.QUAT), decimal=4)
+
+    def test_get_representation_size_exists_for_all_representations(self):
+        for representation in RotationRepresentation:
+            self.assertIsNotNone(get_representation_size(representation))
+
+    def test_create_from_representation_exists_for_all_representations(self):
+        for representation in RotationRepresentation:
+            data = np.zeros(get_representation_shape(representation))
+            self.assertIsNotNone(Quaternion.create_from(data, representation))
+
+    def test_to_representation_exists_for_all_representations(self):
+        for representation in RotationRepresentation:
+            q = Quaternion(0.7071, 0.7071, 0, 0)  # 90 degrees rotation around x-axis
+            self.assertIsNotNone(q.to(representation))
 
 class TestUtils(unittest.TestCase):
 

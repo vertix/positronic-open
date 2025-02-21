@@ -85,9 +85,7 @@ def setup_interface(cfg: DictConfig):
             """
             Adjust the rotations of the transform by swapping roll and yaw angles.
             """
-            q = transform.quaternion
-
-            euler = q.as_euler
+            euler = transform.quaternion.as_euler
 
             # empirically found transformation that works
             new_euler = [-euler[2], np.pi + euler[1], euler[0]]
@@ -224,7 +222,7 @@ async def main_async(cfg: DictConfig):
         data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=metadata, video_fps=cfg.get('video_fps'))
 
         if hasattr(hardware.outs, 'episode_metadata'):
-            async def send_episode_metadata(message: ir.Message):
+            async def send_episode_metadata(_: ir.Message):
                 episode_metadata = (await hardware.outs.episode_metadata()).data
 
                 return episode_metadata
