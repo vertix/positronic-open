@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from geom import Transform3D, Quaternion, degrees_to_radians, get_representation_shape, get_representation_size, radians_to_degrees, RotationRepresentation
+from geom import Transform3D, Quaternion, degrees_to_radians, radians_to_degrees, RotationRepresentation
 
 class TestTransform3D(unittest.TestCase):
 
@@ -174,14 +174,24 @@ class TestQuaternion(unittest.TestCase):
         q = Quaternion(0.7071, 0.7071, 0, 0)  # 90 degrees rotation around x-axis
         np.testing.assert_array_almost_equal(q, Quaternion.create_from(q, RotationRepresentation.QUAT), decimal=4)
 
-    def test_get_representation_size_exists_for_all_representations(self):
+    def test_representation_size_exists_for_all_representations(self):
         for representation in RotationRepresentation:
-            self.assertIsNotNone(get_representation_size(representation))
+            self.assertIsNotNone(representation.size)
 
     def test_create_from_representation_exists_for_all_representations(self):
         for representation in RotationRepresentation:
-            data = np.zeros(get_representation_shape(representation))
+            data = np.zeros(representation.shape)
             self.assertIsNotNone(Quaternion.create_from(data, representation))
+
+    def test_from_value_exists_for_all_representations(self):
+        for representation in RotationRepresentation:
+            data = np.zeros(representation.shape)
+            self.assertIsNotNone(representation.from_value(data))
+
+    def test_from_value_same_as_create_from_representation(self):
+        for representation in RotationRepresentation:
+            data = np.zeros(representation.shape)
+            np.testing.assert_array_almost_equal(representation.from_value(data), Quaternion.create_from(data, representation))
 
     def test_to_representation_exists_for_all_representations(self):
         for representation in RotationRepresentation:

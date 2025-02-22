@@ -4,52 +4,54 @@ from typing import Any
 import numpy as np
 
 
-class RotationRepresentation(str, Enum):
+class RotationRepresentation(Enum):
     QUAT = 'quat'
     EULER = 'euler'
     ROTATION_MATRIX = 'rotation_matrix'
     ROTVEC = 'rotvec'
 
+    def from_value(self, value: Any) -> 'Quaternion':
+        if self == RotationRepresentation.QUAT:
+            return Quaternion(*value)
+        elif self == RotationRepresentation.EULER:
+            return Quaternion.from_euler(value)
+        elif self == RotationRepresentation.ROTATION_MATRIX:
+            return Quaternion.from_rotation_matrix(value)
+        elif self == RotationRepresentation.ROTVEC:
+            return Quaternion.from_rotvec(value)
+        else:
+            raise NotImplementedError(f"Rotation representation {self} not implemented")
 
-def get_representation_shape(representation: RotationRepresentation | str) -> int | tuple[int, int]:
-    """
-    Returns the shape of the representation in terms of the number of elements in the array.
+    @property
+    def shape(self) -> int | tuple[int, int]:
+        if self == RotationRepresentation.QUAT:
+            return 4
+        elif self == RotationRepresentation.EULER:
+            return 3
+        elif self == RotationRepresentation.ROTATION_MATRIX:
+            return (3, 3)
+        elif self == RotationRepresentation.ROTVEC:
+            return 3
+        else:
+            raise NotImplementedError(f"Rotation representation {self} not implemented")
 
-    Args:
-        representation: (RotationRepresentation | str) The representation to get the shape of.
+    @property
+    def size(self) -> int:
+        shape = self.shape
 
-    Returns:
-        (int | tuple[int, int]) The shape of the representation.
-    """
-    if representation == RotationRepresentation.QUAT:
-        return 4
-    elif representation == RotationRepresentation.EULER:
-        return 3
-    elif representation == RotationRepresentation.ROTATION_MATRIX:
-        return (3, 3)
-    elif representation == RotationRepresentation.ROTVEC:
-        return 3
-    else:
-        raise ValueError(f"Invalid rotation representation: {representation}")
+        if isinstance(shape, int):
+            return shape
 
-
-def get_representation_size(representation: RotationRepresentation | str) -> int:
-    """
-    Returns the size of the representation in terms of the number of elements in the array.
-
-    Args:
-        representation: (RotationRepresentation | str) The representation to get the size of.
-
-    Returns:
-        (int) The size of the representation.
-    """
-    shape = get_representation_shape(representation)
-    if isinstance(shape, int):
-        return shape
-    elif isinstance(shape, tuple):
         return np.prod(shape)
-    else:
-        raise ValueError(f"Invalid rotation representation shape: {shape}")
+
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, RotationRepresentation):
+            return super().__eq__(other)
+        elif isinstance(other, str):
+            return self.value == other
+        else:
+            return False
 
 
 # y = R * x + t
@@ -294,16 +296,7 @@ class Quaternion(np.ndarray):
         Returns:
             Quaternion object.
         """
-        if representation == RotationRepresentation.QUAT:
-            return cls(*value)
-        elif representation == RotationRepresentation.EULER:
-            return cls.from_euler(value)
-        elif representation == RotationRepresentation.ROTATION_MATRIX:
-            return cls.from_rotation_matrix(value)
-        elif representation == RotationRepresentation.ROTVEC:
-            return cls.from_rotvec(value)
-        else:
-            raise ValueError(f"Invalid rotation representation: {representation}")
+        return RotationRepresentation(representation).from_value(value)
 
     def to(self, representation: RotationRepresentation | str) -> np.ndarray:
         """
