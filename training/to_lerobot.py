@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from io import BytesIO
 
 import cv2
 import torch
@@ -7,6 +8,7 @@ import tqdm
 import numpy as np
 import hydra
 from omegaconf import DictConfig
+import imageio
 
 from lerobot.common.datasets.lerobot_dataset import CODEBASE_VERSION, LeRobotDataset
 from lerobot.common.datasets.push_dataset_to_hub.aloha_hdf5_format import to_hf_dataset
@@ -17,6 +19,29 @@ from lerobot.scripts.push_dataset_to_hub import save_meta_data
 from lerobot.common.datasets.compute_stats import compute_stats
 
 from inference import StateEncoder
+
+
+def _decode_video_from_array(array: torch.Tensor) -> torch.Tensor:
+    """
+    Decodes array with encoded video bytes into a video.
+
+    Args:
+        array (torch.Tensor): Tensor containing encoded video bytes.
+
+    Returns:
+        torch.Tensor: Decoded video frames.
+
+    Raises:
+        ValueError: If the video data cannot be decoded.
+    """
+    with BytesIO() as buffer:
+        buffer.write(array.numpy().tobytes())
+        buffer.seek(0)
+        try:
+            with imageio.get_reader(buffer, format='mp4') as reader:
+                return torch.from_numpy(np.stack([frame for frame in reader]))
+        except Exception as e:
+            raise ValueError(f"Failed to decode video data: {str(e)}")
 
 
 def convert_to_seconds(timestamp_units: str, timestamp: torch.Tensor):
@@ -58,6 +83,11 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
 
     for episode_idx, episode_file in enumerate(tqdm.tqdm(episode_files, desc="Processing episodes")):
         episode_data = torch.load(episode_file)
+
+        for key in episode_data.keys():
+            # TODO: come up with a better way to determine if the data is a video
+            if key.startswith('image.') and len(episode_data[key].shape) == 1:
+                episode_data[key] = _decode_video_from_array(episode_data[key])
 
         ep_dict = {}
         obs = state_enc.encode_episode(episode_data)
@@ -102,7 +132,7 @@ def convert_to_lerobot_dataset(cfg: DictConfig):
 
         ep_dict["episode_index"] = torch.tensor([episode_idx] * num_frames)
         ep_dict["frame_index"] = torch.arange(0, num_frames, 1)
-        timestamp = torch.tensor(episode_data['image_timestamp'])
+        timestamp = episode_data['image_timestamp'].clone()
 
         if cfg.start_from_zero:
             timestamp = start_from_zero(timestamp)

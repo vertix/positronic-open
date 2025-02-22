@@ -1,0 +1,16 @@
+defaults:
+  - _self_
+  - mujoco_loaders: default
+
+type: mujoco
+
+mujoco:
+  model_path: null
+  camera_names: ['handcam_back', 'handcam_front', 'front_view', 'back_view']
+  camera_width: 1280
+  camera_height: 720
+  simulation_hz: 500
+  observation_hz: 60
+
+camera:
+  fps: ${hardware.mujoco.observation_hz}

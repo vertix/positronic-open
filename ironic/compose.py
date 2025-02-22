@@ -34,10 +34,18 @@ Example usage:
             'optional_output': None  # This output will be skipped during connection
         }
     )
+
+    # Multiple input mappings:
+    system = compose(
+        components=[processor1, processor2],
+        inputs={
+            'data': [(processor1, 'in_data'), (processor2, 'in_data')]  # One input mapped to multiple inner inputs
+        }
+    )
 """
 
 import asyncio
-from typing import Any, Callable, Dict, Sequence, Set, Tuple, Optional
+from typing import Callable, Dict, List, Sequence, Set, Tuple, Optional, Union, Any
 from types import SimpleNamespace
 
 from .system import ControlSystem, OutputPort, ironic_system, State
@@ -108,13 +116,20 @@ class ComposedSystem(ControlSystem):
     """A control system composed of other control systems"""
     def __init__(self,
                  components: Sequence[ControlSystem],
-                 inputs: Optional[Dict[str, Tuple[ControlSystem, str]]] = None,
+                 inputs: Optional[Dict[str, Union[None, Tuple[ControlSystem, str], List[Tuple[ControlSystem, str]]]]] = None,
                  outputs: Optional[Dict[str, OutputPort | Callable]] = None):
         components_set = _gather_components(components)
 
         # Validate all referenced components exist in composition
-        if inputs and any(comp[0] not in components_set for comp in inputs.values() if comp is not None):
-            raise CompositionError(f"Input mappings reference components not in composition")
+        if inputs:
+            for input_mapping in inputs.values():
+                if input_mapping is None:
+                    continue
+                if isinstance(input_mapping, tuple):
+                    input_mapping = [input_mapping]
+                for comp, _ in input_mapping:
+                    if comp not in components_set:
+                        raise CompositionError(f"Input mappings reference components not in composition")
 
         if outputs:
             for name, out in outputs.items():
@@ -122,7 +137,6 @@ class ComposedSystem(ControlSystem):
 
                 if parent_system is not None and parent_system not in components_set:
                     raise CompositionError(f"Output mappings reference components not in composition. Output: '{name}'. Parent system: {parent_system}")
-
 
         self._validate_bound_inputs(components, components_set)
 
@@ -173,8 +187,13 @@ class ComposedSystem(ControlSystem):
             input_mapping = self._input_mappings[name]
             if input_mapping is None:
                 continue
-            component, port_name = input_mapping
-            component.bind(**{port_name: binding})
+
+            if isinstance(input_mapping, tuple):
+                input_mapping = [input_mapping]
+
+            for component, port_name in input_mapping:
+                component.bind(**{port_name: binding})
+
             binds[name] = binding
 
         self.ins = SimpleNamespace(**binds)
@@ -199,7 +218,7 @@ class ComposedSystem(ControlSystem):
 # TODO: ideally we want inputs to be constructed from the components directly like outputs.
 # Figure out the way to do this since we currently don't have any InputPort class.
 def compose(*components: ControlSystem,
-           inputs: Dict[str, Tuple[ControlSystem, str]] = None,
+           inputs: Dict[str, Union[None, Tuple[ControlSystem, str], List[Tuple[ControlSystem, str]]]] = None,
            outputs: Dict[str, OutputPort | Callable] = None) -> ComposedSystem:
     """
     Compose multiple control systems into a single system.
@@ -210,7 +229,10 @@ def compose(*components: ControlSystem,
 
     Args:
         *components: Variable number of control system instances to compose
-        inputs: Dictionary mapping external input names to tuples of (component, port_name)
+        inputs: Dictionary mapping external input names to either:
+               - None (to skip the input)
+               - A tuple of (component, port_name) for single mapping
+               - A list of tuples [(component, port_name), ...] for multiple mappings
                These inputs can later be bound to outputs of other systems
         outputs: Dictionary mapping external output names to output ports or properties.
                 These outputs can be bound to inputs of other systems
@@ -240,10 +262,14 @@ def compose(*components: ControlSystem,
             outputs={'result': processor.outs.processed}
         )
 
-        # The composed subsystem can be bound to other systems:
-        other_system = compose(
+        # Multiple input mappings:
+        system = compose(
             source,
-            subsystem.bind(data=source.outs.data)  # Binding exposed input to source output
+            processor1,
+            processor2,
+            inputs={
+                'data': [(processor1, 'in_data'), (processor2, 'in_data')]  # One input mapped to multiple inner inputs
+            }
         )
     """
     return ComposedSystem(

@@ -7,6 +7,7 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig
 
+import geom
 import ironic as ir
 from hardware import from_config
 from ironic.compose import extend
@@ -45,7 +46,7 @@ def setup_interface(cfg: DictConfig):
 
         inputs['robot_position'] = (teleop, 'robot_position')
         inputs['robot_grip'] = None
-        inputs['robot_state'] = None
+        inputs['robot_status'] = None
 
         outputs['robot_target_position'] = teleop.outs.robot_target_position
         outputs['gripper_target_grasp'] = teleop.outs.gripper_target_grasp
@@ -59,6 +60,57 @@ def setup_interface(cfg: DictConfig):
         from simulator.mujoco.mujoco_gui import DearpyguiUi
 
         return DearpyguiUi(cfg.mujoco.camera_names), {}
+    elif cfg.type == 'teleop_gui':
+        # TODO: refactor this in a way which allows to use multiple control interfaces at once
+        # i. e. teleop_gui = inputs from teleop + outputs to gui
+        from simulator.mujoco.mujoco_gui import DearpyguiUi
+        from teleop import TeleopSystem
+        from webxr import WebXR
+
+        components, inputs, outputs = [], {}, {}
+
+        webxr = WebXR(port=cfg.webxr.port)
+        components.append(webxr)
+        teleop = TeleopSystem(operator_position=cfg.operator_position)
+        components.append(teleop)
+        gui = DearpyguiUi(cfg.mujoco.camera_names)
+        components.append(gui)
+
+        teleop.bind(
+            teleop_transform=webxr.outs.transform,
+            teleop_buttons=webxr.outs.buttons,
+        )
+
+        def adjust_rotations(transform: geom.Transform3D) -> geom.Transform3D:
+            """
+            Adjust the rotations of the transform by swapping roll and yaw angles.
+            """
+            euler = transform.quaternion.as_euler
+
+            # empirically found transformation that works
+            new_euler = [-euler[2], np.pi + euler[1], euler[0]]
+
+            new_quat = geom.Quaternion.from_euler(new_euler)
+
+            return geom.Transform3D(
+                translation=transform.translation,
+                quaternion=new_quat
+            )
+
+        inputs['robot_position'] = [(teleop, 'robot_position'), (gui, 'robot_position')]
+        inputs['robot_grip'] = (gui, 'robot_grip')
+        inputs['images'] = (gui, 'images')
+        inputs['robot_status'] = (gui, 'robot_status')
+
+        outputs['robot_target_position'] = ir.utils.map_port(adjust_rotations, teleop.outs.robot_target_position)
+        outputs['gripper_target_grasp'] = teleop.outs.gripper_target_grasp
+        outputs['start_tracking'] = teleop.outs.start_tracking
+        outputs['stop_tracking'] = teleop.outs.stop_tracking
+        outputs['start_recording'] = teleop.outs.start_recording
+        outputs['stop_recording'] = teleop.outs.stop_recording
+        outputs['reset'] = teleop.outs.reset
+
+        return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     elif cfg.type == 'spacemouse':
         from spacemouse import SpacemouseCS
 
@@ -70,7 +122,7 @@ def setup_interface(cfg: DictConfig):
         inputs['robot_position'] = (spacemouse, 'robot_position')
         inputs['robot_grip'] = None
         inputs['images'] = None
-        inputs['robot_state'] = None
+        inputs['robot_status'] = None
 
         outputs['robot_target_position'] = spacemouse.outs.robot_target_position
         outputs['gripper_target_grasp'] = spacemouse.outs.gripper_target_grasp
@@ -102,7 +154,7 @@ async def main_async(cfg: DictConfig):
         robot_grip=hardware.outs.grip,
         robot_position=hardware.outs.robot_position,
         images=hardware.outs.frame,
-        robot_state=hardware.outs.robot_state,
+        robot_status=hardware.outs.robot_status,
     )
     hardware.bind(
         target_position=control.outs.robot_target_position,
@@ -169,6 +221,16 @@ async def main_async(cfg: DictConfig):
 
         data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=metadata, video_fps=cfg.get('video_fps'))
 
+        if hasattr(hardware.outs, 'episode_metadata'):
+            async def send_episode_metadata(_: ir.Message):
+                episode_metadata = (await hardware.outs.episode_metadata()).data
+
+                return episode_metadata
+
+            stop_recording = ir.utils.map_port(send_episode_metadata, control.outs.stop_recording)
+        else:
+            stop_recording = control.outs.stop_recording
+
         components.append(
             data_dumper.bind(
                 # TODO: Let user disable images, like in mujoco_gui
@@ -176,7 +238,7 @@ async def main_async(cfg: DictConfig):
                 target_grip=control.outs.gripper_target_grasp,
                 target_robot_position=control.outs.robot_target_position,
                 start_episode=control.outs.start_recording,
-                end_episode=control.outs.stop_recording,
+                end_episode=stop_recording,
                 robot_data=properties_to_dump,
             )
         )

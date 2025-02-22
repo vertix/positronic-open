@@ -61,7 +61,15 @@ class DesiredAction:
 @ir.ironic_system(
     input_ports=["images", "robot_status"],
     input_props=["robot_position", "actuator_values", "robot_grip", "metrics"],
-    output_ports=["start_tracking", "stop_tracking", "gripper_target_grasp", "robot_target_position", "reset"],
+    output_ports=[
+        "start_tracking",
+        "stop_tracking",
+        "gripper_target_grasp",
+        "robot_target_position",
+        "reset",
+        "start_recording",
+        "stop_recording",
+    ],
 )
 class DearpyguiUi(ir.ControlSystem):
     speed_meters_per_second = 0.1
@@ -89,6 +97,8 @@ class DearpyguiUi(ir.ControlSystem):
         self.height = None
         self.camera_names = camera_names
 
+        self.ui_thread_started = False  # this flag is needed to prevent thread re-initialization
+        self.gui_ready = False  # this flag is needed to prevent update before GUI is ready
         self.ui_thread = threading.Thread(target=self.ui_thread_main, daemon=True)
         self.ui_stop_event = threading.Event()
         self.swap_buffer_lock = threading.Lock()
@@ -114,6 +124,9 @@ class DearpyguiUi(ir.ControlSystem):
         self.second_buffer = None
 
     async def update(self):
+        if not self.gui_ready:
+            return
+
         self.move()
 
         if self.desired_action is None:
@@ -123,7 +136,7 @@ class DearpyguiUi(ir.ControlSystem):
 
         _, _, robot_position = await asyncio.gather(
             self.outs.gripper_target_grasp.write(ir.Message(self.desired_action.grip)),
-            self.outs.robot_target_position.write(ir.Message(target_pos)),
+            self.outs.robot_target_position.write(ir.Message(target_pos.copy())),
             self.ins.robot_position()
         )
 
@@ -174,14 +187,14 @@ class DearpyguiUi(ir.ControlSystem):
 
     async def _stop_recording(self):
         if self.recording:
-            await self.outs.stop_tracking.write(ir.Message({}))
+            await self.outs.stop_recording.write(ir.Message({}))
             self.recording = False
 
     async def _switch_recording(self):
         if self.recording:
             await self._stop_recording()
         else:
-            await self.outs.start_tracking.write(ir.Message(True))
+            await self.outs.start_recording.write(ir.Message(True))
             self.recording = True
 
     def move(self):
@@ -302,7 +315,7 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.set_viewport_resize_callback(callback=self._viewport_resize)
         dpg.setup_dearpygui()
         dpg.show_viewport(maximized=True)
-
+        self.gui_ready = True
         fps_counter = FPSCounter("UI")
 
         while not self.ui_stop_event.is_set() and dpg.is_dearpygui_running():
@@ -319,7 +332,8 @@ class DearpyguiUi(ir.ControlSystem):
         dpg.destroy_context()
 
     async def step(self):
-        if self.width is not None and self.height is not None and not self.ui_thread.is_alive():
+        if self.width is not None and self.height is not None and not self.ui_thread_started:
+            self.ui_thread_started = True
             self.ui_thread.start()
 
         if self.width is None or self.height is None:
@@ -340,11 +354,9 @@ async def _main(cfg: DictConfig):
     loaders = hydra.utils.instantiate(cfg.mujoco.loaders)
     simulator = MujocoSimulator.load_from_xml_path(cfg.mujoco.model_path, simulation_rate=1 / cfg.mujoco.simulation_hz, loaders=loaders)
     renderer = MujocoRenderer(
-        model=simulator.model,
-        data=simulator.data,
+        simulator,
         render_resolution=(width, height),
         camera_names=cfg.mujoco.camera_names,
-        model_suffix=simulator.model_suffix,
     )
     inverse_kinematics = InverseKinematics(simulator)
 

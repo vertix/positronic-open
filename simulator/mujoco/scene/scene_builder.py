@@ -96,9 +96,10 @@ def extract_assets(spec: mujoco.MjSpec, parent_dir: Optional[str] = None) -> Dic
 # TODO: In theory this could be implemented via series of scene transformations. But this is a bit of a pain. :_)
 def generate_scene(
     num_boxes: int = 2,
-    table_height: RANGE_OR_VALUE = (0.1, 0.2),
+    table_height: RANGE_OR_VALUE = (0.2, 0.3),
     table_size: Tuple[float, float, float] = (0.4, 0.6, 0.05),
     box_size: RANGE_OR_VALUE = 0.02,
+    portable: bool = True,
 ) -> mujoco.MjModel:
     table_height = random_range(table_height)
     table_offset = (-0.3, 0, table_height)
@@ -134,13 +135,18 @@ def generate_scene(
         world.worldbody.append(object)
         box_pos.extend([tabletop_x, tabletop_y, tabletop_z, 1, 0, 0, 0])
 
+    asset_dict = {}
     # Load Panda robot specification as base
     panda_spec = mujoco.MjSpec.from_file("assets/mujoco/mjx_panda.xml")
-    panda_assets = extract_assets(panda_spec, "assets/mujoco")
+    if portable:
+        panda_assets = extract_assets(panda_spec, "assets/mujoco")
+        asset_dict = {**panda_assets}
 
     # Create temporary spec from the world to merge into Panda spec
     world_spec = mujoco.MjSpec.from_string(world.get_xml())
-    world_assets = extract_assets(world_spec, "")
+    if portable:
+        world_assets = extract_assets(world_spec, "")
+        asset_dict = {**asset_dict, **world_assets}
 
     # Adjust lighting
     world_spec.lights[0].pos = [1.8, 3.0, 1.5]
@@ -151,24 +157,36 @@ def generate_scene(
 
     # add panda to world
     origin_site = world_spec.worldbody.add_site(name="origin", pos=[0, 0, 0])
-    origin_site.attach(panda_spec.worldbody, '', '_ph')  # suffix is required by .attach()
+    origin_site.attach_body(panda_spec.worldbody, '', '_ph')  # suffix is required by .attach()
 
     # Add keyframe data
-    keyframe_actuator = generate_initial_actuator_values()
-    qpos = box_pos + keyframe_actuator + [0.04]
-    world_spec.add_key(name="home", qpos=qpos, ctrl=keyframe_actuator)
+    for i in range(100):
+        keyframe_actuator = generate_initial_actuator_values()
+        box_pos = []
+        for _ in range(num_boxes):
+            tabletop_x, tabletop_y, tabletop_z = mujoco_arena.table_top_abs
+
+            tabletop_z += box_size / 2
+            tabletop_x += random.uniform(-table_size[0] / 2 + box_size, table_size[0] / 2 - box_size * 2)
+            tabletop_y += random.uniform(-table_size[1] / 2 + box_size, table_size[1] / 2 - box_size * 2)
+            box_pos.extend([tabletop_x, tabletop_y, tabletop_z, 1, 0, 0, 0])
+        qpos = box_pos + keyframe_actuator + [0.04]
+        world_spec.add_key(name=f"home_{i}", qpos=qpos, ctrl=keyframe_actuator)
 
     # Configure visual settings
-    g = getattr(panda_spec.visual, "global")
+    g = getattr(world_spec.visual, "global")
     g.azimuth = 120
     g.elevation = -20
     g.offwidth = 1920
     g.offheight = 1080
 
-    asset_dict = {**panda_assets, **world_assets}
+    if portable:
+        world_spec.meshdir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
+        world_spec.texturedir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
 
-    world_spec.meshdir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
-    world_spec.texturedir = "!!! This spec should be loaded with asset dict. See simulator.mujoco.transforms.load_model_from_spec !!!"
+        world_spec.assets = asset_dict
+    else:
+        world_spec.meshdir = "assets/mujoco/assets/"
 
     # Using custom texts to store metadata about the model
     world_spec.add_text(name='model_suffix', data='_ph')
@@ -185,7 +203,7 @@ def construct_scene(scene_path: Union[str, pathlib.Path]):
 
     spec.add_text(name='relative_assets_path', data=str(relative_assets_path))
 
-    spec.compile(assets)
+    spec.compile()
 
     with open(scene_path, "w") as f:
         f.write(spec.to_xml())

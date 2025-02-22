@@ -442,3 +442,42 @@ async def test_compose_system_appears_twice_in_subsystem_composition_produces_ex
             source,
             composed
         )
+
+
+@pytest.mark.asyncio
+async def test_multiple_input_mappings():
+    """Test composing systems with multiple input mappings"""
+    source = DataSource()
+    processor1 = Processor()
+    processor2 = Processor()
+
+    # Compose with multiple input mappings
+    system = compose(
+        processor1,
+        processor2,
+        inputs={
+            'data': [(processor1, 'in_data'), (processor2, 'in_data')],
+            'counter': [(processor1, 'counter'), (processor2, 'counter')]
+        }
+    )
+
+    # Create external source
+    source = DataSource()
+
+    # Connect composed system to source
+    system.bind(data=source.outs.data, counter=source.outs.counter)
+
+    await source.setup()
+    await system.setup()
+
+    # Run for a few steps
+    for _ in range(3):
+        await source.step()
+        await system.step()
+
+    await source.cleanup()
+    await system.cleanup()
+
+    # Both processors should have received the same data
+    assert processor1.received == [0, 1, 2]
+    assert processor2.received == [0, 1, 2]

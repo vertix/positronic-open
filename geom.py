@@ -1,6 +1,58 @@
-from collections import namedtuple
+from enum import Enum
+from typing import Any
 
 import numpy as np
+
+
+class RotationRepresentation(Enum):
+    QUAT = 'quat'
+    EULER = 'euler'
+    ROTATION_MATRIX = 'rotation_matrix'
+    ROTVEC = 'rotvec'
+
+    def from_value(self, value: Any) -> 'Quaternion':
+        if self == RotationRepresentation.QUAT:
+            return Quaternion(*value)
+        elif self == RotationRepresentation.EULER:
+            return Quaternion.from_euler(value)
+        elif self == RotationRepresentation.ROTATION_MATRIX:
+            return Quaternion.from_rotation_matrix(value)
+        elif self == RotationRepresentation.ROTVEC:
+            return Quaternion.from_rotvec(value)
+        else:
+            raise NotImplementedError(f"Rotation representation {self} not implemented")
+
+    @property
+    def shape(self) -> int | tuple[int, int]:
+        if self == RotationRepresentation.QUAT:
+            return 4
+        elif self == RotationRepresentation.EULER:
+            return 3
+        elif self == RotationRepresentation.ROTATION_MATRIX:
+            return (3, 3)
+        elif self == RotationRepresentation.ROTVEC:
+            return 3
+        else:
+            raise NotImplementedError(f"Rotation representation {self} not implemented")
+
+    @property
+    def size(self) -> int:
+        shape = self.shape
+
+        if isinstance(shape, int):
+            return shape
+
+        return np.prod(shape)
+
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, RotationRepresentation):
+            return super().__eq__(other)
+        elif isinstance(other, str):
+            return self.value == other
+        else:
+            return False
+
 
 # y = R * x + t
 class Transform3D:
@@ -94,6 +146,8 @@ class Transform3D:
         quaternion_str = np.array2string(self.quaternion, precision=3)
         return f"Translation: {translation_str}, Quaternion: {quaternion_str}"
 
+    def copy(self):
+        return Transform3D(self.translation.copy(), self.quaternion.copy())
 
 class Quaternion(np.ndarray):
     def __new__(cls, w=1.0, x=0.0, y=0.0, z=0.0, dtype=np.float64):
@@ -204,8 +258,87 @@ class Quaternion(np.ndarray):
 
         return cls(w, x, y, z)
 
+    @classmethod
+    def from_rotvec(cls, rotvec: np.ndarray) -> 'Quaternion':
+        """
+        Convert a rotation vector to a quaternion.
+
+        Args:
+            rotvec: (numpy.ndarray) 3D rotation vector representing axis-angle rotation
+
+        Returns:
+            Quaternion object representing the same rotation
+        """
+        angle = np.linalg.norm(rotvec)
+        if angle < 1e-10:  # Handle small angles to avoid division by zero
+            return cls(1.0, 0.0, 0.0, 0.0)
+
+        axis = rotvec / angle
+        sin_theta_2 = np.sin(angle/2)
+        cos_theta_2 = np.cos(angle/2)
+
+        w = cos_theta_2
+        x = axis[0] * sin_theta_2
+        y = axis[1] * sin_theta_2
+        z = axis[2] * sin_theta_2
+
+        return cls(w, x, y, z)
+
+    @classmethod
+    def create_from(cls, value: Any, representation: RotationRepresentation | str) -> 'Quaternion':
+        """
+        Create a quaternion from any supported rotation representation.
+
+        Args:
+            value: (Any) Any supported rotation representation.
+            representation: (RotationRepresentation | str) The representation of the input value.
+
+        Returns:
+            Quaternion object.
+        """
+        return RotationRepresentation(representation).from_value(value)
+
+    def to(self, representation: RotationRepresentation | str) -> np.ndarray:
+        """
+        Convert the quaternion to any supported rotation representation.
+
+        Args:
+            representation: (RotationRepresentation | str) The representation to convert to.
+
+        Returns:
+            (np.ndarray) The converted rotation representation.
+        """
+        if representation == RotationRepresentation.QUAT:
+            return np.asarray(self)
+        elif representation == RotationRepresentation.EULER:
+            return self.as_euler
+        elif representation == RotationRepresentation.ROTATION_MATRIX:
+            return self.as_rotation_matrix
+        elif representation == RotationRepresentation.ROTVEC:
+            return self.as_rotvec
+        else:
+            raise ValueError(f"Invalid rotation representation: {representation}")
+
     @property
-    def as_euler(self):
+    def as_rotvec(self) -> np.ndarray:
+        """
+        Convert quaternion to rotation vector representation.
+
+        Returns:
+            numpy.ndarray: 3D rotation vector representing axis-angle rotation. The direction
+                          of the vector indicates the axis of rotation and its magnitude
+                          represents the angle in radians.
+        """
+        angle = 2 * np.arccos(self[0])
+        if angle < 1e-10:  # Handle small angles to avoid division by zero
+            return np.zeros(3)
+
+        sin_theta_2 = np.sin(angle/2)
+        axis = np.array([self[1], self[2], self[3]]) / sin_theta_2
+        return axis * angle
+
+    @property
+    def as_euler(self) -> np.ndarray:
         """
         Convert a quaternion to euler angles in radians.
         """

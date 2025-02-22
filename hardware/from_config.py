@@ -1,5 +1,6 @@
 from typing import Dict
 
+import hydra
 from omegaconf import DictConfig
 
 import ironic as ir
@@ -127,7 +128,7 @@ def robot_setup(cfg: DictConfig):
         outputs['joint_positions'] = franka.outs.joint_positions
         outputs['ext_force_base'] = franka.outs.ext_force_base
         outputs['ext_force_ee'] = franka.outs.ext_force_ee
-        outputs['robot_state'] = franka.outs.state
+        outputs['robot_status'] = franka.outs.status
 
         if 'dh_gripper' in cfg:
             from hardware.dhgrp import DHGripper
@@ -150,25 +151,31 @@ def robot_setup(cfg: DictConfig):
         from simulator.mujoco.sim import MujocoSimulator, MujocoRenderer, InverseKinematics
         from simulator.mujoco.environment import MujocoSimulatorCS
 
+        if cfg.mujoco.model_path is None:
+            from simulator.mujoco.scene.utils import generate_scene_in_separate_process
+            cfg.mujoco.model_path = generate_scene_in_separate_process(cfg.data_output_dir)
+
+        loaders = hydra.utils.instantiate(cfg.mujoco_loaders)
+
         simulator = MujocoSimulator.load_from_xml_path(
             model_path=cfg.mujoco.model_path,
-            simulation_rate=1/cfg.mujoco.simulation_hz
+            loaders=loaders,
+            simulation_rate=1 / cfg.mujoco.simulation_hz
         )
         renderer = MujocoRenderer(
-            model=simulator.model,
-            data=simulator.data,
+            simulator,
             camera_names=cfg.mujoco.camera_names,
             render_resolution=(cfg.mujoco.camera_width, cfg.mujoco.camera_height)
         )
         inverse_kinematics = InverseKinematics(simulator)
 
-        simulator.reset()
+        simulator.reset('home_0')
 
         # Create MujocoSimulatorCS
         simulator_cs = MujocoSimulatorCS(
             simulator=simulator,
-            simulation_rate=1/cfg.mujoco.simulation_hz,
-            render_rate=1/cfg.mujoco.observation_hz,
+            simulation_rate=1 / cfg.mujoco.simulation_hz,
+            render_rate=1 / cfg.mujoco.observation_hz,
             renderer=renderer,
             inverse_kinematics=inverse_kinematics,
         )
@@ -185,7 +192,8 @@ def robot_setup(cfg: DictConfig):
         outputs['ext_force_ee'] = simulator_cs.outs.ext_force_ee
         outputs['grip'] = simulator_cs.outs.grip
         outputs['frame'] = simulator_cs.outs.images
-        outputs['robot_state'] = simulator_cs.outs.robot_state
+        outputs['robot_status'] = simulator_cs.outs.robot_status
+        outputs['episode_metadata'] = simulator_cs.outs.episode_metadata
 
         metadata = {'mujoco_model_path': cfg.mujoco.model_path, 'simulation_hz': cfg.mujoco.simulation_hz}
         return ir.compose(*components, inputs=inputs, outputs=outputs), metadata
@@ -208,7 +216,7 @@ def robot_setup(cfg: DictConfig):
 
         outputs['robot_position'] = umi.outs.ee_position
         outputs['grip'] = umi.outs.grip
-        outputs['robot_state'] = None
+        outputs['robot_status'] = None
 
         return ir.compose(*components, inputs=inputs, outputs=outputs), {}
     else:

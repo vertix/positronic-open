@@ -216,8 +216,10 @@
                     <geom mesh="link7_c" class="collision"/>
                     <body name="hand" pos="0 0 0.107" quat="0.9238795 0 0 -0.3826834">
                       <site name="end_effector" pos="0 0 0.0584" size="0.01" rgba="1 0 0 1"/>
-                      <camera name="handcam_left" mode="fixed" pos="0.05 -0.05 0.01" euler="3.141592653589793 0 -1.5708" fovy="80"/>
-                      <camera name="handcam_right" mode="fixed" pos="0.05 0.05 0.01" euler="3.141592653589793 0 -1.5708" fovy="80"/>
+                      <camera name="handcam_left" mode="fixed" pos="0.05 -0.05 0.01" euler="3.141592653589793 0 -1.5708" fovy="105"/>
+                      <camera name="handcam_front" mode="fixed" pos="0.05 0.0 0.01" euler="3.141592653589793 0 -1.5708" fovy="105"/>
+                      <camera name="handcam_back" mode="fixed" pos="-0.05 0.0 0.01" euler="3.141592653589793 0 -1.5708" fovy="105"/>
+                      <camera name="handcam_right" mode="fixed" pos="0.05 0.05 0.01" euler="3.141592653589793 0 -1.5708" fovy="105"/>
                       <inertial mass="0.73" pos="-0.01 0 0.03" diaginertia="0.001 0.0025 0.0017"/>
                       <geom mesh="hand_0" material="off_white" class="visual"/>
                       <geom mesh="hand_1" material="black" class="visual"/>
