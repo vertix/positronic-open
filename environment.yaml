@@ -41,7 +41,7 @@ dependencies:
     - numpy-quaternion
     - pytest
     - pytest-asyncio
-   - robosuite
+    - robosuite
     - websockets
     - yappi
     - dm_control
