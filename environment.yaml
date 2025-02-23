@@ -49,4 +49,5 @@ dependencies:
     - git+https://github.com/lilohuang/PyTurboJPEG.git@v1.7.8
     - linuxpy
     - imageio
+    - hydra-zen
 # python /usr/local/zed/get_python_api.py

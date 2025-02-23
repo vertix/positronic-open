@@ -4,8 +4,9 @@ import asyncio
 from typing import AsyncIterator, Optional
 
 import cv2
-import numpy as np
 from linuxpy.video.device import Device, Frame, PixelFormat
+import numpy as np
+import av
 
 import ironic as ir
 
@@ -24,6 +25,15 @@ class LinuxPyCamera(ir.ControlSystem):
     _frame_queue: asyncio.Queue
     _reader_task: Optional[asyncio.Task] = None
     _stopped: asyncio.Event
+    _codec_contexts: dict[str, av.CodecContext]
+    _codec_mapping = {
+        PixelFormat.H264: 'h264',
+        PixelFormat.HEVC: 'hevc',
+        PixelFormat.VP8: 'vp8',
+        PixelFormat.VP9: 'vp9',
+        PixelFormat.MPEG4: 'mpeg4',
+        PixelFormat.MJPEG: 'mjpeg',
+    }
 
     def __init__(self, device_path: str,
                  width: int = 640,
@@ -50,6 +60,7 @@ class LinuxPyCamera(ir.ControlSystem):
         self._frame_queue = asyncio.Queue(maxsize=1)
         self._reader_task = None
         self._stopped = asyncio.Event()
+        self._codec_contexts = {}
 
     async def _frame_reader(self):
         """Background coroutine that reads frames and puts them in the queue"""
@@ -114,20 +125,32 @@ class LinuxPyCamera(ir.ControlSystem):
             pass
         return ir.State.ALIVE
 
+    def _get_codec_context(self, codec_name: str) -> av.CodecContext:
+        """Lazily initialize and return codec context for given codec"""
+        if codec_name not in self._codec_contexts:
+            self._codec_contexts[codec_name] = av.CodecContext.create(codec_name, 'r')
+        return self._codec_contexts[codec_name]
+
     def _process_frame(self, frame: Frame) -> dict:
         """Process raw frame into output format"""
         data = np.frombuffer(frame.data, dtype=np.uint8)
 
         match frame.pixel_format:
-            case PixelFormat.MJPEG:
-                img = cv2.imdecode(data, cv2.IMREAD_COLOR)
-                return {'image': img}
             case PixelFormat.YUYV:
                 data = data.reshape((frame.height, frame.width, 2))
                 data = cv2.cvtColor(data, cv2.COLOR_YUV2RGB_YUYV)
             case PixelFormat.UYVY:
                 data = data.reshape((frame.height, frame.width, 2))
                 data = cv2.cvtColor(data, cv2.COLOR_YUV2RGB_UYVY)
+            case _ if frame.pixel_format in self._codec_mapping:
+                codec_name = self._codec_mapping[frame.pixel_format]
+                codec_ctx = self._get_codec_context(codec_name)
+                packets = codec_ctx.parse(data)
+                for packet in packets:
+                    frames = codec_ctx.decode(packet)
+                    if frames:
+                        return {'image': frames[-1].to_ndarray(format='bgr24')}
+                return {'image': None}
             case _:
                 # Assume 3 bytes per pixel (RGB/BGR)
                 data = data.reshape((frame.height, frame.width, 3))
