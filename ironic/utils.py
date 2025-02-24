@@ -431,12 +431,11 @@ class Pulse(ControlSystem):
     it will emit multiple pulses to catch up while maintaining the correct intervals.
 
     Args:
-        fps: Target frequency of pulses
+        frequency_hz: Target frequency of pulses
     """
-    def __init__(self, fps: float):
+    def __init__(self, frequency_hz: float):
         super().__init__()
-        self.fps = fps
-        self._period = 1.0 / fps
+        self._period = 1.0 / frequency_hz
         self._next_pulse_time = None
 
     async def setup(self):
