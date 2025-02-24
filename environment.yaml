@@ -9,9 +9,14 @@ dependencies:
   - gcc_linux-64
   - gxx_linux-64
   # Deps
+
+  # These three are needed for libfranka, and then franky
+  - poco
+  - pcre
+  - pinocchio
+
   - av
-  - evdev
-  - fastapi
+  - uvicorn
   - jupyter
   - matplotlib
   - numpy
@@ -26,13 +31,13 @@ dependencies:
   - pip
   - pyaudio
   - pip:
+#    - lerobot  # We use our own fork
     - click
     - cmake-build-extension
     - dearpygui
     - fire
     - hydra-colorlog
     - hydra-core
-    - lerobot
     - numpy-quaternion
     - pytest
     - pytest-asyncio
@@ -43,4 +48,6 @@ dependencies:
     - pyspacemouse
     - git+https://github.com/lilohuang/PyTurboJPEG.git@v1.7.8
     - linuxpy
+    - imageio
+    - hydra-zen
 # python /usr/local/zed/get_python_api.py

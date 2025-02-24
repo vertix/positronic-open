@@ -1,18 +1,11 @@
-import asyncio
 import logging
-from typing import Dict, List, Tuple
+from typing import List
 
 import numpy as np
-import hydra
-from omegaconf import DictConfig
-import yappi
 
-import hardware
 import ironic as ir
 from geom import Quaternion, Transform3D
-from tools.dataset_dumper import DatasetDumper
 from tools.buttons import ButtonHandler
-from webxr import WebXR
 
 logging.basicConfig(level=logging.INFO,
                     handlers=[logging.StreamHandler(),
@@ -140,72 +133,3 @@ class TeleopSystem(ir.ControlSystem):
             self.is_recording = True
             await self.outs.start_recording.write(ir.Message(None, timestamp))
 
-
-@hydra.main(version_base=None, config_path="configs", config_name="teleop")
-def main(cfg: DictConfig):
-    asyncio.run(main_async(cfg))
-
-
-async def main_async(cfg: DictConfig):
-    from hardware.franka import Franka
-    from hardware.dhgrp import DHGripper
-
-    webxr = WebXR(port=cfg.webxr.port)
-    franka = Franka(cfg.franka.ip, cfg.franka.relative_dynamics_factor, cfg.franka.gripper_force)
-    teleop = TeleopSystem()
-
-    components = [webxr, franka, teleop]
-
-    # Connect teleop system
-    teleop.bind(
-        teleop_transform=webxr.outs.transform,
-        teleop_buttons=webxr.outs.buttons,
-        robot_position=franka.outs.position
-    )
-    franka.bind(target_position=teleop.outs.robot_target_position)
-
-    gripper = None
-    if 'dh_gripper' in cfg:
-        gripper = DHGripper(cfg.dh_gripper).bind(grip=teleop.outs.gripper_target_grasp)
-        components.append(gripper)
-
-    cam = hardware.from_config.sl_camera(cfg.camera)
-    components.append(cam)
-
-    if cfg.data_output_dir is not None:
-        properties_to_dump = ir.utils.properties_dict(
-            robot_joints=franka.outs.joint_positions,
-            robot_position_translation=ir.utils.map_property(lambda t: t.translation, franka.outs.position),
-            robot_position_quaternion=ir.utils.map_property(lambda t: t.quaternion, franka.outs.position),
-            ext_force_ee=franka.outs.ext_force_ee,
-            ext_force_base=franka.outs.ext_force_base,
-            grip=gripper.outs.grip if gripper else None
-        )
-
-        components.append(DatasetDumper(cfg.data_output_dir).bind(
-            image=cam.outs.frame,
-            start_episode=teleop.outs.start_tracking,
-            end_episode=teleop.outs.stop_tracking,
-            target_grip=teleop.outs.gripper_target_grasp,
-            target_robot_position=teleop.outs.robot_target_position,
-            robot_data=properties_to_dump
-        ))
-
-    if cfg.profile:
-        yappi.set_clock_type("cpu")
-        yappi.start(profile_threads=False)
-
-    def profile_cleanup():
-        if cfg.profile:
-            yappi.stop()
-            yappi.get_func_stats().save("func.pstat", type='pstat')
-            yappi.get_func_stats().save("func.ystat")
-            with open("thread.ystat", "w") as f:
-                yappi.get_thread_stats().print_all(out=f)
-
-    system = ir.compose(*components)
-    await ir.utils.run_gracefully(system, extra_cleanup_fn=profile_cleanup)
-
-
-if __name__ == "__main__":
-    main()

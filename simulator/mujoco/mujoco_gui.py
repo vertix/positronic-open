@@ -12,7 +12,7 @@ import numpy as np
 from omegaconf import DictConfig
 import dearpygui.dearpygui as dpg
 
-from hardware import RobotStatus
+from drivers.roboarm import RobotStatus
 import ironic as ir
 from geom import Transform3D
 from ironic.utils import FPSCounter

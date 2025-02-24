@@ -9,7 +9,7 @@ from omegaconf import DictConfig
 
 import geom
 import ironic as ir
-from hardware import from_config
+from drivers import from_config
 from ironic.compose import extend
 from tools.dataset_dumper import DatasetDumper
 
@@ -180,7 +180,7 @@ async def main_async(cfg: DictConfig):
         components.append(visualizer)  # Add visualizer to components
 
     if cfg.get('sound'):
-        from hardware.sound import SoundSystem
+        from drivers.sound import SoundSystem
 
         force_feedback_volume = cfg.sound.get('force_feedback_volume', 0)
         sound_system = SoundSystem(master_volume=force_feedback_volume)
