@@ -1,7 +1,7 @@
 from typing import Dict, Optional, Tuple
 from drivers.camera.merge import merge_on_pulse
 
-from hydra_zen import builds, store
+from cfg import store, builds
 
 import ironic as ir
 
@@ -69,23 +69,39 @@ def _opencv_camera(camera_id: int = 0, resolution: Tuple[int, int] = (640, 480),
     return OpenCVCameraCS(OpenCVCamera(camera_id, resolution, fps))
 
 
-linux_camera = builds(_linux_camera, populate_full_signature=True)
-luxonis_camera = builds(_luxonis_camera, populate_full_signature=True)
-realsense_camera = builds(_realsense_camera, populate_full_signature=True)
-stereolabs_camera = builds(_stereolabs_camera, populate_full_signature=True)
-merge_camera = builds(merge_on_pulse, populate_full_signature=True)
-opencv_camera = builds(_opencv_camera, populate_full_signature=True)
+linux_camera = builds(_linux_camera)
+luxonis_camera = builds(_luxonis_camera)
+realsense_camera = builds(_realsense_camera)
+stereolabs_camera = builds(_stereolabs_camera)
+merge_camera = builds(merge_on_pulse)
+opencv_camera = builds(_opencv_camera)
 
 arducam_video0 = linux_camera(device_path="/dev/video0")
 
-store = store(group="hardware/cameras")
-store(arducam_video0, name='arducam')
-store(luxonis_camera(fps=60), name='luxonis')
-store(realsense_camera(resolution=(640, 480), fps=30, enable_color=True, enable_depth=False, enable_infrared=False),
-      name='realsense')
-store(stereolabs_camera(fps=30, view='SIDE_BY_SIDE', resolution='VGA', depth_mode='NONE', depth_mask=False),
-      name='sl_vga')
-store(opencv_camera(camera_id=0, resolution=(640, 480), fps=30), name='opencv')
+cam_store = store(group="hardware/cameras")
+
+arducam = arducam_video0
+arducam = cam_store(arducam, name='arducam')
+
+luxonis = luxonis_camera(fps=60)
+luxonis = cam_store(luxonis, name='luxonis')
+
+realsense = realsense_camera(
+    resolution=(640, 480),
+    fps=30,
+    enable_color=True,
+    enable_depth=False,
+    enable_infrared=False
+)
+realsense = cam_store(realsense, name='realsense')
+
+sl_vga = stereolabs_camera(fps=30, view='SIDE_BY_SIDE', resolution='VGA', depth_mode='NONE', depth_mask=False)
+sl_vga = cam_store(sl_vga, name='sl_vga')
+
+opencv = opencv_camera(camera_id=0, resolution=(640, 480), fps=30)
+opencv = cam_store(opencv, name='opencv')
 
 arducam_video2 = linux_camera(device_path="/dev/video2")  # Yes, it is on video2
-store(merge_camera(cameras={'first': arducam_video0, 'second': arducam_video2}, fps=30), name='merged')
+merged = merge_camera(cameras={'first': arducam_video0, 'second': arducam_video2}, fps=30)
+
+merged = cam_store(merged, name='merged')

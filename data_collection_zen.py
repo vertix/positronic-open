@@ -2,7 +2,8 @@ import asyncio
 import logging
 from typing import Dict, Optional
 
-from hydra_zen import builds, zen, ZenStore, make_config
+from cfg import builds, make_config
+from hydra_zen import zen, ZenStore
 
 import cfg.env
 import cfg.ui
@@ -76,11 +77,10 @@ def main(ui: ir.ControlSystem,
 
 store = ZenStore()
 store(make_config(
-    hydra_defaults=["_self_", {"ui": "teleop"}, {"env": "umi"}, {"hardware/sound@sound": "full"}],
-    env=None,
-    ui=None,
-    sound=None,
-    data_dumper=builds(_dataset_dumper, populate_full_signature=True, video_fps=30),
+    env=cfg.env.umi_env,
+    ui=cfg.ui.teleop,
+    sound=cfg.hardware.sound.full,
+    data_dumper=builds(_dataset_dumper, video_fps=30),
     rerun=False,
 ), name="data_collection")
 
