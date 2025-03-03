@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from pathlib import Path
 from typing import List
 
 import hydra
@@ -201,14 +200,6 @@ async def main_async(cfg: DictConfig):  # noqa: C901  Function is too complex
 
         properties_to_dump = ir.utils.properties_dict(**robot_properties)
 
-        if 'mujoco_model_path' in metadata:
-            model_path = Path(metadata['mujoco_model_path'])
-            data_output_dir = Path(cfg.data_output_dir)
-            assert data_output_dir in model_path.parents, (
-                f"Mujoco model {model_path} must be in the data output directory {data_output_dir} for transferability"
-            )
-            metadata['relative_mujoco_model_path'] = str(model_path.relative_to(data_output_dir))
-
         data_dumper = DatasetDumper(cfg.data_output_dir, additional_metadata=metadata, video_fps=cfg.get('video_fps'))
 
         if hasattr(hardware.outs, 'episode_metadata'):
@@ -218,9 +209,9 @@ async def main_async(cfg: DictConfig):  # noqa: C901  Function is too complex
 
                 return episode_metadata
 
-            stop_recording = ir.utils.map_port(send_episode_metadata, control.outs.stop_recording)
+            start_recording = ir.utils.map_port(send_episode_metadata, control.outs.start_recording)
         else:
-            stop_recording = control.outs.stop_recording
+            start_recording = control.outs.start_recording
 
         components.append(
             data_dumper.bind(
@@ -228,8 +219,8 @@ async def main_async(cfg: DictConfig):  # noqa: C901  Function is too complex
                 image=hardware.outs.frame,
                 target_grip=control.outs.gripper_target_grasp,
                 target_robot_position=control.outs.robot_target_position,
-                start_episode=control.outs.start_recording,
-                end_episode=stop_recording,
+                start_episode=start_recording,
+                end_episode=control.outs.stop_recording,
                 robot_data=properties_to_dump,
             ))
     # Run the system

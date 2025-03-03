@@ -3,15 +3,14 @@ from omegaconf import DictConfig
 import rerun as rr
 from tqdm import tqdm
 
-from simulator.mujoco.sim import InverseKinematics, MujocoRenderer, MujocoSimulator
+from simulator.mujoco.sim import create_from_config
 from inference.state import StateEncoder
 from inference.policy import get_policy
 from inference.inference import rerun_log_action, rerun_log_observation
 
 
-
 @hydra.main(version_base=None, config_path="configs", config_name="sync_policy_runner")
-def main(cfg: DictConfig):
+def main(cfg: DictConfig):  # noqa: C901  Function is too complex
     if cfg.rerun:
         rr.init("inference", spawn=False)
         if ':' in cfg.rerun:
@@ -19,22 +18,11 @@ def main(cfg: DictConfig):
         elif cfg.rerun is not None:
             rr.save(cfg.rerun)
 
-    # Initialize MuJoCo environment
-    loaders = hydra.utils.instantiate(cfg.hardware.mujoco_loaders)
-    simulator = MujocoSimulator.load_from_xml_path(cfg.hardware.mujoco.model_path, loaders, simulation_rate=1/cfg.hardware.mujoco.simulation_hz)
-
-    ik = InverseKinematics(simulator)
-    renderer = MujocoRenderer(
-        simulator,
-        cfg.hardware.mujoco.camera_names,
-        (cfg.hardware.mujoco.camera_width, cfg.hardware.mujoco.camera_height),
-    )
+    simulator, renderer, ik = create_from_config(cfg.hardware)
 
     # Initialize renderer
     renderer.initialize()
-
-    # Reset simulator to initial state
-    simulator.reset('home_0')
+    reference_pose = simulator.robot_position
 
     # Initialize policy and encoders
     policy = get_policy(cfg.inference.checkpoint_path, cfg.get('policy_args', {}))
@@ -64,7 +52,10 @@ def main(cfg: DictConfig):
                 'robot_joints': simulator.joints,
                 'ext_force_ee': simulator.ext_force_ee,
                 'ext_force_base': simulator.ext_force_base,
-                'grip': simulator.grip
+                'grip': simulator.grip,
+                # TODO: following will be gone if we add support for state/action history
+                'reference_robot_position_translation': reference_pose.translation,
+                'reference_robot_position_quaternion': reference_pose.quaternion
             }
             obs = state_encoder.encode(images, inputs)
             for key in obs:
@@ -80,13 +71,17 @@ def main(cfg: DictConfig):
 
             # Apply actions
             target_pos = action_dict['target_robot_position']
+
+            # TODO: (aluzan) this is the most definitely will go to inference next PR
+            if policy.chunk_start():
+                reference_pose = target_pos
+
             joint_positions = ik.recalculate_ik(target_pos)
             if joint_positions is not None:
                 simulator.set_actuator_values(joint_positions)
 
             if 'target_grip' in action_dict:
                 simulator.set_grip(action_dict['target_grip'])
-
 
     if cfg.rerun:
         rr.disconnect()
