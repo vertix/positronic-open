@@ -1,36 +1,17 @@
 import logging
-from typing import Callable, List
-
-import numpy as np
+from typing import List
 
 import ironic as ir
-from geom import Rotation, Transform3D
+import geom
 from positronic.tools.buttons import ButtonHandler
 
 logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler(), logging.FileHandler("teleop.log", mode="w")])
 
 
-def front_position_parser(value: Transform3D) -> Transform3D:
-    pos = np.array([value.translation[2], value.translation[0], value.translation[1]])
-    quat = value.rotation.as_quat
-    quat = Rotation.from_quat([quat[0], -quat[3], -quat[1], -quat[2]])
-
-    # Don't ask my why these transformations, I just got them
-    # Rotate quat 90 degrees around Y axis
-    rotation_y_90 = Rotation(np.cos(np.pi / 4), 0, np.sin(np.pi / 4), 0)
-    return Transform3D(pos, quat * rotation_y_90)
-
-
-def back_position_parser(value: Transform3D) -> Transform3D:
-    pos = np.array([-value.translation[2], -value.translation[0], value.translation[1]])
-    quat = value.rotation.as_quat
-    quat = Rotation.from_quat([quat[0], quat[3], quat[1], quat[2]])
-
-    res_quat = quat
-    rotation_y_90 = Rotation(np.cos(-np.pi / 4), 0, np.sin(-np.pi / 4), 0)
-    res_quat = rotation_y_90 * quat
-    res_quat = Rotation(res_quat[0], -res_quat[1], res_quat[2], res_quat[3])
-    return Transform3D(pos, res_quat)
+# map xyz -> zxy
+FRANKA_FRONT_TRANSFORM = geom.Transform3D(rotation=geom.Rotation.from_quat([0.5, 0.5, 0.5, 0.5]))
+# map xyz -> zxy + flip x and y
+FRANKA_BACK_TRANSFORM = geom.Transform3D(rotation=geom.Rotation.from_quat([-0.5, -0.5, 0.5, 0.5]))
 
 
 @ir.ironic_system(
@@ -39,15 +20,22 @@ def back_position_parser(value: Transform3D) -> Transform3D:
     output_ports=["robot_target_position", "gripper_target_grasp", "start_recording", "stop_recording", "reset"],
     output_props=["metadata"])
 class TeleopSystem(ir.ControlSystem):
+    def __init__(self, position_transform: geom.Transform3D):
+        """
+        System for teleoperating the robot.
 
-    def __init__(self, pos_parser: Callable[[Transform3D], Transform3D]):
+        Maps raw teleop transform and buttons to robot commands.
+
+        Args:
+            position_transform: (geom.Transform3D) The transform to change the coordinate frame of the teleop transform.
+        """
         super().__init__()
         self.teleop_t = None
         self.offset = None
         self.is_tracking = False
         self.is_recording = False
         self.button_handler = ButtonHandler()
-        self.pos_parser = pos_parser
+        self.position_transform = position_transform
         self.fps = ir.utils.FPSCounter("Teleop")
 
     def _parse_buttons(self, value: List[float]):
@@ -62,12 +50,14 @@ class TeleopSystem(ir.ControlSystem):
 
     @ir.on_message("teleop_transform")
     async def handle_teleop_transform(self, message: ir.Message):
-        self.teleop_t = self.pos_parser(message.data)
+        self.teleop_t = self.position_transform * message.data * self.position_transform.inv
         self.fps.tick()
 
         if self.is_tracking and self.offset is not None:
-            target = Transform3D(self.teleop_t.translation + self.offset.translation,
-                                 self.teleop_t.rotation * self.offset.rotation)
+            target = geom.Transform3D(
+                self.teleop_t.translation + self.offset.translation,
+                self.teleop_t.rotation * self.offset.rotation
+            )
             await self.outs.robot_target_position.write(ir.Message(target, message.timestamp))
 
     @ir.on_message("teleop_buttons")
@@ -100,8 +90,10 @@ class TeleopSystem(ir.ControlSystem):
         # Note that translation and rotation offsets are independent
         if self.teleop_t is not None:
             robot_t = (await self.ins.robot_position()).data
-            self.offset = Transform3D(-self.teleop_t.translation + robot_t.translation,
-                                      self.teleop_t.rotation.inv * robot_t.rotation)
+            self.offset = geom.Transform3D(
+                -self.teleop_t.translation + robot_t.translation,
+                self.teleop_t.rotation.inv * robot_t.rotation
+            )
         if self.is_tracking:
             logging.info('Stopped tracking')
             self.is_tracking = False
