@@ -117,7 +117,7 @@ def run_server(data_queue, frame_queue, port, ssl_keyfile, ssl_certfile):  # noq
     server.run()
 
 
-@ir.ironic_system(input_ports=["frame"], output_ports=["transform", "buttons"])
+@ir.ironic_system(input_ports=["frame"], output_ports=["controller_positions", "buttons"])
 class WebXR(ir.ControlSystem):
     def __init__(self, port: int, ssl_keyfile: str = "key.pem", ssl_certfile: str = "cert.pem"):
         super().__init__()
@@ -166,12 +166,28 @@ class WebXR(ir.ControlSystem):
         if data is None:
             return ir.State.ALIVE
 
-        pos = np.array(data['position'])
-        quat = np.array(data['orientation'])
-        transform = Transform3D(pos, quat)
-        write_ops = [self.outs.transform.write(ir.Message(transform, timestamp))]
-        write_ops.append(self.outs.buttons.write(ir.Message(data['buttons'], timestamp)))
-        await asyncio.gather(*write_ops)
+        controller_positions = {'left': None, 'right': None}
+        buttons = {'left': None, 'right': None}
+
+        if data['controllers']['right'] is not None:
+            controller_positions['right'], buttons['right'] = self._parse_controller_data(data['controllers']['right'])
+
+        if data['controllers']['left'] is not None:
+            controller_positions['left'], buttons['left'] = self._parse_controller_data(data['controllers']['left'])
+
+        if controller_positions['left'] is not None or controller_positions['right'] is not None:
+            await asyncio.gather(
+                self.outs.controller_positions.write(ir.Message(controller_positions, timestamp)),
+                self.outs.buttons.write(ir.Message(buttons, timestamp))
+            )
 
         self.fps.tick()
         return ir.State.ALIVE
+
+    def _parse_controller_data(self, data: dict):
+        translation = np.array(data['position'])
+        rotation = np.array(data['orientation'])
+        buttons = np.array(data['buttons'])
+
+        controller_position = Transform3D(translation, rotation)
+        return controller_position, buttons
