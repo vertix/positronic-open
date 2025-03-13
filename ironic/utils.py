@@ -2,7 +2,7 @@ import asyncio
 from collections import namedtuple
 import time
 import signal
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from ironic.system import (ControlSystem, Message, OutputPort, State, ironic_system, on_message, out_property,
                            system_clock, NoValue)
@@ -137,7 +137,11 @@ class FPSCounter:
             self.report()
 
 
-async def run_gracefully(system: ControlSystem, extra_cleanup_fn: Optional[Callable[[], None]] = None):
+async def run_gracefully(
+        system: ControlSystem,
+        after_setup_fn: Callable[[], None] | None = None,
+        after_cleanup_fn: Callable[[], None] | None = None,
+):
     """Runs a control system with graceful shutdown handling.
 
     This function manages the lifecycle of a ControlSystem, handling setup, continuous operation,
@@ -148,6 +152,8 @@ async def run_gracefully(system: ControlSystem, extra_cleanup_fn: Optional[Calla
         system (ControlSystem): The control system instance to run
         extra_cleanup_fn (Optional[Callable[[], None]]): Optional callback function to perform
             additional cleanup tasks after the system cleanup
+        after_setup_fn (Optional[Callable[[], None]]): Optional callback function to perform
+            additional steps between the system setup and the main loop
 
     Example:
         ```python
@@ -168,13 +174,15 @@ async def run_gracefully(system: ControlSystem, extra_cleanup_fn: Optional[Calla
 
     try:
         await system.setup()
+        if after_setup_fn is not None:
+            after_setup_fn()
         while (await system.step()) == State.ALIVE and not shutdown_event.is_set():
             await asyncio.sleep(0)  # Yield to allow other tasks to run, if any
     finally:
         await system.cleanup()
         print('System cleanup finished')
-        if extra_cleanup_fn:
-            extra_cleanup_fn()
+        if after_cleanup_fn:
+            after_cleanup_fn()
             print('Extra cleanup finished')
 
 

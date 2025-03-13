@@ -70,6 +70,8 @@ def run_server(data_queue, frame_queue, port, ssl_keyfile, ssl_certfile):  # noq
             fps = FPSCounter("Websocket")
             while True:
                 data = await websocket.receive_json()
+                if data_queue.qsize() > 0:
+                    data_queue.get()
                 data_queue.put((data, ir.system_clock()))
                 fps.tick()
         except Exception as e:
@@ -125,7 +127,7 @@ class WebXR(ir.ControlSystem):
         self.ssl_keyfile = ssl_keyfile
         self.ssl_certfile = ssl_certfile
 
-        self.data_queue = multiprocessing.Queue(maxsize=10)
+        self.data_queue = multiprocessing.Queue()
         self.frame_queue = multiprocessing.Queue(maxsize=1)
         self.server_process = None
         self.fps = ir.utils.FPSCounter("WebXR")

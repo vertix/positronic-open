@@ -1,6 +1,10 @@
 import ironic as ir
 import geom
 
+# registration transform for the last gripper
+# TODO: remove in the next PR
+GRIPPER_REGISTRATION = geom.Rotation.from_quat([-0.08998721, -0.29523472, -0.51761315,  0.79800714])
+
 
 @ir.ironic_system(
     input_ports=['tracker_position', 'target_grip'],
