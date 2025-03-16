@@ -1,39 +1,39 @@
 import ironic as ir
 import geom
 
-# registration transform for the last gripper
-# TODO: remove in the next PR
-GRIPPER_REGISTRATION = geom.Rotation.from_quat([-0.08998721, -0.29523472, -0.51761315,  0.79800714])
-
 
 @ir.ironic_system(
-    input_ports=['tracker_position', 'target_grip'],
-    output_props=['ee_position', 'grip', 'metadata'],
+    input_ports=['tracker_position'],
+    output_props=['metadata', 'umi_left', 'umi_right'],
 )
 class UmiCS(ir.ControlSystem):
 
-    def __init__(self):
+    def __init__(self, registration: geom.Transform3D):
         super().__init__()
-        self.tracker_position = geom.Transform3D()
-        self.target_grip = None
+        self.tracker_positions = {'left': None, 'right': None}
+        self.prev_tracker_positions = {'left': None, 'right': None}
+        self.relative_gripper_transform = None
+        self.registration = registration
 
     @ir.out_property
-    async def ee_position(self):
-        # TODO: here we will put registered robot position
-        return ir.Message(data=self.tracker_position, timestamp=ir.system_clock())
+    async def umi_left(self):
+        return ir.Message(data=self.tracker_positions['left'].copy(), timestamp=ir.system_clock())
 
     @ir.out_property
-    async def grip(self):
-        return ir.Message(data=self.target_grip, timestamp=ir.system_clock())
+    async def umi_right(self):
+        return ir.Message(data=self.tracker_positions['right'].copy(), timestamp=ir.system_clock())
 
     @ir.out_property
     async def metadata(self):
-        return ir.Message(data={'source': 'umi'})
+        return ir.Message(data={'source': 'umi', 'registration_transform': self.registration})
 
     @ir.on_message('tracker_position')
-    async def on_tracker_position(self, message: ir.Message):
-        self.tracker_position = message.data
-
-    @ir.on_message('target_grip')
-    async def on_target_grip(self, message: ir.Message):
-        self.target_grip = message.data
+    async def on_tracker_positions(self, message: ir.Message):
+        if self.tracker_positions['left'] is None or self.tracker_positions['right'] is None:
+            self.tracker_positions = message.data
+        else:
+            self.prev_tracker_positions = {
+                'left': self.tracker_positions['left'].copy(),
+                'right': self.tracker_positions['right'].copy(),
+            }
+            self.tracker_positions = message.data

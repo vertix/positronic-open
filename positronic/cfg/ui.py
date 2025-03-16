@@ -57,6 +57,31 @@ def teleop(webxr: ir.ControlSystem, operator_position: geom.Transform3D, stream_
     return ir.compose(*components, inputs=inputs, outputs=teleop_cs.output_mappings)
 
 
+@ir.config(webxr=webxr_both)
+def teleop_umi(webxr: ir.ControlSystem, stream_to_webxr: str | None = None):
+    teleop_cs = positronic.teleop.TeleopButtons()
+    components = [webxr, teleop_cs]
+
+    teleop_cs.bind(
+        teleop_buttons=ir.utils.map_port(lambda x: x['right'], webxr.outs.buttons),
+    )
+
+    inputs = {'images': None}
+
+    if stream_to_webxr:
+        get_frame_for_webxr = ir.utils.MapPortCS(lambda frame: frame[stream_to_webxr])
+        components.append(get_frame_for_webxr)
+        inputs['images'] = (get_frame_for_webxr, 'input')
+        webxr.bind(frame=get_frame_for_webxr.outs.output)
+
+    outputs = {
+        **teleop_cs.output_mappings,
+        'controller_positions': webxr.outs.controller_positions,
+    }
+
+    return ir.compose(*components, inputs=inputs, outputs=outputs)
+
+
 @ir.config(translation_speed=0.0005, rotation_speed=0.001, translation_dead_zone=0.8, rotation_dead_zone=0.7)
 def spacemouse(translation_speed: float, rotation_speed: float, translation_dead_zone: float,
                rotation_dead_zone: float):
