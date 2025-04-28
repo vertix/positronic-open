@@ -15,6 +15,7 @@ import mujoco
 import numpy as np
 import pinocchio as pin
 from ruckig import InputParameter, OutputParameter, Result, Ruckig
+import rerun as rr
 
 from kortex_api.autogen.client_stubs.ActuatorConfigClientRpc import ActuatorConfigClient
 from kortex_api.autogen.client_stubs.BaseClientRpc import BaseClient
@@ -94,6 +95,7 @@ class KinematicsSolver:
 
         # Cache references
         self.qpos0 = self.model.key('retract').qpos  # TODO: Is it good for IK null space?
+        self.qpos0[:] = 0.0
         self.site_id = self.model.site('pinch_site').id
         self.site_pos = self.data.site(self.site_id).xpos
         self.site_mat = self.data.site(self.site_id).xmat
@@ -124,10 +126,10 @@ class KinematicsSolver:
         mujoco.mju_mat2Quat(quat, mat)
         return geom.Transform3D(pos, geom.Rotation.from_quat(quat))
 
-    def inverse(self, pos: geom.Transform3D, qpos0: np.ndarray, max_iters: int = 20, err_thresh: float = 1e-4):
+    def inverse(self, pos: geom.Transform3D, qpos0: np.ndarray, max_iters: int = 40, err_thresh: float = 1e-5):
         self.data.qpos = qpos0
 
-        for _ in range(max_iters):
+        for iter in range(max_iters):
             mujoco.mj_kinematics(self.model, self.data)
             mujoco.mj_comPos(self.model, self.data)
 
@@ -156,6 +158,11 @@ class KinematicsSolver:
 
             # Apply update
             mujoco.mj_integratePos(self.model, self.data.qpos, update, 1.0)
+        else:
+            print(f'IK max iter. err: {np.linalg.norm(self.err)}')
+
+        rr.log('ik_iter', rr.Scalars(iter))
+        rr.log('ik_err', rr.Scalars(np.linalg.norm(self.err)))
 
         return self.data.qpos.copy()
 
