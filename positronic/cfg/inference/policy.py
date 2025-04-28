@@ -18,15 +18,23 @@ def _get_act_policy(checkpoint_path: str, use_temporal_ensembler: bool = False, 
 
 def _get_diffusion_policy(checkpoint_path: str):
     from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy
-    policy = DiffusionPolicy.from_pretrained(checkpoint_path)
+    policy = DiffusionPolicy.from_pretrained(checkpoint_path, local_files_only=True)
     return policy
 
 
-act = ir.Config(
-    _get_act_policy,
-    use_temporal_ensembler=False
-)
+def _get_pi0_policy(checkpoint_path: str):
+    from lerobot.common.policies.pi0.modeling_pi0 import PI0Policy
+    policy = PI0Policy.from_pretrained(checkpoint_path)
+    return policy
 
-diffusion = ir.Config(
-    _get_diffusion_policy,
-)
+
+def _get_pi0_fast_policy(checkpoint_path: str):
+    from lerobot.common.policies.pi0fast.modeling_pi0fast import PI0FASTPolicy
+    policy = PI0FASTPolicy.from_pretrained(checkpoint_path)
+    return policy
+
+
+act = ir.Config(_get_act_policy, use_temporal_ensembler=False)
+diffusion = ir.Config(_get_diffusion_policy)
+pi0 = ir.Config(_get_pi0_policy)
+pi0_fast = ir.Config(_get_pi0_fast_policy)
