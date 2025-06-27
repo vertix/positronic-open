@@ -2,7 +2,8 @@ from collections import deque
 import posixpath
 import yaml
 import importlib.util
-from typing import Any, Callable, Dict, Tuple
+import inspect
+from typing import Any, Callable, Dict, Tuple, List
 
 
 INSTANTIATE_PREFIX = '@'
@@ -287,7 +288,7 @@ class Config:
         return res
 
     def __str__(self):
-        return yaml.dump(self._to_dict(), default_flow_style=False, sort_keys=False)
+        return yaml.dump(self._to_dict(), default_flow_style=None, sort_keys=False, width=140)
 
     def copy(self) -> 'Config':
         """
@@ -332,6 +333,34 @@ class Config:
         return self.override(**kwargs).instantiate()
 
 
+def get_required_args(config: Config) -> List[str]:
+    """
+    Get the list of required arguments to instantiate the target callable.
+
+    Returns:
+        List of required argument names (excluding those with default values and those that are already set).
+    """
+    sig = inspect.signature(config.target)
+    required_args = []
+
+    for i, (name, param) in enumerate(sig.parameters.items()):
+        if param.default != inspect.Parameter.empty:
+            continue
+        if param.name in config.kwargs:
+            continue
+        if i < len(config.args):
+            continue
+        if param.kind == inspect.Parameter.VAR_POSITIONAL:
+            # var positional args are not required
+            continue
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            # var keyword args are not required
+            continue
+
+        required_args.append(name)
+    return required_args
+
+
 def config(target: Callable | None = None, **kwargs):
     """
     Decorator to create a Config object.
@@ -363,3 +392,39 @@ def config(target: Callable | None = None, **kwargs):
         return _config_decorator
     else:
         return Config(target)
+
+
+def cli(config: Config):
+    """
+    Run a config object as a CLI.
+
+    Args:
+        config: The config object to run.
+
+    Example:
+        >>> @ir.config
+        >>> def sum(a, b):
+        >>>     return a + b
+        >>> ir.cli(sum)
+        >>> # Shell call: python script.py --a 1 --b 2
+        >>> # Shell call: python script.py --help
+    """
+    import fire
+
+    assert 'help' not in config.kwargs, "Config contains 'help' argument. This is reserved for the help flag."
+
+    def _run_and_help(help: bool = False, **kwargs):
+        if help:
+            if hasattr(config.target, '__doc__') and config.target.__doc__:
+                print(config.target.__doc__)
+                print('=' * 140)
+
+            print("Config:")
+            for arg in get_required_args(config):
+                print(f"{arg}: <REQUIRED>")
+            print()
+            print(str(config))
+        else:
+            return config.override_and_instantiate(**kwargs)
+
+    fire.Fire(_run_and_help)

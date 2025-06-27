@@ -1,8 +1,6 @@
 import time
 from typing import Dict
 
-import fire
-
 import ironic as ir1
 import ironic2 as ir
 from ironic.utils import FPSCounter
@@ -152,4 +150,4 @@ main = ir1.Config(
 )
 
 if __name__ == "__main__":
-    fire.Fire(main.override_and_instantiate)
+    ir1.cli(main)
