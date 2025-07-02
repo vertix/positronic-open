@@ -27,19 +27,20 @@ class MotorParameters:
     radius: float  # Radius of the motor cylinder (m)
     height: float  # Height of the motor cylinder (m)
     mass: float   # Mass of the motor (kg)
-    effort_limit: float = 100.0
+    effort_limit: float = 100.0  # Nm
+    velocity_limit: float = 2.0  # rad/s
 
 
 @dataclass
 class JointConfiguration:
     """Configuration for a single joint."""
     name: str
-    joint_type: str = "continuous"
+    joint_type: str = "revolute"
     axis: Tuple[float, float, float] = (0, 0, 1)
     origin_xyz: Tuple[float, float, float] = (0, 0, 0)
     origin_rpy: Tuple[float, float, float] = (0, 0, 0)
     effort_limit: float = 100.0
-    velocity_limit: float = 1.0
+    velocity_limit: float = 2.0
 
 
 def calculate_center_of_mass(masses, positions):
@@ -241,7 +242,10 @@ class URDFGenerator:
 
         # Limits
         ET.SubElement(
-            joint_elem, "limit", effort=f"{joint_config.effort_limit}", velocity=f"{joint_config.velocity_limit}"
+            joint_elem,
+            "limit",
+            effort=f"{joint_config.effort_limit}",
+            velocity=f"{joint_config.velocity_limit}",
         )
 
     def generate_serial_arm(
@@ -296,10 +300,9 @@ class URDFGenerator:
 
 
 def create_arm(
-        link_lengths: Sequence[float] = (0.05, 0.05, 0.2, 0.05, 0.2),
-        motor_masses: Sequence[float] = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0),
-        motor_limits: Sequence[float] = (30.0, 30.0, 30.0, 30.0, 30.0, 30.0),
-        joint_rotations: Sequence[float] = (np.pi / 2, -np.pi / 2, np.pi / 2, -np.pi / 2, np.pi / 2),
+        motors: Sequence[MotorParameters],
+        link_lengths: Sequence[float] = (0.05, 0.05, 0.2, 0.05, 0.2, 0.05),
+        joint_rotations: Sequence[float] = (np.pi / 2, -np.pi / 2, np.pi / 2, -np.pi / 2, np.pi / 2, -np.pi / 2),
         link_density: float = 0.2,
         payload_mass: float = 2.0,
 ) -> str:
@@ -318,22 +321,18 @@ def create_arm(
         str: Generated URDF as XML string
     """
 
-    assert len(link_lengths) + 1 == len(motor_masses) == len(motor_limits) == len(joint_rotations) + 1
-
-    motor_params = [
-        MotorParameters(radius=0.05, height=0.05, mass=motor_masses[i], effort_limit=motor_limits[i])
-        for i in range(len(motor_masses))
-    ]
+    assert len(link_lengths) + 1 == len(motors) == len(joint_rotations) + 1
 
     # simulate payload by adding it's mass to the last motor
-    motor_params[-1].mass += payload_mass
+    motors[-1].mass += payload_mass
 
     link_params = []
     joint_configs = [JointConfiguration(
         name='joint_1',
         origin_xyz=(0, 0, 0),
         origin_rpy=(0, 0, 0),
-        effort_limit=motor_params[0].effort_limit
+        effort_limit=motors[0].effort_limit,
+        velocity_limit=motors[0].velocity_limit,
     )]
 
     for i in range(len(link_lengths)):
@@ -341,10 +340,11 @@ def create_arm(
         joint_configs.append(
             JointConfiguration(
                 name=f"joint_{len(joint_configs) + 1}",
-                origin_xyz=(0, 0, link_lengths[i] + motor_params[i].height / 2 + motor_params[i].radius),
+                origin_xyz=(0, 0, link_lengths[i] + motors[i].height / 2 + motors[i].radius),
                 origin_rpy=(joint_rotations[i], 0, 0),
-                effort_limit=motor_params[i + 1].effort_limit
+                effort_limit=motors[i + 1].effort_limit,
+                velocity_limit=motors[i + 1].velocity_limit,
             )
         )
     generator = URDFGenerator()
-    return generator.generate_serial_arm(motor_params, link_params, joint_configs)
+    return generator.generate_serial_arm(motors, link_params, joint_configs)
