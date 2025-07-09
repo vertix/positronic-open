@@ -71,7 +71,7 @@ class SystemClock(Clock):
 
 def _bg_wrapper(run_func: ControlLoop, stop_event: mp.Event, clock: Clock, name: str):
     try:
-        for sleep_time in run_func(EventReader(stop_event), clock):
+        for sleep_time in run_func(EventReader(stop_event, clock), clock):
             time.sleep(sleep_time)
     except KeyboardInterrupt:
         # Silently handle KeyboardInterrupt in background processes
@@ -84,6 +84,7 @@ def _bg_wrapper(run_func: ControlLoop, stop_event: mp.Event, clock: Clock, name:
         print(f"{'='*60}\n", file=sys.stderr)
         logging.error(f"Error in control system {name}:\n{traceback.format_exc()}")
     finally:
+        print(f"Stopping background process by {name}", flush=True)
         stop_event.set()
 
 
@@ -162,8 +163,9 @@ class World:
                 name = f"{bg_loop.__self__.__class__.__name__}.{bg_loop.__name__}"
             else:
                 name = getattr(bg_loop, '__name__', 'anonymous')
+            # TODO: now we allow only real clock, change clock to a Emitter?
             p = mp.Process(target=_bg_wrapper,
-                           args=(bg_loop, self._stop_event, self._clock, name),
+                           args=(bg_loop, self._stop_event, SystemClock(), name),
                            daemon=True,
                            name=name)
             p.start()
@@ -199,24 +201,23 @@ class World:
             - Number of yields equals number of loop executions
         """
         start = self._clock.now()
-        ssr = self.should_stop_reader()
         counter = 0
         priority_queue = []
 
         # Initialize all loops with the same start time and unique counters
         for loop in loops:
-            heapq.heappush(priority_queue, (start, counter, iter(loop(ssr, self._clock))))
+            heapq.heappush(priority_queue, (start, counter, iter(loop(self.should_stop_reader(), self._clock))))
             counter += 1
 
         while priority_queue:
-            next_time, _, loop = heapq.heappop(priority_queue)
+            _, _, loop = heapq.heappop(priority_queue)
 
             try:
                 sleep_time = next(loop)
-                heapq.heappush(priority_queue, (next_time + sleep_time, counter, loop))
+                heapq.heappush(priority_queue, (self._clock.now() + sleep_time, counter, loop))
                 counter += 1
 
-                if priority_queue:   # Yield the wait time until the next execution should occur
+                if priority_queue:  # Yield the wait time until the next execution should occur
                     yield max(0, priority_queue[0][0] - self._clock.now())
 
             except StopIteration:

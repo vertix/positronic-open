@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from enum import Enum
 
-import ironic2 as ir
 import numpy as np
 
 import geom
@@ -21,13 +19,13 @@ class State(ABC):
 
     @property
     @abstractmethod
-    def q(self) -> np.array:
+    def q(self) -> np.ndarray:
         """Joints positions of the robot."""
         pass
 
     @property
     @abstractmethod
-    def dq(self) -> np.array:
+    def dq(self) -> np.ndarray:
         """Joints velocities of the robot."""
         pass
 
