@@ -1,11 +1,10 @@
 from abc import ABC, abstractmethod
 from enum import Enum
 
-from . import command
-
 import numpy as np
 
 import geom
+from . import command
 
 
 class RobotStatus(Enum):

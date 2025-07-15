@@ -1,4 +1,5 @@
-from typing import Sequence, Tuple
+from typing import Dict, Sequence, Tuple
+import logging
 
 import geom
 import ironic2 as ir
@@ -11,11 +12,21 @@ from pimm.drivers.roboarm import RobotStatus, State
 from pimm.drivers.roboarm import command as roboarm_command
 from positronic.simulator.mujoco.scene.transforms import MujocoSceneTransform, load_model_from_spec_file
 
+logger = logging.getLogger(__name__)
+
 
 def load_from_xml_path(model_path: str, loaders: Sequence[MujocoSceneTransform] = ()) -> mj.MjModel:
     model, metadata = load_model_from_spec_file(model_path, loaders)
 
     return model, metadata
+
+
+STATE_SPECS = [
+    mj.mjtState.mjSTATE_FULLPHYSICS,
+    mj.mjtState.mjSTATE_USER,
+    mj.mjtState.mjSTATE_INTEGRATION,
+    mj.mjtState.mjSTATE_WARMSTART,
+]
 
 
 class MujocoSim(ir.Clock):
@@ -25,9 +36,9 @@ class MujocoSim(ir.Clock):
         self.fps_counter = ir.utils.RateCounter("MujocoSim")
         self.initial_ctrl = [float(x) for x in self.metadata.get('initial_ctrl').split(',')]
         self.warmup_steps = 1000
+        self.reset()
 
     def run(self, should_stop: ir.SignalReader, clock: ir.Clock):
-        self.reset()
         while not should_stop.value:
             self.step()
             self.fps_counter.tick()
@@ -42,6 +53,32 @@ class MujocoSim(ir.Clock):
             self.data.ctrl = self.initial_ctrl
         mj.mj_step(self.model, self.data, self.warmup_steps)
         self.data.time = 0
+
+    def load_state(self, state: dict, reset_time: bool = True):
+        mj.mj_resetData(self.model, self.data)
+        for spec in STATE_SPECS:
+            mj.mj_setState(self.model, self.data, np.array(state[spec.name]), spec)
+
+        if reset_time:
+            self.data.time = 0
+
+    def save_state(self) -> Dict[str, np.ndarray]:
+        """
+        Saves full state of the simulator.
+
+        This state could be used to restore the exact state of the simulator.
+
+        Returns:
+            data: A dictionary containing the full state of the simulator.
+        """
+        data = {}
+
+        for spec in STATE_SPECS:
+            size = mj.mj_stateSize(self.model, spec)
+            data[spec.name] = np.empty(size, np.float64)
+            mj.mj_getState(self.model, self.data, data[spec.name], spec)
+
+        return data
 
     def step(self, duration: float | None = None) -> None:
         duration = duration or self.model.opt.timestep
@@ -104,13 +141,9 @@ class MujocoFrankaState(State, ir.shared_memory.NumpySMAdapter):
 
 
 class MujocoFranka:
+    commands: ir.SignalReader[roboarm_command.CommandType] = ir.NoOpReader()
 
-    commands: ir.SignalReader = ir.NoOpReader()
-
-    state: ir.SignalEmitter = ir.NoOpEmitter()
-
-    class _NoCommandsYet:
-        pass
+    state: ir.SignalEmitter[MujocoFrankaState] = ir.NoOpEmitter()
 
     def __init__(self, sim: MujocoSim, suffix: str = ''):
         self.sim = sim
@@ -121,23 +154,19 @@ class MujocoFranka:
         self.joint_qpos_ids = [self.sim.model.joint(joint).qposadr.item() for joint in self.joint_names]
 
     def run(self, should_stop: ir.SignalReader, clock: ir.Clock):
-        commands = ir.ValueUpdated(ir.DefaultReader(self.commands, self._NoCommandsYet()))
+        commands = ir.DefaultReader(ir.ValueUpdated(self.commands), (None, False))
         state = MujocoFrankaState()
 
         while not should_stop.value:
             command, is_updated = commands.value
             if is_updated:
                 match command:
-                    case roboarm_command.CartesianMove():
-                        q = self._recalculate_ik(command.pose)
-                        if q is not None:
-                            self.set_actuator_values(q)
-                    case roboarm_command.JointMove():
-                        self.set_actuator_values(command.positions)
+                    case roboarm_command.CartesianMove(pose=pose):
+                        self.set_ee_pose(pose)
+                    case roboarm_command.JointMove(positions=positions):
+                        self.set_actuator_values(positions)
                     case roboarm_command.Reset():
                         # TODO: it's not clear how to make reset, because interleave breakes if time goes backwards
-                        pass
-                    case self._NoCommandsYet():
                         pass
                     case _:
                         raise ValueError(f"Unknown command type: {type(command)}")
@@ -173,13 +202,21 @@ class MujocoFranka:
 
     @property
     def ee_pose(self) -> geom.Transform3D:
-        return geom.Transform3D(translation=self.sim.data.site(self.ee_name).xpos.copy(),
-                                rotation=geom.Rotation.from_quat(
-                                    self._xmat_to_quat(self.sim.data.site(self.ee_name).xmat.copy())))
+        translation = self.sim.data.site(self.ee_name).xpos.copy()
+        rotmat: np.ndarray = self.sim.data.site(self.ee_name).xmat.copy()
+        quat = self._xmat_to_quat(rotmat)
+        return geom.Transform3D(translation=translation, rotation=geom.Rotation.from_quat(quat))
 
     def set_actuator_values(self, actuator_values: np.ndarray):
         for i in range(7):
             self.sim.data.actuator(self.actuator_names[i]).ctrl = actuator_values[i]
+
+    def set_ee_pose(self, ee_pose: geom.Transform3D):
+        q = self._recalculate_ik(ee_pose)
+        if q is not None:
+            self.set_actuator_values(q)
+        else:
+            logger.warning(f"Failed to calculate IK for ee_pose: {ee_pose}")
 
     def _xmat_to_quat(self, xmat: np.ndarray) -> np.ndarray:
         site_quat = np.empty(4)
@@ -188,7 +225,7 @@ class MujocoFranka:
 
 
 class MujocoGripper:
-    target_grip: ir.SignalReader = ir.NoOpReader()
+    target_grip: ir.SignalReader[float] = ir.NoOpReader()
     grip: ir.SignalEmitter = ir.NoOpEmitter()
 
     def __init__(self, sim: MujocoSim, actuator_name: str, joint_name: str):
@@ -197,11 +234,14 @@ class MujocoGripper:
         self.joint_name = joint_name
 
     def run(self, should_stop: ir.SignalReader, clock: ir.Clock):
-        self.target_grip = ir.DefaultReader(self.target_grip, 0)
+        target_grip_reader = ir.DefaultReader(self.target_grip, 0.0)
 
         while not should_stop.value:
-            target_grip = self.target_grip.value
-            self.sim.data.actuator(self.actuator_name).ctrl = target_grip
+            target_grip = target_grip_reader.value
+            self.set_target_grip(target_grip)
 
             self.grip.emit(self.sim.data.joint(self.joint_name).qpos.item())
             yield ir.Pass()
+
+    def set_target_grip(self, target_grip: float):
+        self.sim.data.actuator(self.actuator_name).ctrl = target_grip

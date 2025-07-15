@@ -1,5 +1,5 @@
 import time
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Iterator
 
 from mujoco import Sequence
 
@@ -24,7 +24,7 @@ import pimm.cfg.sound
 import pimm.cfg.simulator
 
 
-def _parse_buttons(buttons: ir.Message | None, button_handler: ButtonHandler):
+def _parse_buttons(buttons: Dict, button_handler: ButtonHandler):
     for side in ['left', 'right']:
         if buttons[side] is None:
             continue
@@ -83,8 +83,8 @@ class _Tracker:
 
 
 # TODO: Support aborting current episode.
-class _Recorder:
-    def __init__(self, dumper: SerialDumper | None, sound_emitter: ir.SignalEmitter, clock: ir.Clock):
+class Recorder:
+    def __init__(self, dumper: SerialDumper | None, sound_emitter: ir.SignalEmitter[str], clock: ir.Clock):
         self.on = False
         self._dumper = dumper
         self._sound_emitter = sound_emitter
@@ -119,8 +119,12 @@ class _Recorder:
             print(f"Episode {self._dumper.episode_count} ended")
             self._sound_emitter.emit(self._end_wav_path)
             self.on = False
+            self._meta = {}
         else:
             print("Not recording, ignoring turn_off")
+
+    def add_metadata(self, metadata: dict):
+        self._meta.update(metadata)
 
     def update(self, data: dict, video_frames: dict):
         if not self.on:
@@ -139,19 +143,26 @@ FRANKA_BACK_TRANSFORM = geom.Transform3D(rotation=geom.Rotation.from_quat([-0.5,
 
 class DataCollection:
     frame_readers : Dict[str, ir.SignalReader] = {}
-    controller_positions_reader : ir.SignalReader = ir.NoOpReader()
-    buttons_reader : ir.SignalReader = ir.NoOpReader()
-    robot_state : ir.SignalReader = ir.NoOpReader()
-    robot_commands : ir.SignalEmitter = ir.NoOpEmitter()
-    target_grip_emitter : ir.SignalEmitter = ir.NoOpEmitter()
-    sound_emitter : ir.SignalEmitter = ir.NoOpEmitter()
+    controller_positions_reader : ir.SignalReader[Dict[str, geom.Transform3D]] = ir.NoOpReader()
+    buttons_reader : ir.SignalReader[Dict] = ir.NoOpReader()
+    robot_state : ir.SignalReader[roboarm.State] = ir.NoOpReader()
+    robot_commands : ir.SignalEmitter[roboarm.command.CommandType] = ir.NoOpEmitter()
+    target_grip_emitter : ir.SignalEmitter[float] = ir.NoOpEmitter()
+    sound_emitter : ir.SignalEmitter[str] = ir.NoOpEmitter()
 
-    def __init__(self, operator_position: geom.Transform3D | None, output_dir: str | None, fps: int) -> None:
+    def __init__(
+        self,
+        operator_position: geom.Transform3D | None,
+        output_dir: str | None,
+        fps: int,
+        metadata_getter: Callable[[], Dict] | None = None,
+    ):
         self.operator_position = operator_position
         self.output_dir = output_dir
         self.fps = fps
+        self.metadata_getter = metadata_getter or (lambda: {})
 
-    def run(self, should_stop: ir.SignalReader, clock: ir.Clock) -> None:  # noqa: C901
+    def run(self, should_stop: ir.SignalReader, clock: ir.Clock) -> Iterator[ir.Sleep]:  # noqa: C901
         frame_readers = {
             camera_name: ir.ValueUpdated(ir.DefaultReader(frame_reader, None))
             for camera_name, frame_reader in self.frame_readers.items()
@@ -159,10 +170,11 @@ class DataCollection:
         controller_positions_reader = ir.ValueUpdated(self.controller_positions_reader)
 
         tracker = _Tracker(self.operator_position)
-        recorder = _Recorder(
+        recorder = Recorder(
             SerialDumper(self.output_dir, video_fps=self.fps) if self.output_dir is not None else None,
             self.sound_emitter,
-            clock)
+            clock,
+        )
         button_handler = ButtonHandler()
 
         fps_counter = ir.utils.RateCounter("Data Collection")
@@ -170,7 +182,12 @@ class DataCollection:
             try:
                 _parse_buttons(self.buttons_reader.value, button_handler)
                 if button_handler.just_pressed('right_B'):
-                    recorder.turn_off() if recorder.on else recorder.turn_on()
+                    if recorder.on:
+                        recorder.turn_off()
+                    else:
+                        recorder.turn_on()
+                        recorder.add_metadata(self.metadata_getter())
+
                 elif button_handler.just_pressed('right_A'):
                     if tracker.on:
                         tracker.turn_off()
@@ -189,6 +206,9 @@ class DataCollection:
 
                 controller_positions, controller_positions_updated = controller_positions_reader.value
                 target_robot_pos = tracker.update(controller_positions['right'])
+                # TODO: that's not clear how to deal with the fact that target_ts from webxr use real clock
+                # and `clock` could be simulator/real clock.
+                last_target_ts = clock.now_ns()
 
                 if tracker.on and controller_positions_updated:  # Don't spam the robot with commands.
                     self.robot_commands.emit(roboarm.command.CartesianMove(target_robot_pos))
@@ -209,6 +229,7 @@ class DataCollection:
                     'target_grip': target_grip,
                     'target_robot_position_translation': target_robot_pos.translation.copy(),
                     'target_robot_position_quaternion': target_robot_pos.rotation.as_quat.copy(),
+                    'target_timestamp': last_target_ts,
                     **{f'{name}_timestamp': frame.ts for name, frame in frame_messages.items()},
                 }
                 if controller_positions['right'] is not None:
@@ -248,8 +269,10 @@ def main(robot_arm: Any | None,  # noqa: C901  Function is too complex
         webxr.buttons, data_collection.buttons_reader = world.mp_pipe()
 
         if stream_video_to_webxr is not None:
-            raise NotImplementedError("TODO: fix video streaming to webxr, since it's currently lagging")
-            webxr.frame = ir.map(data_collection.frame_readers[stream_video_to_webxr], lambda x: x['image'])
+            emitter, reader = world.mp_pipe()
+            cameras[stream_video_to_webxr].frame = ir.BroadcastEmitter([emitter, cameras[stream_video_to_webxr].frame])
+
+            webxr.frame = ir.map(reader, lambda x: x['image'])
 
         world.start_in_subprocess(webxr.run, *[camera.run for camera in cameras.values()])
 
@@ -266,7 +289,13 @@ def main(robot_arm: Any | None,  # noqa: C901  Function is too complex
             data_collection.sound_emitter, sound.wav_path = world.mp_pipe()
             world.start_in_subprocess(sound.run)
 
-        world.run(data_collection.run)
+        dc_steps = iter(world.interleave(data_collection.run))
+
+        while not world.should_stop:
+            try:
+                time.sleep(next(dc_steps).seconds)
+            except StopIteration:
+                break
 
 
 def main_sim(
@@ -283,29 +312,28 @@ def main_sim(
     sim = MujocoSim(mujoco_model_path, loaders)
     robot_arm = MujocoFranka(sim, suffix='_ph')
     cameras = {
-        'handcam_left': MujocoCamera(sim.model, sim.data, 'handcam_left_ph', (320, 240)),
-        'handcam_right': MujocoCamera(sim.model, sim.data, 'handcam_right_ph', (320, 240)),
+        'handcam_left': MujocoCamera(sim.model, sim.data, 'handcam_left_ph', (320, 240), fps=fps),
+        'handcam_right': MujocoCamera(sim.model, sim.data, 'handcam_right_ph', (320, 240), fps=fps),
     }
     gripper = MujocoGripper(sim, actuator_name='actuator8_ph', joint_name='finger_joint1_ph')
     gui = DearpyguiUi()
 
     with ir.World(clock=sim) as world:
-        data_collection = DataCollection(operator_position, output_dir, fps)
+        data_collection = DataCollection(operator_position, output_dir, fps, metadata_getter=sim.save_state)
         cameras = cameras or {}
         for camera_name, camera in cameras.items():
-            camera.frame, data_collection.frame_readers[camera_name] = world.mp_pipe()
-            # TODO: currently using single Reader in two processes will result in a race condition
-            gui.cameras[camera_name] = data_collection.frame_readers[camera_name]
+            camera.frame, (data_collection.frame_readers[camera_name],
+                           gui.cameras[camera_name]) = world.mp_one_to_many_pipe(2)
 
         webxr.controller_positions, data_collection.controller_positions_reader = world.mp_pipe()
         webxr.buttons, data_collection.buttons_reader = world.mp_pipe()
 
         world.start_in_subprocess(webxr.run, gui.run)
 
-        robot_arm.state, data_collection.robot_state = world.mp_pipe()
-        data_collection.robot_commands, robot_arm.commands = world.mp_pipe(1)
+        robot_arm.state, data_collection.robot_state = world.local_pipe()
+        data_collection.robot_commands, robot_arm.commands = world.local_pipe()
 
-        data_collection.target_grip_emitter, gripper.target_grip = world.mp_pipe(1)
+        data_collection.target_grip_emitter, gripper.target_grip = world.local_pipe()
 
         if sound is not None:
             data_collection.sound_emitter, sound.wav_path = world.mp_pipe()
@@ -360,4 +388,4 @@ main_sim_cfg = cfgc.Config(
 
 if __name__ == "__main__":
     # TODO: add ability to specify multiple targets in CLI
-    cfgc.cli(main_cfg)
+    cfgc.cli(main_sim_cfg)
