@@ -1,9 +1,10 @@
 from collections import deque
 import posixpath
+from types import ModuleType
 import yaml
 import importlib.util
 import inspect
-from typing import Any, Callable, Dict, Tuple, List
+from typing import Any, Callable, Dict, Tuple, List, overload
 
 
 INSTANTIATE_PREFIX = '@'
@@ -77,7 +78,7 @@ def _import_object_from_path(path: str) -> Any:
 def _get_base_path_from_default(default: Any) -> str:
     """Extract base path from different types of default values."""
     if isinstance(default, Config):
-        return f"{default.target.__module__}.{default.target.__name__}"
+        return default._creator_module.__name__ + '.' + "stub_name"
     elif isinstance(default, str):
         return default.lstrip(INSTANTIATE_PREFIX)
     elif hasattr(default, "__module__") and hasattr(default, "__name__"):
@@ -157,6 +158,23 @@ def _set_value(obj, key, value):
         raise ConfigError(f"Cannot set value of {obj} with key {key}")
 
 
+def _get_creator_module() -> ModuleType:
+    current_frame = inspect.currentframe()
+    # current frame: this function
+    # current frame back: place where this function is called from
+    # current frame back back: place one level upperer
+    assert current_frame is not None, "Current frame is None. Do your python interpreter support frames?"
+    assert current_frame.f_back is not None, "Current frame back is None. Should not happen."
+    assert current_frame.f_back.f_back is not None, \
+        "Current frame back back is None. This function was probably called from python interpreter."
+
+    module = inspect.getmodule(current_frame.f_back.f_back)
+
+    assert module is not None, "Module is None. Should not happen."
+
+    return module
+
+
 class Config:
     def __init__(self, target, *args, **kwargs):
         """
@@ -190,8 +208,12 @@ class Config:
         self.args = list(args)  # TODO: cover argument override with tests
         self.kwargs = kwargs
 
+        self._creator_module = _get_creator_module()
+
     def override(self, **overrides) -> 'Config':
         overriden_cfg = self.copy()
+        # we want to keep creator module (module override was called from) for the overriden config
+        overriden_cfg._creator_module = _get_creator_module()
 
         for key, value in overrides.items():
             key_list = key.split('.')
@@ -299,17 +321,28 @@ class Config:
         Recursively copy config signatures.
         """
 
+        cfg = self._copy()
+        cfg._creator_module = _get_creator_module()
+        return cfg
+
+    def _copy(self):
+        """
+        Recursively copy config signatures.
+        """
+
         new_args = [
-            arg.copy() if isinstance(arg, Config) else arg
+            arg._copy() if isinstance(arg, Config) else arg
             for arg in self.args
         ]
 
         new_kwargs = {
-            key: value.copy() if isinstance(value, Config) else value
+            key: value._copy() if isinstance(value, Config) else value
             for key, value in self.kwargs.items()
         }
 
-        return Config(self.target, *new_args, **new_kwargs)
+        cfg = Config(self.target, *new_args, **new_kwargs)
+        cfg._creator_module = self._creator_module
+        return cfg
 
     def override_and_instantiate(self, **kwargs):
         """
@@ -365,7 +398,17 @@ def get_required_args(config: Config) -> List[str]:
     return required_args
 
 
-def config(target: Callable | None = None, **kwargs):
+@overload
+def config(target: Callable, **kwargs) -> Config:
+    ...
+
+
+@overload
+def config(**kwargs) -> Callable[[Callable], Config]:
+    ...
+
+
+def config(target: Callable | None = None, **kwargs) -> Config | Callable[[Callable], Config]:
     """
     Decorator to create a Config object.
 
