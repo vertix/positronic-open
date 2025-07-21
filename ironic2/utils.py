@@ -1,11 +1,12 @@
 import time
-from typing import Callable, Tuple, overload, TypeVar, ContextManager
+from typing import Callable, Mapping, Tuple, overload, TypeVar, ContextManager
 
 from ironic2 import SignalReader, SignalEmitter, Message
 from ironic2.core import Clock
 
 
-T = TypeVar('T')
+T = TypeVar('T', covariant=True)
+K = TypeVar('K', covariant=True)
 
 
 class MapSignalReader(SignalReader[T]):
@@ -78,7 +79,25 @@ class ValueUpdated(SignalReader[Tuple[T, bool]]):
         return self.reader.zc_lock()
 
 
-K = TypeVar('K')
+def is_any_updated(readers: Mapping[str, SignalReader[Tuple[T, bool]]]) -> Tuple[dict[str, Message[T]], bool]:
+    """Get the latest value of all readers and whether any of them are updated.
+
+    In case some of the readers return None, this keys will be omitted from the returned dict.
+
+    Args:
+        readers: A mapping of reader names to readers. Typically a dict of ValueUpdated readers.
+
+    Returns:
+        (dict[str, Message[T]], bool): Dict with latest values and a bool indicating whether any of the readers
+        are updated.
+    """
+    messages = {k: reader.read() for k, reader in readers.items()}
+    is_updated = {k: msg.data[1] for k, msg in messages.items() if msg is not None}
+    is_any_updated = any(is_updated.values())
+
+    messages = {k: Message(msg.data[0], msg.ts) for k, msg in messages.items() if msg is not None}
+
+    return messages, is_any_updated
 
 
 class DefaultReader(SignalReader[T | K]):

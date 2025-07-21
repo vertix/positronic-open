@@ -146,6 +146,8 @@ class DataCollection:
     controller_positions_reader : ir.SignalReader[Dict[str, geom.Transform3D]] = ir.NoOpReader()
     buttons_reader : ir.SignalReader[Dict] = ir.NoOpReader()
     robot_state : ir.SignalReader[roboarm.State] = ir.NoOpReader()
+    gripper_state : ir.SignalReader[float] = ir.NoOpReader()
+
     robot_commands : ir.SignalEmitter[roboarm.command.CommandType] = ir.NoOpEmitter()
     target_grip_emitter : ir.SignalEmitter[float] = ir.NoOpEmitter()
     sound_emitter : ir.SignalEmitter[str] = ir.NoOpEmitter()
@@ -164,7 +166,7 @@ class DataCollection:
 
     def run(self, should_stop: ir.SignalReader, clock: ir.Clock) -> Iterator[ir.Sleep]:  # noqa: C901
         frame_readers = {
-            camera_name: ir.ValueUpdated(ir.DefaultReader(frame_reader, None))
+            camera_name: ir.DefaultReader(ir.ValueUpdated(frame_reader), ({}, False))
             for camera_name, frame_reader in self.frame_readers.items()
         }
         controller_positions_reader = ir.ValueUpdated(self.controller_positions_reader)
@@ -213,17 +215,13 @@ class DataCollection:
                 if tracker.on and controller_positions_updated:  # Don't spam the robot with commands.
                     self.robot_commands.emit(roboarm.command.CartesianMove(target_robot_pos))
 
-                frame_messages = {name: reader.read() for name, reader in frame_readers.items()}
                 # TODO: fix frame synchronization. Two 30 FPS cameras is updated at 60 FPS
-                any_frame_updated = any(msg.data[1] and msg.data[0] is not None for msg in frame_messages.values())
-
+                frame_messages, any_frame_updated = ir.utils.is_any_updated(frame_readers)
                 fps_counter.tick()
 
                 if not recorder.on or not any_frame_updated:
                     yield ir.Sleep(0.001)
                     continue
-
-                frame_messages = {name: ir.Message(msg.data[0], msg.ts) for name, msg in frame_messages.items()}
 
                 ep_dict = {
                     'target_grip': target_grip,
@@ -232,6 +230,22 @@ class DataCollection:
                     'target_timestamp': last_target_ts,
                     **{f'{name}_timestamp': frame.ts for name, frame in frame_messages.items()},
                 }
+
+                value = self.robot_state.read()
+
+                if value is not None:
+                    value = value.data
+                    ep_dict = {
+                        **ep_dict,
+                        'robot_position_translation': value.ee_pose.translation.copy(),
+                        'robot_position_rotation': value.ee_pose.rotation.as_quat.copy(),
+                        'robot_joints': value.q.copy(),
+                    }
+
+                value = self.gripper_state.read()
+                if value is not None:
+                    ep_dict['grip'] = value.data
+
                 if controller_positions['right'] is not None:
                     ep_dict['right_controller_translation'] = controller_positions['right'].translation.copy()
                     ep_dict['right_controller_quaternion'] = controller_positions['right'].rotation.as_quat.copy()
@@ -248,7 +262,7 @@ class DataCollection:
                 continue
 
 
-def main(robot_arm: Any | None,  # noqa: C901  Function is too complex
+def main(robot_arm: Any | None,
          gripper: DHGripper | None,
          webxr: WebXR,
          sound: SoundSystem | None,
@@ -283,6 +297,7 @@ def main(robot_arm: Any | None,  # noqa: C901  Function is too complex
 
         if gripper is not None:
             data_collection.target_grip_emitter, gripper.target_grip = world.mp_pipe(1)
+            gripper.grip, data_collection.gripper_state = world.local_pipe()
             world.start_in_subprocess(gripper.run)
 
         if sound is not None:
@@ -305,7 +320,6 @@ def main_sim(
         loaders: Sequence[MujocoSceneTransform] = (),
         output_dir: str | None = None,
         fps: int = 30,
-        stream_video_to_webxr: str | None = None,
         operator_position: geom.Transform3D = FRANKA_FRONT_TRANSFORM,
 ):
 
@@ -334,6 +348,7 @@ def main_sim(
         data_collection.robot_commands, robot_arm.commands = world.local_pipe()
 
         data_collection.target_grip_emitter, gripper.target_grip = world.local_pipe()
+        gripper.grip, data_collection.gripper_state = world.local_pipe()
 
         if sound is not None:
             data_collection.sound_emitter, sound.wav_path = world.mp_pipe()
@@ -369,11 +384,10 @@ main_cfg = cfgc.Config(
     gripper=pimm.cfg.hardware.gripper.dh_gripper,
     webxr=pimm.cfg.webxr.webxr,
     sound=pimm.cfg.sound.sound,
-    cameras=cfgc.Config(
-        dict,
-        left=pimm.cfg.hardware.camera.arducam_left,
-        right=pimm.cfg.hardware.camera.arducam_right,
-    ),
+    cameras={
+        'left': pimm.cfg.hardware.camera.arducam_left,
+        'right': pimm.cfg.hardware.camera.arducam_right,
+    },
     operator_position=FRANKA_FRONT_TRANSFORM,
 )
 

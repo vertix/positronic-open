@@ -1,7 +1,6 @@
 import configuronic as cfgc
 import geom
-from positronic.inference.action import (RelativeRobotPositionAction,
-                                         UMIRelativeRobotPositionAction)
+from positronic.inference.action import RelativeRobotPositionAction, UMIRelativeRobotPositionAction
 
 umi_relative = cfgc.Config(
     UMIRelativeRobotPositionAction,
