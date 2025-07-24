@@ -50,11 +50,11 @@ class DHGripper:
                 client.write_register(0x103, c_uint16(width).value, slave=1)
                 client.write_register(0x101, c_uint16(force.value).value, slave=1)
                 client.write_register(0x104, c_uint16(speed.value).value, slave=1)
-
-                current_grip = 1 - client.read_holding_registers(0x202, count=1, slave=1).registers[0] / 1000
-                self.grip.emit(current_grip)
             except ir.NoValueException:
                 pass
+
+            current_grip = 1 - client.read_holding_registers(0x202, count=1, slave=1).registers[0] / 1000
+            self.grip.emit(current_grip)
 
             yield ir.Sleep(0.001)  # Small delay to prevent busy-waiting
 

@@ -4,13 +4,21 @@ from enum import Enum
 import numpy as np
 
 import geom
-from . import command
+from pimm.drivers.roboarm import command
 
 
 class RobotStatus(Enum):
-    """Different statuses that the robot can be in."""
+    """Different statuses that the robot can be in.
+
+    The exact meaning of this statuses currently is defined by the robot driver. But in general:
+
+    - AVAILABLE: The robot is available to accept new commands.
+    - RESETTING: The robot is resetting.
+    - MOVING: The robot is moving to a new position, but is not yet at the new position.
+    """
     AVAILABLE = 0
     RESETTING = 1
+    MOVING = 2
 
 
 class State(ABC):
