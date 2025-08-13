@@ -12,7 +12,6 @@ import turbojpeg
 
 import ironic2 as ir
 import geom
-from ironic.utils import FPSCounter
 
 
 def _parse_controller_data(data: dict):
@@ -54,26 +53,26 @@ class WebXR:
 
         @app.get("/")
         async def root():
-            return FileResponse("positronic/assets/webxr/index.html")
+            return FileResponse("pimm/assets/webxr/index.html")
 
         @app.get("/three.min.js")
         async def three_min():
-            return FileResponse("positronic/assets/webxr/three.min.js")
+            return FileResponse("pimm/assets/webxr/three.min.js")
 
         @app.get("/webxr-button.js")
         async def webxr_button():
-            return FileResponse("positronic/assets/webxr/webxr-button.js")
+            return FileResponse("pimm/assets/webxr/webxr-button.js")
 
         @app.get("/video-player.js")
         async def video_player():
-            return FileResponse("positronic/assets/webxr/video-player.js")
+            return FileResponse("pimm/assets/webxr/video-player.js")
 
         @app.websocket("/video")
         async def video_stream(websocket: WebSocket):
             await websocket.accept()
             print("Video WebSocket connection accepted")
             try:
-                fps = FPSCounter("Video Stream")
+                fps = ir.utils.RateCounter("Video Stream")
                 last_sent_ts = None
                 while not should_stop.value:
                     await asyncio.sleep(1 / 60)
@@ -101,7 +100,7 @@ class WebXR:
             await websocket.accept()
             print("WebSocket connection accepted")
             try:
-                fps = FPSCounter("Websocket")
+                fps = ir.utils.RateCounter("Websocket")
                 while not should_stop.value:
                     try:
                         # Use asyncio.wait_for with timeout to avoid blocking indefinitely
