@@ -13,6 +13,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse
 
+
 import pimm
 from positronic import geom
 
@@ -46,9 +47,9 @@ def _parse_controller_data(data: dict):
     buttons_dict = {'left': None, 'right': None}
     for side in ['right', 'left']:
         if data['controllers'][side] is not None:
-            translation = np.array(data['controllers'][side]['position'])
-            rotation = np.array(data['controllers'][side]['orientation'])
-            buttons = np.array(data['controllers'][side]['buttons'])
+            translation = np.array(data['controllers'][side]['position'], dtype=np.float64)
+            rotation = np.array(data['controllers'][side]['orientation'], dtype=np.float64)
+            buttons = np.array(data['controllers'][side]['buttons'], dtype=np.float64)
             controller_positions[side] = geom.Transform3D(translation, rotation)
             buttons_dict[side] = buttons
 

@@ -34,3 +34,9 @@ def luxonis(**kwargs):
     from positronic.drivers.camera.luxonis import LuxonisCamera
 
     return LuxonisCamera(**kwargs)
+
+
+@cfn.config()
+def opencv(camera_id: int = 0, width: int = 640, height: int = 480, fps: int = 30):
+    from positronic.drivers.camera.opencv import OpenCVCamera
+    return OpenCVCamera(camera_id, (width, height), fps)
