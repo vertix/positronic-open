@@ -1,6 +1,7 @@
 from typing import Any, Sequence
 
 import numpy as np
+from PIL import Image as PilImage
 
 from positronic.dataset import Signal, transforms
 
@@ -25,7 +26,7 @@ class ObservationEncoder(transforms.EpisodeTransform):
 
     def transform(self, name: str, episode: transforms.Episode) -> Signal[Any] | Any:
         if name == 'observation.state':
-            return transforms.concat(*[episode[k] for k in self._state_features])
+            return transforms.concat(*[episode[k] for k in self._state_features], dtype=np.float64)
         elif name.startswith('observation.images.'):
             key = name[len('observation.images.'):]
             input_key, (widht, height) = self._image_configs[key]
@@ -33,7 +34,6 @@ class ObservationEncoder(transforms.EpisodeTransform):
         else:
             raise ValueError(f"Unknown observation key: {name}")
 
-    # TODO: Invent the way to generate this dynamically, from the information we have in the episode
     def get_features(self):
         features = {}
         for key, (_, (width, height)) in self._image_configs.items():
@@ -56,6 +56,7 @@ class ObservationEncoder(transforms.EpisodeTransform):
           - images: (1, C, H, W), float32 in [0,1]
           - state: (1, D), float32
         """
+
         obs: dict[str, Any] = {}
 
         # Encode images
@@ -67,8 +68,7 @@ class ObservationEncoder(transforms.EpisodeTransform):
                 frame = np.asarray(frame)
             if frame.ndim != 3 or frame.shape[2] != 3:
                 raise ValueError(f"Image '{input_key}' must be HWC with 3 channels, got {frame.shape}")
-            resized = transforms.Image.resize_with_pad_per_frame(width, height,
-                                                                 transforms.Image.PilImage.Resampling.BILINEAR, frame)
+            resized = transforms.Image.resize_with_pad_per_frame(width, height, PilImage.Resampling.BILINEAR, frame)
             chw = np.transpose(resized.astype(np.float32) / 255.0, (2, 0, 1))
             obs[f'observation.images.{out_name}'] = chw[np.newaxis, ...]
 

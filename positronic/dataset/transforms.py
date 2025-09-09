@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from functools import partial
 from typing import Any, Callable, Sequence, TypeVar, Tuple
 
 import numpy as np
@@ -40,26 +41,30 @@ class Elementwise(Signal[U]):
 
 
 class IndexOffsets(Signal[Tuple[Tuple[T, ...], Tuple[int, ...]]]):
-    """Join values and timestamps at relative indices around a reference index.
+    """Join values (and optionally timestamps) at relative indices around a reference index.
 
     Given a list of relative indices D = [d1, d2, ..., dN] (each may be negative
     or positive), produces a view over the reference indices i where all
     (i + dk) are in-bounds. For each valid i, returns
-        ((v[i+d1], ..., v[i+dN], t[i+d1], ..., t[i+dN]), t[i]).
+        ((v[i+d1], ..., v[i+dN]), t[i]) by default, or
+        ((v[i+d1], ..., v[i+dN], t[i+d1], ..., t[i+dN]), t[i]) if include_ref_ts=True.
 
     Examples:
       - Next with step=1  -> D = [0, 1]
       - Previous step=1   -> D = [0, -1]
     """
 
-    def __init__(self, signal: Signal[T], relative_indices: Sequence[int]) -> None:
+    def __init__(self, signal: Signal[T], *relative_indices: int, include_ref_ts: bool = False) -> None:
         self._signal = signal
+        if len(relative_indices) == 0:
+            raise ValueError("relative_indices must be non-empty")
         offs = np.asarray(relative_indices, dtype=np.int64)
         if offs.size == 0:
             raise ValueError("relative_indices must be non-empty")
         self._offs = offs
         self._min_off = int(np.min(self._offs))
         self._max_off = int(np.max(self._offs))
+        self._include_ref_ts = bool(include_ref_ts)
 
     def __len__(self) -> int:
         n = len(self._signal)
@@ -85,9 +90,13 @@ class IndexOffsets(Signal[Tuple[Tuple[T, ...], Tuple[int, ...]]]):
         for off in self._offs:
             idxs = base + int(off)
             vals_parts.append(self._signal._values_at(idxs))
-            ts_parts.append(np.asarray(self._signal._ts_at(idxs)))
-
-        return list(zip(*vals_parts, *ts_parts, strict=False))
+            if self._include_ref_ts:
+                ts_parts.append(np.asarray(self._signal._ts_at(idxs)))
+        pieces = vals_parts + ts_parts
+        if len(pieces) == 1:
+            return pieces[0]
+        else:
+            return list(zip(*pieces, strict=False))
 
     def _search_ts(self, ts_array: RealNumericArrayLike) -> IndicesLike:
         # Map parent floor indices to view indices, clamping to valid range.
@@ -118,12 +127,15 @@ class TimeOffsets(Signal[Tuple[Tuple[T, ...], Tuple[int, ...]]]):
       timestamp, sampling clamps to the last element.
     """
 
-    def __init__(self, signal: Signal[T], deltas_ts: Sequence[int]) -> None:
+    def __init__(self, signal: Signal[T], *deltas_ts: int, include_ref_ts: bool = False) -> None:
         self._signal = signal
+        if len(deltas_ts) == 0:
+            raise ValueError("deltas_ts must be non-empty")
         offs = np.asarray(deltas_ts, dtype=np.int64)
         if offs.size == 0:
             raise ValueError("deltas_ts must be non-empty")
         self._deltas = offs
+        self._include_ref_ts = bool(include_ref_ts)
         self._bounds_ready = False
         self._start_offset = 0
         self._last_index = -1
@@ -178,11 +190,13 @@ class TimeOffsets(Signal[Tuple[Tuple[T, ...], Tuple[int, ...]]]):
             target_ts = ref_ts + int(d)
             idx = np.asarray(self._signal._search_ts(target_ts))
             vals_parts.append(self._signal._values_at(idx))
-            ts_parts.append(np.asarray(self._signal._ts_at(idx)))
-        out = []
-        for row in zip(*vals_parts, *ts_parts, strict=False):
-            out.append(tuple(row))
-        return out
+            if self._include_ref_ts:
+                ts_parts.append(np.asarray(self._signal._ts_at(idx)))
+        pieces = vals_parts + ts_parts
+        if len(pieces) == 1:
+            return pieces[0]
+        else:
+            return list(zip(*pieces, strict=False))
 
     def _search_ts(self, ts_array: RealNumericArrayLike) -> IndicesLike:
         self._compute_bounds()
@@ -210,28 +224,28 @@ def _first_idx_at_or_after(sig: Signal[T], ts: int) -> int:
 class Join(Signal[tuple]):
     """Join an arbitrary number of signals on the union of their timestamps.
 
-    Semantics (generalizing the previous 2-signal Join):
+    Semantics:
     - Reference times: sorted union of all parents' timestamps, starting from
       max(s_i.start_ts). Equal timestamps across signals are collapsed.
     - Values: at each union timestamp t, returns a tuple of carried-back values
       from each signal, optionally followed by the reference timestamps used.
 
-      If `include_ref_ts=True` (default):
-        ((v1, v2, ..., vN, t1_ref, t2_ref, ..., tN_ref), t)
-      If `include_ref_ts=False`:
+      If ``include_ref_ts=False`` (default):
         ((v1, v2, ..., vN), t)
+      If ``include_ref_ts=True``:
+        ((v1, v2, ..., vN, t1_ref, t2_ref, ..., tN_ref), t)
 
       where:
         - vK = value of signal K at the last timestamp at-or-before t
         - tK_ref = the timestamp of the carried-back value in signal K
-      For N=2, the default shape is ((v1, v2, t1_ref, t2_ref), t).
+      For N=2 and include_ref_ts=True, the shape is ((v1, v2, t1_ref, t2_ref), t).
     - Union timestamps are precomputed for O(log M) time lookups.
 
     Raises:
         ValueError: if fewer than two signals are provided.
     """
 
-    def __init__(self, *signals: Signal[Any], include_ref_ts: bool = True) -> None:
+    def __init__(self, *signals: Signal[Any], include_ref_ts: bool = False) -> None:
         if len(signals) < 2:
             raise ValueError("Join requires at least two signals")
         self._signals: tuple[Signal[Any], ...] = tuple(signals)
@@ -317,23 +331,34 @@ class EpisodeTransform(ABC):
 
 
 class TransformEpisode(Episode):
-    """Transform an episode into a new view of the episode."""
+    """Transform an episode into a new view of the episode.
 
-    def __init__(self, episode: Episode, transform: EpisodeTransform, pass_through: bool = False) -> None:
+    Supports one or more transforms. When multiple transforms are provided,
+    their keys are concatenated in the given order. For duplicate keys across
+    transforms, the first transform providing the key takes precedence.
+
+    If ``pass_through`` is True, any keys from the underlying episode that are
+    not provided by the transforms are appended after the transformed keys.
+    """
+
+    def __init__(self, episode: Episode, *transforms: EpisodeTransform, pass_through: bool = False) -> None:
+        if not transforms:
+            raise ValueError("TransformEpisode requires at least one transform")
         self._episode = episode
-        self._transform = transform
+        self._transforms: tuple[EpisodeTransform, ...] = tuple(transforms)
         self._pass_through = pass_through
 
     @property
     def keys(self) -> Sequence[str]:
-        # Preserve order: all transform keys first, then pass-through keys
-        # from the original episode that are not overridden by the transform.
+        # Preserve order across all transforms first, then pass-through keys
+        # from the original episode that are not overridden by any transform.
         ordered: list[str] = []
         seen: set[str] = set()
-        for k in self._transform.keys:
-            if k not in seen:
-                ordered.append(k)
-                seen.add(k)
+        for tf in self._transforms:
+            for k in tf.keys:
+                if k not in seen:
+                    ordered.append(k)
+                    seen.add(k)
         if self._pass_through:
             for k in self._episode.keys:
                 if k not in seen:
@@ -342,9 +367,10 @@ class TransformEpisode(Episode):
         return ordered
 
     def __getitem__(self, name: str) -> Signal[Any] | Any:
-        # If the transform defines this key, it takes precedence.
-        if name in self._transform.keys:
-            return self._transform.transform(name, self._episode)
+        # If any transform defines this key, the first one takes precedence.
+        for tf in self._transforms:
+            if name in tf.keys:
+                return tf.transform(name, self._episode)
         if self._pass_through:
             return self._episode[name]
         raise KeyError(name)
@@ -423,6 +449,13 @@ class Image:
         return zero_image
 
     @staticmethod
+    def resize_with_pad_per_frame(width: int, height: int, method, img: np.ndarray) -> np.ndarray:
+        if img.shape[0] == height and img.shape[1] == width:
+            return img  # No need to resize if the image is already the correct size.
+
+        return np.array(Image._resize_with_pad_pil(PilImage.fromarray(img), height, width, method=method))
+
+    @staticmethod
     def resize_with_pad(width: int,
                         height: int,
                         signal: Signal[np.ndarray],
@@ -436,19 +469,42 @@ class Image:
             method: PIL resampling method (e.g., PilImage.Resampling.BILINEAR).
         """
 
-        def per_frame(img: np.ndarray) -> np.ndarray:
-            if img.shape[0] == height and img.shape[1] == width:
-                return img  # No need to resize if the image is already the correct size.
-
-            return np.array(Image._resize_with_pad_pil(PilImage.fromarray(img), height, width, method=method))
-
         def fn(x: Sequence[np.ndarray]) -> Sequence[np.ndarray]:
-            return _LazySequence(x, per_frame)
+            return _LazySequence(x, partial(Image.resize_with_pad_per_frame, width, height, method))
 
         return Elementwise(signal, fn)
 
 
-def concat(*signals) -> Signal[np.ndarray]:
+def _concat_per_frame(dtype: np.dtype | None, x: Sequence[tuple]) -> np.ndarray:
+    """Pickable callable that concatenates multiple array signals into a single array signal."""
+    # x is a sequence of tuples (v1, v2, ..., vN) for the requested indices.
+    # High-performance path: preallocate (batch, total_dim) and fill via slicing.
+    batch = len(x)
+    if batch == 0:
+        return np.empty((0, 0), dtype=dtype or np.float32)
+
+    # Infer per-signal dimensions and dtype from the first row
+    first_parts = [np.asarray(v) for v in x[0]]
+    dims = [p.size for p in first_parts]
+    offsets = np.cumsum([0] + dims[:-1]) if dims else [0]
+    total_dim = int(sum(dims))
+    if dtype is None:
+        dtype = np.result_type(*[p.dtype for p in first_parts]) if first_parts else np.float32
+    out = np.empty((batch, total_dim), dtype=dtype)
+
+    for j, p in enumerate(first_parts):  # Fill first row
+        out[0, offsets[j]:offsets[j] + dims[j]] = p.ravel().astype(dtype, copy=False)
+    for i in range(1, batch):  # Fill remaining rows
+        row = x[i]
+        for j, v in enumerate(row):
+            arr = np.asarray(v)
+            if arr.size != dims[j]:
+                raise ValueError("concat: inconsistent vector size across rows")
+            out[i, offsets[j]:offsets[j] + dims[j]] = arr.ravel().astype(dtype, copy=False)
+    return out
+
+
+def concat(*signals, dtype: np.dtype | str | None = None) -> Signal[np.ndarray]:
     """Concatenate multiple 1D array signals into a single array signal.
 
     - Aligns signals on the union of timestamps with carry-back semantics.
@@ -460,38 +516,44 @@ def concat(*signals) -> Signal[np.ndarray]:
         raise ValueError("concat requires at least one key")
     if n == 1:
         return signals[0]
+    return Elementwise(Join(*signals), partial(_concat_per_frame, dtype))
 
-    def fn(x: Sequence[tuple]) -> np.ndarray:
-        # x is a sequence of tuples (v1, v2, ..., vN) for the requested indices.
-        # High-performance path: preallocate (batch, total_dim) and fill via slicing.
-        batch = len(x)
-        if batch == 0:
-            return np.empty((0, 0), dtype=np.float32)
 
-        # Infer per-signal dimensions and dtype from the first row
-        first_parts = [np.asarray(v) for v in x[0]]
-        dims = [p.size for p in first_parts]
-        offsets = np.cumsum([0] + dims[:-1]) if dims else [0]
-        total_dim = int(sum(dims))
-        dtype = np.result_type(*[p.dtype for p in first_parts]) if first_parts else np.float32
-        out = np.empty((batch, total_dim), dtype=dtype)
+def _astype_per_frame(dtype: np.dtype, x: np.ndarray) -> np.ndarray:
+    """Pickable callable that casts arrays to a target dtype."""
+    arr = np.asarray(x)
+    if arr.dtype == dtype:
+        return arr
+    return arr.astype(dtype, copy=False)
 
-        for j, p in enumerate(first_parts):  # Fill first row
-            out[0, offsets[j]:offsets[j] + dims[j]] = p.ravel()
-        for i in range(1, batch):  # Fill remaining rows
-            row = x[i]
-            for j, v in enumerate(row):
-                arr = np.asarray(v)
-                if arr.size != dims[j]:
-                    raise ValueError("concat: inconsistent vector size across rows")
-                out[i, offsets[j]:offsets[j] + dims[j]] = arr.ravel()
+
+def astype(signal: Signal[np.ndarray], dtype: np.dtype) -> Signal[np.ndarray]:
+    """Return a Signal view that casts batched values to a given dtype."""
+    return Elementwise(signal, partial(_astype_per_frame, dtype))
+
+
+class _PairwiseMap:
+
+    def __init__(self, op: Callable[[Any, Any], Any]):
+        self._op = op
+
+    def __call__(self, rows: Sequence[tuple]) -> Sequence[Any]:
+        out: list[Any] = []
+        for a, b in rows:
+            out.append(self._op(a, b))
         return out
 
-    return Elementwise(Join(*signals, include_ref_ts=False), fn)
+
+def pairwise(a: Signal[Any], b: Signal[Any], op: Callable[[Any, Any], Any]) -> Signal[Any]:
+    """Apply a binary operation pairwise across two signals aligned on time.
+
+    - Aligns `a` and `b` on the union of timestamps with carry-back semantics.
+    - Applies `op(a_value, b_value)` per row and returns a new Signal view of results.
+    """
+    return Elementwise(Join(a, b), _PairwiseMap(op))
 
 
-def recode_rotation(rep_from: geom.Rotation.Representation,
-                    rep_to: geom.Rotation.Representation,
+def recode_rotation(rep_from: geom.Rotation.Representation, rep_to: geom.Rotation.Representation,
                     signal: Signal[np.ndarray]) -> Signal[np.ndarray]:
     """Return a Signal view with rotation vectors recoded to a different representation.
 

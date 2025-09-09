@@ -11,15 +11,15 @@ from positronic.drivers import roboarm
 from positronic.drivers.camera.linux_video import LinuxVideo
 from positronic.drivers.gripper.dh import DHGripper
 from positronic.simulator.mujoco.sim import MujocoCamera, MujocoFranka, MujocoGripper, MujocoSim
-from positronic.inference.action import ActionDecoder
-from positronic.inference.state import StateEncoder
+from positronic.policy.action import ActionDecoder
+from positronic.policy.observation import ObservationEncoder
 from positronic.simulator.mujoco.transforms import MujocoSceneTransform
 
 import positronic.cfg.hardware.roboarm
 import positronic.cfg.hardware.gripper
 import positronic.cfg.hardware.camera
 import positronic.cfg.simulator
-import positronic.cfg.inference.state
+import positronic.cfg.policy.observation
 
 
 def rerun_log_observation(ts, obs):
@@ -58,7 +58,7 @@ class Inference:
 
     def __init__(
         self,
-        state_encoder: StateEncoder,
+        state_encoder: ObservationEncoder,
         action_decoder: ActionDecoder,
         device: str,
         policy,
@@ -121,9 +121,12 @@ class Inference:
                 'reference_robot_position_translation': reference_pose.translation,
                 'reference_robot_position_quaternion': reference_pose.rotation.as_quat
             }
-            obs = self.state_encoder.encode(images, inputs)
-            for key in obs:
-                obs[key] = obs[key].to(self.device)
+            obs = {}
+            for key, val in self.state_encoder.encode(images, inputs).items():
+                if isinstance(val, np.ndarray):
+                    obs[key] = torch.from_numpy(val).to(self.device)
+                else:
+                    obs[key] = torch.as_tensor(val).to(self.device)
 
             action = self.policy.select_action(obs).squeeze(0).cpu().numpy()
             action_dict = self.action_decoder.decode(action, inputs)
@@ -148,7 +151,7 @@ class Inference:
 def main(robot_arm: Any | None,
          gripper: DHGripper | None,
          cameras: Mapping[str, LinuxVideo] | None,
-         state_encoder: StateEncoder,
+         state_encoder: ObservationEncoder,
          action_decoder: ActionDecoder,
          policy,
          rerun_path: str | None = None,
@@ -178,7 +181,7 @@ def main(robot_arm: Any | None,
 
 def main_sim(
         mujoco_model_path: str,
-        state_encoder: StateEncoder,
+        state_encoder: ObservationEncoder,
         action_decoder: ActionDecoder,
         policy,
         rerun_path: str,
@@ -227,9 +230,9 @@ main_cfg = cfn.Config(
     main,
     robot_arm=positronic.cfg.hardware.roboarm.kinova,
     gripper=positronic.cfg.hardware.gripper.dh_gripper,
-    state_encoder=positronic.cfg.inference.state.end_effector_224,
-    action_decoder=positronic.cfg.inference.action.umi_relative,
-    policy=positronic.cfg.inference.policy.act,
+    state_encoder=positronic.cfg.policy.observation.end_effector_224,
+    action_decoder=positronic.cfg.policy.action.umi_relative,
+    policy=positronic.cfg.policy.policy.act,
     cameras={
         'left': positronic.cfg.hardware.camera.arducam_left,
         'right': positronic.cfg.hardware.camera.arducam_right,
@@ -243,9 +246,9 @@ main_sim_cfg = cfn.Config(
     main_sim,
     mujoco_model_path="positronic/assets/mujoco/franka_table.xml",
     loaders=positronic.cfg.simulator.stack_cubes_loaders,
-    state_encoder=positronic.cfg.inference.state.end_effector_back_front,
-    action_decoder=positronic.cfg.inference.action.relative_robot_position,
-    policy=positronic.cfg.inference.policy.act,
+    state_encoder=positronic.cfg.policy.observation.end_effector_back_front,
+    action_decoder=positronic.cfg.policy.action.relative_robot_position,
+    policy=positronic.cfg.policy.policy.act,
     rerun_path="inference.rrd",
     fps=60,
     device='cuda',
