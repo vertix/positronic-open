@@ -52,3 +52,13 @@ def franka_mujoco_stackcubes():
         left=('image.handcam_left', (224, 224)),
         side=('image.back_view', (224, 224)),
     )
+
+
+@cfn.config()
+def pi0():
+    from positronic.policy.observation import ObservationEncoder
+    return ObservationEncoder(
+        state_features=['robot_position_quaternion', 'robot_position_translation', 'grip'],
+        image=('image.left', (224, 224)),
+        side=('image.side', (224, 224)),
+    )

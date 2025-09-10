@@ -20,6 +20,8 @@ import positronic.cfg.hardware.gripper
 import positronic.cfg.hardware.camera
 import positronic.cfg.simulator
 import positronic.cfg.policy.observation
+import positronic.cfg.policy.action
+import positronic.cfg.policy.policy
 
 
 def rerun_log_observation(ts, obs):
@@ -38,14 +40,12 @@ def rerun_log_observation(ts, obs):
         if k.startswith("observation.images."):
             log_image(k, v)
 
-    for i, state in enumerate(obs['observation.state'].squeeze(0)):
-        rr.log(f"observation/state/{i}", rr.Scalar(state.item()))
+    rr.log("observation/state", rr.Scalars(obs['observation.state'].squeeze(0).cpu()))
 
 
 def rerun_log_action(ts, action):
     rr.set_time('time', duration=ts)
-    for i, action in enumerate(action):
-        rr.log(f"action/{i}", rr.Scalars(action))
+    rr.log("action", rr.Scalars(action))
 
 
 class Inference:
@@ -64,6 +64,7 @@ class Inference:
         policy,
         rerun_path: str | None = None,
         inference_fps: int = 30,
+        task: str | None = None,
     ):
         self.state_encoder = state_encoder
         self.action_decoder = action_decoder
@@ -71,6 +72,7 @@ class Inference:
         self.device = device
         self.rerun_path = rerun_path
         self.inference_fps = inference_fps
+        self.task = task
 
     def run(self, should_stop: pimm.SignalReader, clock: pimm.Clock) -> Iterator[pimm.Sleep]:  # noqa: C901
         frames = {
@@ -78,7 +80,6 @@ class Inference:
             for camera_name, frame in self.frames.items()
         }
 
-        reference_pose = None
         rate_limiter = pimm.RateLimiter(clock, hz=self.inference_fps)
 
         if self.rerun_path:
@@ -91,7 +92,7 @@ class Inference:
                 yield pimm.Sleep(0.001)
                 continue
 
-            images = {f"{k}.image": v.data['image'] for k, v in frame_messages.items()}
+            images = {f"image.{k}": v.data['image'] for k, v in frame_messages.items()}
 
             robot_state = self.robot_state.read()
             if robot_state is None:
@@ -110,16 +111,11 @@ class Inference:
                 yield pimm.Sleep(0.001)
                 continue
 
-            if reference_pose is None:
-                reference_pose = robot_state.ee_pose.copy()
-
             inputs = {
                 'robot_position_translation': robot_state.ee_pose.translation,
-                'robot_position_rotation': robot_state.ee_pose.rotation.as_quat,
+                'robot_position_quaternion': robot_state.ee_pose.rotation.as_quat,
                 'robot_joints': robot_state.q,
                 'grip': gripper_state.data,
-                'reference_robot_position_translation': reference_pose.translation,
-                'reference_robot_position_quaternion': reference_pose.rotation.as_quat
             }
             obs = {}
             for key, val in self.state_encoder.encode(images, inputs).items():
@@ -128,15 +124,14 @@ class Inference:
                 else:
                     obs[key] = torch.as_tensor(val).to(self.device)
 
+            if self.task is not None:
+                obs['task'] = self.task
+
             action = self.policy.select_action(obs).squeeze(0).cpu().numpy()
             action_dict = self.action_decoder.decode(action, inputs)
             target_pos = action_dict['target_robot_position']
 
             roboarm_command = roboarm.command.CartesianMove(pose=target_pos)
-
-            # TODO: this should be inside the policy
-            if self.policy.chunk_start():
-                reference_pose = target_pos
 
             self.robot_commands.emit(roboarm_command)
             self.target_grip.emit(action_dict['target_grip'].item())
@@ -186,18 +181,21 @@ def main_sim(
         policy,
         rerun_path: str,
         loaders: Sequence[MujocoSceneTransform],
-        fps: int,
+        camera_fps: int,
+        policy_fps: int,
         device: str,
         simulation_time: float,
+        camera_dict: Mapping[str, str],
+        task: str | None,
 ):
     sim = MujocoSim(mujoco_model_path, loaders)
     robot_arm = MujocoFranka(sim, suffix='_ph')
     cameras = {
-        'image.back': MujocoCamera(sim.model, sim.data, 'handcam_back_ph', (1280, 720), fps=fps),
-        'image.front': MujocoCamera(sim.model, sim.data, 'handcam_front_ph', (1280, 720), fps=fps),
+        name: MujocoCamera(sim.model, sim.data, orig_name, (1280, 720), fps=camera_fps)
+        for name, orig_name in camera_dict.items()
     }
     gripper = MujocoGripper(sim, actuator_name='actuator8_ph', joint_name='finger_joint1_ph')
-    inference = Inference(state_encoder, action_decoder, device, policy, rerun_path)
+    inference = Inference(state_encoder, action_decoder, device, policy, rerun_path, policy_fps, task)
 
     with pimm.World(clock=sim) as world:
         cameras = cameras or {}
@@ -231,7 +229,7 @@ main_cfg = cfn.Config(
     robot_arm=positronic.cfg.hardware.roboarm.kinova,
     gripper=positronic.cfg.hardware.gripper.dh_gripper,
     state_encoder=positronic.cfg.policy.observation.end_effector_224,
-    action_decoder=positronic.cfg.policy.action.umi_relative,
+    action_decoder=positronic.cfg.policy.action.relative_robot_position,
     policy=positronic.cfg.policy.policy.act,
     cameras={
         'left': positronic.cfg.hardware.camera.arducam_left,
@@ -246,17 +244,44 @@ main_sim_cfg = cfn.Config(
     main_sim,
     mujoco_model_path="positronic/assets/mujoco/franka_table.xml",
     loaders=positronic.cfg.simulator.stack_cubes_loaders,
-    state_encoder=positronic.cfg.policy.observation.end_effector_back_front,
-    action_decoder=positronic.cfg.policy.action.relative_robot_position,
-    policy=positronic.cfg.policy.policy.act,
+    state_encoder=positronic.cfg.policy.observation.pi0,
+    action_decoder=positronic.cfg.policy.action.absolute_position,
+    policy=positronic.cfg.policy.policy.pi0,
     rerun_path="inference.rrd",
-    fps=60,
+    camera_fps=60,
+    policy_fps=15,
     device='cuda',
     simulation_time=10,
+    camera_dict={
+        'handcam_left': 'handcam_left_ph',
+        'back_view': 'back_view_ph',
+    },
+    task="pick up the green cube and put in on top of the red cube",
+)
+
+main_sim_pi0 = main_sim_cfg.override(
+    policy=positronic.cfg.policy.policy.pi0,
+    state_encoder=positronic.cfg.policy.observation.pi0,
+    action_decoder=positronic.cfg.policy.action.absolute_position,
+    camera_dict={
+        'left': 'handcam_left_ph',
+        'side': 'back_view_ph',
+    },
+)
+
+main_sim_act = main_sim_cfg.override(
+    policy=positronic.cfg.policy.policy.act,
+    state_encoder=positronic.cfg.policy.observation.franka_mujoco_stackcubes,
+    action_decoder=positronic.cfg.policy.action.absolute_position,
+    camera_dict={
+        'handcam_left': 'handcam_left_ph',
+        'back_view': 'back_view_ph',
+    },
 )
 
 if __name__ == "__main__":
     cfn.cli({
         "real": main_cfg,
-        "sim": main_sim_cfg,
+        "sim_pi0": main_sim_pi0,
+        "sim_act": main_sim_act,
     })
