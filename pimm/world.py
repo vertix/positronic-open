@@ -195,52 +195,60 @@ class World:
 
         self._sm_manager.__exit__(exc_type, exc_value, traceback)
 
-    def local_pipe(self, maxsize: int = 1) -> Tuple[SignalEmitter[T], SignalReceiver[T]]:
+    def local_pipe(self, maxsize: int = 1, clock: Clock | None = None) -> Tuple[SignalEmitter[T], SignalReceiver[T]]:
         """Create a queue-based communication channel within the same process.
 
         Args:
-            maxsize: (int) Maximum queue size (0 for unlimited). Default is 1.
+            maxsize: Maximum queue size (0 for unlimited). Default is 1.
+            clock: Optional clock to timestamp emitted messages. Defaults to the world's clock.
 
         Returns:
-            Tuple of (emitter, reader) for local communication
+            Tuple of (emitter, reader) for local communication.
         """
         q = deque(maxlen=maxsize)
-        return LocalQueueEmitter(q, self._clock), LocalQueueReceiver(q)
+        return LocalQueueEmitter(q, clock or self._clock), LocalQueueReceiver(q)
 
-    def mp_pipe(self, maxsize: int = 1) -> Tuple[SignalEmitter[T], SignalReceiver[T]]:
+    def mp_pipe(self, maxsize: int = 1, clock: Clock | None = None) -> Tuple[SignalEmitter[T], SignalReceiver[T]]:
         """Create a queue-based communication channel between processes.
 
         Args:
-            maxsize: (int) Maximum queue size (0 for unlimited). Default is 1.
+            maxsize: Maximum queue size (0 for unlimited). Default is 1.
+            clock: Optional clock used to timestamp emitted messages. Defaults to the world's clock.
 
         Returns:
-            Tuple of (emitter, reader) for inter-process communication
+            Tuple of (emitter, reader) for inter-process communication.
         """
         q = self._manager.Queue(maxsize=maxsize)
 
-        return QueueEmitter(q, self._clock), QueueReceiver(q)  # type: ignore
+        return QueueEmitter(q, clock or self._clock), QueueReceiver(q)  # type: ignore
 
     def local_one_to_many_pipe(self,
                                n_readers: int,
-                               maxsize: int = 1) -> Tuple[SignalEmitter[T], Sequence[SignalReceiver[T]]]:
+                               maxsize: int = 1,
+                               clock: Clock | None = None) -> Tuple[SignalEmitter[T], Sequence[SignalReceiver[T]]]:
         """Create a single-emitter-many-readers communication channel.
+
+        The provided clock, if any, is reused for each branch so all emitted
+        messages receive timestamps from the same source.
         """
         emitters = []
         readers = []
         for _ in range(n_readers):
-            emitter, reader = self.local_pipe(maxsize)
+            emitter, reader = self.local_pipe(maxsize, clock)
             emitters.append(emitter)
             readers.append(reader)
         return BroadcastEmitter(emitters), readers
 
     def mp_one_to_many_pipe(self,
                             n_readers: int,
-                            maxsize: int = 1) -> Tuple[SignalEmitter[T], Sequence[SignalReceiver[T]]]:
+                            maxsize: int = 1,
+                            clock: Clock | None = None) -> Tuple[SignalEmitter[T], Sequence[SignalReceiver[T]]]:
         """Create a single-emitter-many-readers communication channel.
 
         Args:
             n_readers: (int) Number of readers to create
             maxsize: (int) Maximum queue size (0 for unlimited)
+            clock: Optional clock to use for all emitters. Defaults to the world's clock.
 
         Returns:
             Tuple of (emitter, readers) for single-emitter-many-readers communication
@@ -248,18 +256,20 @@ class World:
         readers = []
         emitters = []
         for _ in range(n_readers):
-            emiter, reader = self.mp_pipe(maxsize)
+            emiter, reader = self.mp_pipe(maxsize, clock)
             readers.append(reader)
             emitters.append(emiter)
         return BroadcastEmitter(emitters), readers
 
-    def shared_memory(self) -> Tuple[SignalEmitter[T_SM], SignalReceiver[T_SM]]:
+    def shared_memory(self, clock: Clock | None = None) -> Tuple[SignalEmitter[T_SM], SignalReceiver[T_SM]]:
         """Create shared memory channel for efficient data sharing.
 
         Message data must be a SMCompliant type and have the same buffer size as the first message emitted.
 
         Args:
             data_type: SMCompliant type that defines the shared data structure
+            clock: Optional clock used to timestamp shared-memory messages.
+                Defaults to the world's clock.
 
         Returns:
             Tuple of (emitter, reader) for shared memory inter-process communication
@@ -268,7 +278,7 @@ class World:
         lock = self._manager.Lock()
         ts_value = self._manager.Value('Q', -1)
         sm_queue = self._manager.Queue()
-        emitter = SharedMemoryEmitter(lock, ts_value, sm_queue, self._clock)
+        emitter = SharedMemoryEmitter(lock, ts_value, sm_queue, clock or self._clock)
         reader = SharedMemoryReceiver(lock, ts_value, sm_queue)
         self._sm_emitters_readers.append((emitter, reader))
         return emitter, reader
