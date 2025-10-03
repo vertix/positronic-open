@@ -56,8 +56,11 @@ Clone the repository and set up a local `uv` environment (recommended) or use Do
 
 ### Option 1: Local via uv (recommended)
 
-Prerequisites: Python 3.11 and [uv](https://docs.astral.sh/uv/) and `libturbojpeg`
-(`sudo apt install libturbojpeg` on Linux or `brew install jpeg-turbo` on Mac)
+Prerequisites: Python 3.11, [uv](https://docs.astral.sh/uv/), `libturbojpeg`, and FFmpeg
+```
+sudo apt install libturbojpeg ffmpeg   # Linux
+brew install jpeg-turbo ffmpeg         # macOS
+```
 
 ```bash
 git clone git@github.com:Positronic-Robotics/positronic.git
@@ -241,7 +244,7 @@ Run the [LeRobot training driver](positronic/training/lerobot_train.py) with Pos
 Train an ACT policy using LeRobot’s pipeline configured for Positronic observations and actions:
 
 ```bash
-uv run --with-editable . -s positronic/training/lerobot_train.py \
+python -m positronic.training.lerobot_train \
     --dataset_root=~/datasets/lerobot/stack_cubes \
     --base_config=positronic/training/train_config.json
 ```
