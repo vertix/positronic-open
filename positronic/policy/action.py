@@ -44,8 +44,13 @@ class ActionDecoder(transforms.KeyFuncEpisodeTransform):
         pass
 
     @abstractmethod
-    def decode(self, action_vector: np.ndarray, inputs: dict[str, np.ndarray]) -> tuple[command.CommandType, float]:
-        """Decode action vector into a robot command and target grip value.
+    def decode(self, action: dict[str, Any], inputs: dict[str, np.ndarray]) -> tuple[command.CommandType, float]:
+        """Decode action dictionary into a robot command and target grip value.
+
+        Args:
+            action: Dictionary containing action data. For existing implementations,
+                   this should contain an 'action' key with the action vector.
+            inputs: Dictionary of input signals (e.g., robot state)
 
         Returns:
             tuple: (robot_command, target_grip) where robot_command is a roboarm.command type
@@ -73,7 +78,8 @@ class AbsolutePositionAction(RotationTranslationGripAction):
             rotations, transforms.view(pose, slice(0, 3)), episode[self.tgt_grip_key], dtype=np.float32
         )
 
-    def decode(self, action_vector: np.ndarray, inputs: dict[str, np.ndarray]) -> tuple[command.CommandType, float]:
+    def decode(self, action: dict[str, Any], inputs: dict[str, np.ndarray]) -> tuple[command.CommandType, float]:
+        action_vector = action['action']
         rotation = action_vector[: self.rot_rep.size].reshape(self.rot_rep.shape)
         rot = geom.Rotation.create_from(rotation, self.rot_rep)
         trans = action_vector[self.rot_rep.size : self.rot_rep.size + 3]
@@ -116,7 +122,8 @@ class RelativeTargetPositionAction(RotationTranslationGripAction):
 
         return transforms.concat(rotations, translations, grips, dtype=np.float32)
 
-    def decode(self, action_vector: np.ndarray, inputs: dict[str, np.ndarray]) -> tuple[command.CommandType, float]:
+    def decode(self, action: dict[str, Any], inputs: dict[str, np.ndarray]) -> tuple[command.CommandType, float]:
+        action_vector = action['action']
         rotation = action_vector[: self.rot_rep.size].reshape(self.rot_rep.shape)
         q_diff = geom.Rotation.create_from(rotation, self.rot_rep)
         tr_diff = action_vector[self.rot_rep.size : self.rot_rep.size + 3]
@@ -151,7 +158,8 @@ class JointDeltaAction(ActionDecoder):
     def encode_episode(self, episode: Episode) -> Signal[np.ndarray]:
         raise NotImplementedError('JointVelocityAction is not supposed for training yet')
 
-    def decode(self, action_vector: np.ndarray, inputs: dict[str, np.ndarray]) -> tuple[command.CommandType, float]:
+    def decode(self, action: dict[str, Any], inputs: dict[str, np.ndarray]) -> tuple[command.CommandType, float]:
+        action_vector = action['action']
         if action_vector.shape[-1] != self.num_joints + 1:
             raise ValueError(f'Expected action vector of size {self.num_joints + 1}, got {action_vector.shape[-1]}')
 
