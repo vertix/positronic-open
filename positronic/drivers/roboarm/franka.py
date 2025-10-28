@@ -134,7 +134,7 @@ class Robot(pimm.ControlSystem):
         Robot._init_robot(robot, self._load)
         robot.recover_from_errors()
 
-        commands = pimm.DefaultReceiver(pimm.ValueUpdated(self.commands), (None, False))
+        commands = pimm.DefaultReceiver(self.commands, None)
         robot_state = FrankaState()
         rate_limiter = pimm.RateLimiter(clock, hz=2000)
 
@@ -142,9 +142,9 @@ class Robot(pimm.ControlSystem):
 
         while not should_stop.value:
             st = robot.state()
-            cmd, updated = commands.value
-            if updated:
-                match cmd:
+            cmd_msg = commands.read()
+            if cmd_msg.updated:
+                match cmd_msg.data:
                     case command.Reset():
                         self._reset(robot, robot_state)
                         continue
@@ -157,7 +157,7 @@ class Robot(pimm.ControlSystem):
                     case command.JointDelta(velocities=joint_delta):
                         robot.set_target_joints(st.q + joint_delta)
                     case _:
-                        raise NotImplementedError(f'Unsupported command {cmd}')
+                        raise NotImplementedError(f'Unsupported command {cmd_msg.data}')
 
             robot_state.encode(st)
             self.state.emit(robot_state)
