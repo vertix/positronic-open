@@ -69,7 +69,7 @@ help:
 
 build-base:
 	@echo "Building base image with common dependencies..."
-	docker build -f Dockerfile.base -t $(LOCAL_TAG_BASE) ..
+	docker build --platform linux/amd64 -f Dockerfile.base -t $(LOCAL_TAG_BASE) ..
 
 build-training: build-base
 	@echo "Building $(IMAGE_NAME_TRAINING) with source code baked in..."
@@ -77,7 +77,7 @@ build-training: build-base
 		echo "Error: Could not extract version from pyproject.toml"; \
 		exit 1; \
 	fi
-	docker build -f Dockerfile.training.cloud -t $(LOCAL_TAG_TRAINING) ..
+	docker build --platform linux/amd64 -f Dockerfile.training.cloud -t $(LOCAL_TAG_TRAINING) ..
 
 build-groot: build-base
 	@echo "Building $(IMAGE_NAME_GROOT) image..."
@@ -85,7 +85,7 @@ build-groot: build-base
 		echo "Error: Could not extract version from pyproject.toml"; \
 		exit 1; \
 	fi
-	docker build -f Dockerfile.groot -t $(LOCAL_TAG_GROOT) ..
+	docker build --platform linux/amd64 -f Dockerfile.groot -t $(LOCAL_TAG_GROOT) ..
 
 build: build-base build-training build-groot
 
