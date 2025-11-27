@@ -7,10 +7,12 @@ import multiprocessing.shared_memory
 import sys
 import time
 import traceback
-from collections import deque
+from collections import defaultdict, deque
 from collections.abc import Callable, Iterator
 from enum import IntEnum
 from multiprocessing import resource_tracker
+from multiprocessing.managers import ValueProxy
+from multiprocessing.queues import Queue
 from multiprocessing.synchronize import Event as EventClass
 from queue import Empty, Full
 from typing import TypeVar
@@ -64,27 +66,23 @@ class MultiprocessEmitter(SignalEmitter[T]):
     shared-memory buffer. It defers the transport choice until the first payload
     unless ``forced_mode`` pins the decision.
 
-    Weak references link the emitter and its paired receiver so that whichever
-    side closes first can tell the other to release shared-memory views before
-    unlinking the underlying buffer. Full references would create reference cycles
-    and break pickling when ``multiprocessing`` spawns child processes, hence
-    the indirection via ``weakref``.
+    Broadcast emitting is supported by allowing queues, up_values and sm_queues be lists.
     """
 
     def __init__(
         self,
         clock: Clock,
-        queue: mp.Queue,
+        queues: list[Queue],
         mode_value: mp.Value,
         lock: mp.Lock,
         ts_value: mp.Value,
-        up_value: mp.Value,
-        sm_queue: mp.Queue,
+        up_values: list[ValueProxy[bool]],
+        sm_queues: list[Queue],
         *,
         forced_mode: TransportMode | None = None,
     ):
         self._clock = clock
-        self._queue = queue
+        self._queues = queues
         self._mode_value = mode_value
         self._forced_mode = forced_mode
         self._mode = forced_mode or TransportMode.UNDECIDED
@@ -93,8 +91,8 @@ class MultiprocessEmitter(SignalEmitter[T]):
         self._data_type: type[SMCompliant] | None = None
         self._lock = lock
         self._ts_value = ts_value
-        self._up_value = up_value
-        self._sm_queue = sm_queue
+        self._up_values = up_values
+        self._sm_queues = sm_queues
         self._sm: multiprocessing.shared_memory.SharedMemory | None = None
         self._expected_buf_size: int | None = None
         self._closed = False
@@ -116,6 +114,7 @@ class MultiprocessEmitter(SignalEmitter[T]):
         self._mode_value.value = int(mode)
 
     def _ensure_mode(self, data: T) -> TransportMode:
+        """Choose the data transport based on the first piece of data emitted"""
         if self._mode is not TransportMode.UNDECIDED:
             return self._mode
 
@@ -126,16 +125,22 @@ class MultiprocessEmitter(SignalEmitter[T]):
         return self._mode
 
     def _emit_queue(self, data: T, ts: int) -> bool:
-        try:
-            self._queue.put_nowait(Message(data, ts))
-            return True
-        except Full:
+        msg = Message(data, ts)
+        success = False
+
+        for q in self._queues:
             try:
-                self._queue.get_nowait()
-                self._queue.put_nowait(Message(data, ts))
-                return True
-            except (Empty, Full):
-                return False
+                q.put_nowait(msg)
+                success = True
+            except Full:
+                try:
+                    q.get_nowait()  # drop oldest
+                    q.put_nowait(msg)
+                    success = True
+                except (Empty, Full):
+                    pass  # try next queue
+
+        return success
 
     def _emit_shared_memory(self, data: SMCompliant, ts: int) -> bool:
         if self._data_type is None:
@@ -148,7 +153,11 @@ class MultiprocessEmitter(SignalEmitter[T]):
         if self._sm is None:
             self._expected_buf_size = buf_size
             self._sm = multiprocessing.shared_memory.SharedMemory(create=True, size=buf_size)
-            self._sm_queue.put((self._sm.name, buf_size, self._data_type, data.instantiation_params()))
+
+            # support multiple receivers
+            for sm_q in self._sm_queues:
+                metadata = (self._sm.name, buf_size, self._data_type, data.instantiation_params())
+                sm_q.put(metadata)
         else:
             assert self._expected_buf_size == buf_size, (
                 f'Buffer size mismatch: expected {self._expected_buf_size}, got {buf_size}. '
@@ -158,7 +167,9 @@ class MultiprocessEmitter(SignalEmitter[T]):
         with self._lock:
             data.set_to_buffer(self._sm.buf)
             self._ts_value.value = ts
-            self._up_value.value = True
+            for up_value in self._up_values:
+                up_value.value = True
+
         return True
 
     def emit(self, data: T, ts: int = -1):
@@ -303,7 +314,8 @@ class MultiprocessReceiver(SignalReceiver[T]):
             self._out_value.read_from_buffer(self._readonly_buffer)
             updated = self._up_value.value
             self._up_value.value = False
-            return Message(data=self._out_value, ts=self._ts_value.value, updated=updated)
+            return Message(data=self._out_value, ts=self._ts_value.value, updated=updated) # instead of True
+
 
     def read(self) -> Message[T] | None:
         mode = self.transport_mode
@@ -455,9 +467,10 @@ class World:
             logging.info(f'Process {process.name} (pid {process.pid}) finished')
             process.close()
 
-        for emitter, reader in self._cleanup_emitters_readers:
-            reader.close()
+        for emitter, receivers in self._cleanup_emitters_readers:
+            [receiver.close() for receiver in (receivers if isinstance(receivers, list) else [receivers])]
             emitter.close()
+
 
     def request_stop(self):
         self._stop_event.set()
@@ -590,9 +603,9 @@ class World:
         raise ValueError(f'Unsupported connector type: {type(connector)}.')
 
     def start(
-        self,
-        main_process: ControlSystem | list[ControlSystem | None],
-        background: ControlSystem | list[ControlSystem | None] | None = None,
+            self,
+            main_process: ControlSystem | list[ControlSystem | None],
+            background: ControlSystem | list[ControlSystem | None] | None = None,
     ) -> Iterator[Sleep]:
         """Bind declared connections and launch control systems.
 
@@ -631,17 +644,32 @@ class World:
             emitter._bind(emitter_wrapper(em))
             receiver._bind(re)
 
+        # Interprocess connection handling
+        grouped_mp_connections = defaultdict(list)
         for emitter, emitter_wrapper, receiver, maxsize, clock in mp_connections:
+            grouped_mp_connections[emitter].append((emitter_wrapper, receiver, maxsize, clock))
+
+        for emitter_logical, receivers_logical in grouped_mp_connections.items():
             # When emitter lives in a different process, we use system clock to timestamp messages, otherwise we will
             # have to serialise our local clock to the other process, which is not what we want.
-            kwargs = {'maxsize': maxsize} if maxsize is not None else {}
-            em, re = self.mp_pipe(clock=clock, **kwargs)
+            num_receivers = len(receivers_logical)
+            emitter_wrapper, _, maxsize, clock = receivers_logical[0]    # parameters the same for all receivers
 
-            emitter._bind(emitter_wrapper(em))
-            receiver._bind(re)
+            kwargs = {'maxsize': maxsize} if maxsize is not None else {}
+            emitter_physical, receivers_physical = self.mp_pipes(clock=clock, num_receivers=num_receivers, **kwargs)
+
+            emitter_logical._bind(emitter_wrapper(emitter_physical))
+
+            if not isinstance(receivers_physical, list):
+                receivers_physical = [receivers_physical]
+
+            for (_, logical_receiver, _, _), physical_receiver in zip(
+                    receivers_logical, receivers_physical, strict=True):
+                logical_receiver._bind(physical_receiver)
 
         self.start_in_subprocess(*[cs.run for cs in background])
         return self.interleave(*[cs.run for cs in main_process])
+
 
     def start_in_subprocess(self, *background_loops: ControlLoop):
         """Starts background control loops. Can be called multiple times for different control loops.
@@ -674,9 +702,14 @@ class World:
         q = deque(maxlen=maxsize)
         return LocalQueueEmitter(q, self._clock), LocalQueueReceiver(q)
 
-    def mp_pipe(
-        self, maxsize: int = 1, clock: Clock | None = None, *, transport: TransportMode = TransportMode.UNDECIDED
-    ) -> tuple[SignalEmitter[T], SignalReceiver[T]]:
+    def mp_pipes(
+            self,
+            maxsize: int = 1,
+            clock: Clock | None = None,
+            *,
+            num_receivers: int = 1,
+            transport: TransportMode = TransportMode.UNDECIDED
+    ) -> tuple[SignalEmitter[T], SignalReceiver[T] | list[SignalReceiver[T]]]:
         """Create an inter-process channel with optional transport override.
 
         When possible, use `connect` or `pair` instead, as this method is somewhat internal.
@@ -690,12 +723,13 @@ class World:
             maxsize: Maximum queue size (0 for unlimited). Default is 1.
             clock: Optional clock override for timestamp generation when the
                 emitter lives in another process.
+            num_receivers: number of receivers to emit. i.e broadcast if > 1
             transport: Transport override. ``TransportMode.UNDECIDED`` enables
                 adaptive selection; ``TransportMode.QUEUE`` or
                 ``TransportMode.SHARED_MEMORY`` pins the transport.
 
         Returns:
-            Tuple of (emitter, reader) suitable for inter-process communication.
+            Tuple of (emitter, reader-s) suitable for inter-process communication.
         """
         if transport is TransportMode.SHARED_MEMORY and not self.entered:
             raise AssertionError('Shared memory transport is only available after entering the world context.')
@@ -703,20 +737,28 @@ class World:
         forced_mode: TransportMode | None
         forced_mode = transport if transport in (TransportMode.QUEUE, TransportMode.SHARED_MEMORY) else None
 
-        message_queue = self._manager.Queue(maxsize=maxsize)
+        message_queues = [self._manager.Queue(maxsize=maxsize) for _ in range(num_receivers)]
         lock = self._manager.Lock()
         ts_value = self._manager.Value('Q', -1)
-        up_value = self._manager.Value('b', False)
-        sm_queue = self._manager.Queue()
+        up_values = [self._manager.Value('b', False) for _ in range(num_receivers)]
+        sm_queues = [self._manager.Queue() for _ in range(num_receivers)]
         initial_mode = forced_mode or TransportMode.UNDECIDED
         mode_value = self._manager.Value('i', int(initial_mode))
 
         emitter_clock = clock or self._clock
         emitter = MultiprocessEmitter(
-            emitter_clock, message_queue, mode_value, lock, ts_value, up_value, sm_queue, forced_mode=forced_mode
+            emitter_clock, message_queues, mode_value, lock, ts_value, up_values, sm_queues, forced_mode=forced_mode
         )
-        receiver = MultiprocessReceiver(
-            message_queue, mode_value, lock, ts_value, up_value, sm_queue, forced_mode=forced_mode
-        )
-        self._cleanup_emitters_readers.append((emitter, receiver))
-        return emitter, receiver
+
+        receivers = []
+        for m_queue, up_value, sm_queue in zip(message_queues, up_values, sm_queues, strict=True):
+            receiver = MultiprocessReceiver(
+                m_queue, mode_value, lock, ts_value, up_value, sm_queue, forced_mode=forced_mode
+            )
+            receivers.append(receiver)
+
+        self._cleanup_emitters_readers.append((emitter, receivers))
+
+        return emitter, receivers if num_receivers > 1 else receivers[0]
+
+
