@@ -221,8 +221,8 @@ function populateEpisodesTable(episodes, columns) {
   for (const [episodeIndex, episodeData] of filteredEpisodes) {
     const row = document.createElement('tr');
 
-    for (const [index, value] of episodeData.entries()) {
-      row.appendChild(createTableCell(getCellValue(value, columns[index])));
+    for (const [index, entity] of episodeData.entries()) {
+      row.appendChild(createTableCell(getCellValue(entity, columns[index])));
     }
 
     const viewCell = createTableCell('');
@@ -236,17 +236,14 @@ function populateEpisodesTable(episodes, columns) {
     tableBody.appendChild(row);
   }
 
-  function getCellValue(value, column) {
+  function getCellValue(entity, column) {
     if (column.renderer?.type === 'badge') {
-      return createBadge(value, column.renderer.options?.[value]);
+      return createBadge(entity, column.renderer.options?.[entity]);
     }
 
-    switch (typeof value) {
-      case 'number':
-        return value.toFixed(2);
-      default:
-        return String(value ?? column.default ?? 'N/A');
-    }
+    const value = Array.isArray(entity) ? entity[1] : entity;
+
+    return value ?? '';
   }
 
   function createBadge(value, options) {
@@ -299,27 +296,12 @@ function getFilteredEpisodes(episodes) {
 
   return filteredEpisodes;
 
-  function getSortableValue(value) {
-    if (value === null || value === undefined) return '';
+  function getSortableValue(entity) {
+    if (entity === null || entity === undefined) return '';
 
-    switch (typeof value) {
-      case 'number':
-      case 'boolean':
-        return value;
+    const value = Array.isArray(entity) ? entity[0] : entity;
 
-      case 'string':
-        // TODO?: Maybe it's better to have an original data instead of formatted one
-        const numValue = parseFloat(value);
-
-        if (!isNaN(numValue)) {
-          return numValue;
-        }
-
-        return value.toLowerCase();
-
-      default:
-        return String(value);
-    }
+    return value;
   }
 }
 

@@ -3,6 +3,7 @@
 import heapq
 import logging
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,9 @@ from positronic.dataset.transforms import TransformedDataset
 from positronic.utils.rerun_compat import flatten_numeric, log_numeric_series, log_series_styles, set_timeline_time
 
 
-def get_episodes_list(ds: Dataset, keys: list[str], formatters: dict[str, str | None]) -> list[list[Any]]:
+def get_episodes_list(
+    ds: Dataset, keys: list[str], formatters: dict[str, str | None], defaults: dict[str, Any]
+) -> list[list[Any]]:
     result = []
     for idx, ep in enumerate(ds):
         try:
@@ -28,10 +31,16 @@ def get_episodes_list(ds: Dataset, keys: list[str], formatters: dict[str, str | 
 
             for key in keys:
                 value = mapping.get(key)
-                if value is not None and formatters.get(key):
-                    row.append(formatters[key] % value)
-                else:
+
+                if isinstance(value, datetime):
+                    formattedDate = value.strftime(formatters[key]) if formatters.get(key) else value.isoformat()
+                    row.append([value.timestamp(), formattedDate])
+                elif value is not None and formatters.get(key):
+                    row.append([value, formatters[key] % value])
+                elif value is not None:
                     row.append(value)
+                else:
+                    row.append(defaults.get(key))
 
             result.append([idx, row])
         except Exception as e:
