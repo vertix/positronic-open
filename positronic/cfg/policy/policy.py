@@ -35,7 +35,7 @@ def _get_diffusion_policy(checkpoint_path: str, device: str | None = None):
 @cfn.config(host='localhost', port=8000, n_action_steps=None)
 def openpi(host: str, port: int, n_action_steps: int | None):
     """PI0/PI0.5 policy with Cartesian control."""
-    from positronic.policy.pi0 import OpenPIRemotePolicy
+    from positronic.policy.openpi import OpenPIRemotePolicy
 
     return OpenPIRemotePolicy(host, port, n_action_steps)
 
@@ -59,3 +59,10 @@ def sample(origins: list[cfn.Config], weights: list[float] | None):
     from positronic.policy import SampledPolicy
 
     return SampledPolicy(*origins, weights=weights)
+
+
+@cfn.config(host='localhost', port=8000)
+def remote(host: str, port: int):
+    from positronic.policy.remote import RemotePolicy
+
+    return RemotePolicy(host, port)

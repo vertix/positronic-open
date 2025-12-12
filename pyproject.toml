@@ -42,6 +42,7 @@ dependencies = [
     "scipy",
     "torch",
     "uvicorn[standard]",
+    "websockets>=15.0.1",
     "zmq",
 ]
 

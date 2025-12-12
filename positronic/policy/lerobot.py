@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from lerobot.policies.pretrained import PreTrainedPolicy
 
-from . import Policy
+from .base import Policy
 
 
 def _detect_device() -> str:
@@ -48,22 +48,22 @@ class LerobotPolicy(Policy):
             self.original.to(self.target_device)
         return self.original
 
-    def select_action(self, observation: dict[str, Any]) -> dict[str, Any]:
+    def select_action(self, obs: dict[str, Any]) -> dict[str, Any]:
         policy = self._policy
 
-        obs = {}
-        for key, val in observation.items():
+        obs_int = {}
+        for key, val in obs.items():
             if key == 'task':
-                obs[key] = val
+                obs_int[key] = val
             elif isinstance(val, np.ndarray):
                 if key.startswith('observation.images.'):
                     val = np.transpose(val.astype(np.float32) / 255.0, (2, 0, 1))
                 val = val[np.newaxis, ...]
-                obs[key] = torch.from_numpy(val).to(self.target_device)
+                obs_int[key] = torch.from_numpy(val).to(self.target_device)
             else:
-                obs[key] = torch.as_tensor(val).to(self.target_device)
+                obs_int[key] = torch.as_tensor(val).to(self.target_device)
 
-        action = policy.select_action(obs).squeeze(0).cpu().numpy()
+        action = policy.select_action(obs_int).squeeze(0).cpu().numpy()
         return {'action': action}
 
     def reset(self):
