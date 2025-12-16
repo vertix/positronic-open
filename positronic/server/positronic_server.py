@@ -185,18 +185,33 @@ async def api_episodes():
 
 @app.get('/api/groups')
 @require_dataset
-async def api_groups():
+async def api_groups(request: Request):
     ds = app_state.get('dataset')
-    group_key, group_fn, format_table = app_state.get('group_table_cfg')
+    group_key, group_fn, format_table, group_filter_keys = app_state.get('group_table_cfg')
     columns, formatters, defaults = parse_table_cfg(format_table)
 
+    # Take only those query parameters that are in group_filter_keys
+    active_filters = {}
+    for filter_key in group_filter_keys:
+        filter_value = request.query_params.get(filter_key)
+        if filter_value:
+            active_filters[filter_key] = filter_value
+
     groups = defaultdict(list)
+    group_filters = {key: {'label': label or key, 'values': set()} for key, label in group_filter_keys.items()}
     for episode in ds:
-        groups[episode.static[group_key]].append(episode)
+        # Apply filters
+        match = all(episode.static[key] == value for key, value in active_filters.items())
+        if match:
+            groups[episode.static[group_key]].append(episode)
+
+            for filter_key in group_filter_keys:
+                group_filters[filter_key]['values'].add(episode.static.get(filter_key))
 
     rows = [{group_key: key, '__meta__': {'group': key}, **group_fn(group)} for key, group in groups.items()]
     episodes = get_episodes_list(rows, format_table.keys(), formatters=formatters, defaults=defaults)
-    return {'columns': columns, 'episodes': episodes}
+
+    return {'columns': columns, 'episodes': episodes, 'group_filters': group_filters}
 
 
 @app.get('/grouped', response_class=HTMLResponse)
@@ -315,7 +330,9 @@ def model_perf_table():
         'MTBF/A': {'format': '%.1f sec', 'default': '-'},
     }
 
-    return group_key, group_fn, format_table
+    group_filter_keys = {'task_code': 'Task'}
+
+    return group_key, group_fn, format_table, group_filter_keys
 
 
 @cfn.config(dataset=positronic.cfg.dataset.local_all, ep_table_cfg=default_table, group_table=model_perf_table)
@@ -328,7 +345,7 @@ def main(
     reset_cache: bool = False,
     max_resolution: int = 640,
     ep_table_cfg: TableConfig | None = None,
-    group_table: tuple[str, Callable[[list[Any]], dict[str, Any]], TableConfig] | None = None,
+    group_table: tuple[str, Callable[[list[Episode]], dict[str, Any]], TableConfig, dict[str, str]] | None = None,
 ):
     """Visualize a Dataset with Rerun.
 
