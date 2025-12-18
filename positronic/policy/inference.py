@@ -7,9 +7,7 @@ from typing import Any
 import pimm
 from positronic.dataset.ds_writer_agent import Serializers
 from positronic.drivers import roboarm
-from positronic.policy.action import ActionDecoder
-from positronic.policy.observation import ObservationEncoder
-from positronic.utils import flatten_dict
+from positronic.utils import flatten_dict, frozen_view
 
 
 class InferenceCommandType(Enum):
@@ -44,16 +42,14 @@ class InferenceCommand:
 
 
 class Inference(pimm.ControlSystem):
-    def __init__(
-        self,
-        observation_encoder: ObservationEncoder,
-        action_decoder: ActionDecoder,
-        policy,
-        inference_fps: int = 30,
-        simulate_timeout: bool = False,
-    ):
-        self.observation_encoder = observation_encoder
-        self.action_decoder = action_decoder
+    """
+    Control system that handles start/stop/reset commands and runs the policy at a fixed rate by encoding
+    inputs, decoding actions to robot/gripper commands, and exposing run metadata.
+
+    Supposed to be run in foreground of a World.
+    """
+
+    def __init__(self, policy, inference_fps: int = 30, simulate_timeout: bool = False):
         self.policy = policy
         self.inference_fps = inference_fps
         self.context: dict[str, Any] = {}
@@ -71,10 +67,6 @@ class Inference(pimm.ControlSystem):
         result = {'inference.policy_fps': self.inference_fps, 'inference.simulate_timeout': self.simulate_timeout}
         for k, v in flatten_dict(self.context).items():
             result[f'inference.context.{k}'] = v
-        for k, v in flatten_dict(self.observation_encoder.meta).items():
-            result[f'inference.observation.{k}'] = v
-        for k, v in flatten_dict(self.action_decoder.meta).items():
-            result[f'inference.action.{k}'] = v
         for k, v in flatten_dict(self.policy.meta).items():
             result[f'inference.policy.{k}'] = v
         return result
@@ -82,7 +74,6 @@ class Inference(pimm.ControlSystem):
     def run(self, should_stop: pimm.SignalReceiver, clock: pimm.Clock) -> Iterator[pimm.Sleep]:  # noqa: C901
         running = False
 
-        # TODO: We should emit new commands per frame, not per inference fps
         rate_limiter = pimm.RateLimiter(clock, hz=self.inference_fps)
 
         while not should_stop.value:
@@ -120,12 +111,11 @@ class Inference(pimm.ControlSystem):
                     continue
                 inputs.update(images)
 
-                obs = self.observation_encoder.encode(inputs)
-                obs.update(self.context)
-
                 start = time.monotonic()
-                action = self.policy.select_action(obs)
-                roboarm_command, target_grip = self.action_decoder.decode(action, inputs)
+                inputs.update(self.context)
+                commands = self.policy.select_action(frozen_view(inputs))
+                roboarm_command = roboarm.command.from_wire(commands['robot_command'])
+                target_grip = commands['target_grip']
 
                 duration = time.monotonic() - start
                 if self.simulate_timeout:
@@ -137,3 +127,5 @@ class Inference(pimm.ControlSystem):
                 continue
             finally:
                 yield pimm.Sleep(rate_limiter.wait_time())
+
+        self.policy.close()

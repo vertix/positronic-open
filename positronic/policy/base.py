@@ -1,5 +1,6 @@
 import random
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 
@@ -8,7 +9,18 @@ class Policy(ABC):
 
     @abstractmethod
     def select_action(self, obs: dict[str, Any]) -> dict[str, Any]:
-        """Computes an action for the given observation."""
+        """Computes an action for the given observation.
+
+        **Plain-data contract**
+        Policies should accept and return only "plain" data structures:
+        - built-in scalars: `str`, `int`, `float`, `bool`, `None`
+        - containers: `dict` / `list` / `tuple` recursively composed of supported values
+        - numeric numpy values: `numpy.ndarray` and `numpy` scalar types
+
+        Avoid returning arbitrary Python objects (custom classes, sockets, file handles, etc.).
+        Keeping inputs/outputs as plain data makes policies easy to compose (wrappers/ensemblers),
+        record/replay, and run in different execution contexts.
+        """
         pass
 
     def reset(self):
@@ -19,6 +31,54 @@ class Policy(ABC):
     def meta(self) -> dict[str, Any]:
         """Returns metadata about the policy configuration."""
         return {}
+
+    def close(self):
+        """Closes the policy and releases any resources."""
+        return None
+
+
+class DecodedEncodedPolicy(Policy):
+    """A policy wrapper that optionally encodes observations and decodes actions.
+
+    **Important**: `decoder(action, obs)` is called with original observation.
+    """
+
+    def __init__(
+        self,
+        policy: Policy,
+        encoder: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        decoder: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None = None,
+        extra_meta=None,
+    ):
+        self._policy = policy
+        self._encoder = encoder
+        self._decoder = decoder
+        self._extra_meta = extra_meta or {}
+
+    def _encode(self, obs: dict[str, Any]) -> dict[str, Any]:
+        if self._encoder:
+            return self._encoder(obs)
+        return obs
+
+    def _decode(self, action: dict[str, Any], obs: dict[str, Any]) -> dict[str, Any]:
+        if self._decoder:
+            return self._decoder(action, obs)
+        return action
+
+    def select_action(self, obs: dict[str, Any]) -> dict[str, Any]:
+        encoded_obs = self._encode(obs)
+        action = self._policy.select_action(encoded_obs)
+        return self._decode(action, obs)
+
+    def reset(self):
+        self._policy.reset()
+
+    @property
+    def meta(self) -> dict[str, Any]:
+        return self._policy.meta | self._extra_meta
+
+    def close(self):
+        self._policy.close()
 
 
 class SampledPolicy(Policy):

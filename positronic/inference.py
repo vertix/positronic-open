@@ -14,7 +14,7 @@ import positronic.cfg.hardware.gripper
 import positronic.cfg.hardware.roboarm
 import positronic.cfg.policy.action
 import positronic.cfg.policy.observation
-import positronic.cfg.policy.policy
+import positronic.cfg.policy.policy as policy_cfg
 import positronic.cfg.simulator
 from positronic import utils, wire
 from positronic.dataset.ds_writer_agent import DsWriterCommand, TimeMode
@@ -22,9 +22,7 @@ from positronic.dataset.local_dataset import LocalDatasetWriter
 from positronic.gui.dpg import DearpyguiUi
 from positronic.gui.eval import EvalUI
 from positronic.gui.keyboard import KeyboardControl
-from positronic.policy.action import ActionDecoder
 from positronic.policy.inference import Inference, InferenceCommand
-from positronic.policy.observation import ObservationEncoder
 from positronic.simulator.mujoco.observers import BodyDistance, StackingSuccess
 from positronic.simulator.mujoco.sim import MujocoCameras, MujocoFranka, MujocoGripper, MujocoSim
 from positronic.simulator.mujoco.transforms import MujocoSceneTransform
@@ -154,15 +152,13 @@ def main(
     robot_arm: pimm.ControlSystem,
     gripper: pimm.ControlSystem,
     cameras: dict[str, pimm.ControlSystem],
-    observation_encoder: ObservationEncoder,
-    action_decoder: ActionDecoder,
     policy,
     driver: Callable,
     policy_fps: int = 15,
     output_dir: str | Path | None = None,
 ):
     """Runs inference on real hardware."""
-    inference = Inference(observation_encoder, action_decoder, policy, policy_fps)
+    inference = Inference(policy, policy_fps)
 
     # Convert camera instances to emitters for wire()
     camera_instances = cameras
@@ -189,8 +185,6 @@ def main(
 
 def main_sim(
     mujoco_model_path: str,
-    observation_encoder: ObservationEncoder,
-    action_decoder: ActionDecoder,
     policy,
     loaders: Sequence[MujocoSceneTransform],
     camera_fps: int,
@@ -208,7 +202,7 @@ def main_sim(
     mujoco_cameras = MujocoCameras(sim.model, sim.data, resolution=(320, 240), fps=camera_fps)
     # Map signal names to emitters for wire()
     cameras = {name: mujoco_cameras.cameras[orig_name] for name, orig_name in camera_dict.items()}
-    inference = Inference(observation_encoder, action_decoder, policy, policy_fps, simulate_timeout=simulate_timeout)
+    inference = Inference(policy, policy_fps, simulate_timeout=simulate_timeout)
     control_systems = [mujoco_cameras, sim, robot_arm, gripper, inference]
 
     sim_meta = {'simulation.mujoco_model_path': mujoco_model_path}
@@ -240,51 +234,22 @@ def main_sim(
 main_sim_cfg = cfn.Config(
     main_sim,
     mujoco_model_path=package_assets_path('assets/mujoco/franka_table.xml'),
+    policy=policy_cfg.placeholder,
     loaders=positronic.cfg.simulator.stack_cubes_loaders,
-    action_decoder=positronic.cfg.policy.action.absolute_position,
     camera_fps=15,
     policy_fps=15,
     driver=timed.override(simulation_time=15, task='pick up the green cube and put in on top of the red cube'),
-    camera_dict={'image.handcam_left': 'handcam_left_ph', 'image.back_view': 'back_view_ph'},
+    # We use 3 cameras not because we need it, but because Mujoco does not render
+    # the second image when using only 2 cameras
+    camera_dict={'image.wrist': 'handcam_left_ph', 'image.exterior': 'back_view_ph', 'image.agent_view': 'agentview'},
     observers={
         'box_distance': BodyDistance('box_0_body', 'box_1_body'),
         'stacking_success': StackingSuccess('box_0_body', 'box_1_body', 'hand_ph'),
     },
 )
 
-main_sim_openpi_positronic = main_sim_cfg.override(
-    policy=positronic.cfg.policy.policy.openpi,
-    observation_encoder=positronic.cfg.policy.observation.openpi_positronic,
-    action_decoder=positronic.cfg.policy.action.absolute_position,
-    # We use 3 cameras not because we need it, but because Mujoco does not render
-    # the second image when using only 2 cameras
-    camera_dict={'image.wrist': 'handcam_left_ph', 'image.exterior': 'back_view_ph', 'image.agent_view': 'agentview'},
-)
 
-main_sim_openpi_droid = main_sim_cfg.override(
-    # We use 3 cameras not because we need it, but because Mujoco does not render the second image when using
-    # only 2 cameras.
-    camera_dict={'image.wrist': 'handcam_back_ph', 'image.exterior': 'back_view_ph', 'image.agent_view': 'agentview'},
-    policy=positronic.cfg.policy.policy.droid,
-    observation_encoder=positronic.cfg.policy.observation.openpi_droid,
-    action_decoder=positronic.cfg.policy.action.joint_delta,
-    policy_fps=15,
-)
-
-main_sim_act = main_sim_cfg.override(
-    policy=positronic.cfg.policy.policy.act,
-    observation_encoder=positronic.cfg.policy.observation.eepose_mujoco,
-    action_decoder=positronic.cfg.policy.action.absolute_position,
-    # We use 3 cameras not because we need it, but because Mujoco does not render
-    # the second image when using only 2 cameras
-    camera_dict={
-        'image.handcam_left': 'handcam_left_ph',
-        'image.back_view': 'back_view_ph',
-        'image.agent_view': 'agentview',
-    },
-)
-
-openpi_droid = cfn.Config(
+droid_setup = cfn.Config(
     main,
     robot_arm=positronic.cfg.hardware.roboarm.franka_droid,
     gripper=positronic.cfg.hardware.gripper.robotiq,
@@ -296,23 +261,9 @@ openpi_droid = cfn.Config(
             view='left', resolution='hd720', fps=30, image_enhancement=True
         ),
     },
-    policy=positronic.cfg.policy.policy.droid,
     driver=keyboard,
-    observation_encoder=positronic.cfg.policy.observation.openpi_droid,
-    action_decoder=positronic.cfg.policy.action.joint_delta,
+    policy=policy_cfg.placeholder,
     policy_fps=15,
-)
-
-openpi_positronic = openpi_droid.override(
-    observation_encoder=positronic.cfg.policy.observation.openpi_positronic,
-    action_decoder=positronic.cfg.policy.action.absolute_position,
-)
-
-sim_groot = main_sim_cfg.override(
-    policy=positronic.cfg.policy.policy.groot,
-    observation_encoder=positronic.cfg.policy.observation.groot_infer,
-    action_decoder=positronic.cfg.policy.action.groot_infer,
-    camera_dict={'image.wrist': 'handcam_left_ph', 'image.exterior': 'back_view_ph', 'image.agent_view': 'agentview'},
 )
 
 
@@ -321,38 +272,9 @@ sim_groot = main_sim_cfg.override(
 def _internal_main():
     init_logging()
     cfn.cli({
-        'sim_act': main_sim_act,
-        'sim_openpi_positronic': main_sim_openpi_positronic,
-        'sim_openpi_droid': main_sim_openpi_droid,
-        'sim_groot': sim_groot,
-        'real_openpi_droid': openpi_droid,
-        'real_openpi_positronic': openpi_positronic,
-        'real_act': openpi_positronic.override(
-            policy=positronic.cfg.policy.policy.act,
-            observation_encoder=positronic.cfg.policy.observation.eepose_real.override(
-                image_mappings={
-                    'observation.images.wrist': 'image.wrist',
-                    'observation.images.exterior': 'image.exterior',
-                }
-            ),
-            action_decoder=positronic.cfg.policy.action.absolute_position,
-        ),
-        'real_groot': openpi_droid.override(
-            policy=positronic.cfg.policy.policy.groot,
-            observation_encoder=positronic.cfg.policy.observation.groot_infer,
-            action_decoder=positronic.cfg.policy.action.groot_infer,
-        ),
-        'sim_pnp_act': main_sim_act.override(
-            loaders=positronic.cfg.simulator.multi_tote_loaders,
-            observers={},
-            **{'driver.task': 'Pick up objects from the red tote and place them in the green tote'},
-        ),
-        'sim_pnp_openpi': main_sim_openpi_positronic.override(
-            loaders=positronic.cfg.simulator.multi_tote_loaders,
-            observers={},
-            **{'driver.task': 'Pick up objects from the red tote and place them in the green tote'},
-        ),
-        'sim_pnp_groot': sim_groot.override(
+        'sim': main_sim_cfg,
+        'real': droid_setup,
+        'sim_pnp': main_sim_cfg.override(
             loaders=positronic.cfg.simulator.multi_tote_loaders,
             observers={},
             **{'driver.task': 'Pick up objects from the red tote and place them in the green tote'},

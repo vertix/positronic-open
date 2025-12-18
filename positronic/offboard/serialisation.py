@@ -1,10 +1,30 @@
+import collections.abc as cabc
 import functools
 
 import msgpack
 import numpy as np
 
+"""
+Offboard wire serialization helpers.
+
+This protocol intentionally supports only transport-friendly ("wire-serializable") values:
+- built-in scalars: `str`, `int`, `float`, `bool`, `None`
+- containers: `dict` / `list` / `tuple` recursively composed of supported values
+- numeric numpy values: `numpy.ndarray` and `numpy` scalar types
+
+Avoid sending arbitrary Python objects across the wire. If you need to transmit domain objects
+(e.g., robot commands), transmit a plain-data representation (for example a tagged dict) and
+reconstruct objects at the boundary.
+"""
+
 
 def pack_numpy(obj):
+    # Accept any Mapping (e.g. MappingProxyType) and normalize to a plain dict
+    # before msgpack sees it. This keeps internal "frozen view" protections
+    # while ensuring the wire format stays transport-friendly.
+    if isinstance(obj, cabc.Mapping):
+        return dict(obj)
+
     if (isinstance(obj, np.ndarray | np.generic)) and obj.dtype.kind in ('V', 'O', 'c'):
         raise ValueError(f'Unsupported dtype: {obj.dtype}')
 

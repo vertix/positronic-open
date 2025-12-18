@@ -1,6 +1,4 @@
-import contextlib
 import logging
-from collections.abc import Generator
 from typing import Any
 
 from websockets.sync.client import connect
@@ -36,28 +34,35 @@ class InferenceSession:
     def infer(self, obs: dict[str, Any]) -> dict[str, Any]:
         """
         Send an observation and get an action.
+
+        Both `obs` and the returned action must be wire-serializable: plain-data containers and
+        scalars, plus numeric numpy arrays/scalars. Do not pass arbitrary Python objects.
         """
         if self._metadata is None:
             self._metadata = self._handshake()
 
-        self._websocket.send(serialise(obs))
+        serialised = serialise(obs)
+        logger.debug('Size of serialised obs: %1.f KiB', len(serialised) / 1024)
+
+        self._websocket.send(serialised)
         response = deserialise(self._websocket.recv())
+        logger.debug('Size of deserialised response: %1.f KiB', len(response) / 1024)
 
         if isinstance(response, dict) and 'error' in response:
             raise RuntimeError(f'Server error: {response["error"]}')
 
         return response['result']
 
+    def close(self):
+        self._websocket.close()
+
 
 class InferenceClient:
     def __init__(self, host: str, port: int):
         self.uri = f'ws://{host}:{port}'
 
-    @contextlib.contextmanager
-    def start_session(self) -> Generator[InferenceSession, None, None]:
+    def new_session(self) -> InferenceSession:
         """
-        Starts a new inference session.
+        Creates a new inference session.
         """
-        with connect(self.uri) as websocket:
-            session = InferenceSession(websocket)
-            yield session
+        return InferenceSession(connect(self.uri))

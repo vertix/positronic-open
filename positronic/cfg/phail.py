@@ -70,7 +70,7 @@ old_to_new = dataset.group.override(
             'robot_state.ee_pose': Concat('robot_position_translation', 'robot_position_quaternion'),
             'task': FromValue('Pick up the green cube and place it on the red cube.'),
         }),
-        Rename({
+        Rename(**{
             'robot_state.q': 'robot_joints',
             'robot_state.dq': 'robot_joints_velocity',
             'image.wrist': 'image.handcam_left',
@@ -90,7 +90,7 @@ pnp_sim = dataset.transform.override(
         dataset.group.override(
             transforms=[
                 Derive(task=FromValue('Pick up objects from the red tote and place them in the green tote.')),
-                Rename({'image.exterior': 'image.back_view'}),
+                Rename(**{'image.exterior': 'image.back_view'}),
                 Identity(),
             ]
         )
@@ -98,17 +98,17 @@ pnp_sim = dataset.transform.override(
 )
 
 droid_openpi_ft = dataset.encoded.override(
-    base=droid_ds, observation=policy.observation.eepose_real, action=policy.action.absolute_position
+    base=droid_ds, observation=policy.observation.eepose, action=policy.action.absolute_position
 )
 sim_stack_openpi_ft = dataset.encoded.override(
-    base=legacy_sim, observation=policy.observation.eepose_real, action=policy.action.absolute_position
+    base=legacy_sim, observation=policy.observation.eepose, action=policy.action.absolute_position
 )
 sim_pnp_openpi_ft = dataset.encoded.override(
-    base=pnp_sim, observation=policy.observation.eepose_real, action=policy.action.absolute_position
+    base=pnp_sim, observation=policy.observation.eepose, action=policy.action.absolute_position
 )
 full_openpi_ft = dataset.encoded.override(
     base=dataset.concat_ds.override(datasets=[droid_ds, legacy_sim, pnp_sim]),
-    observation=policy.observation.eepose_real,
+    observation=policy.observation.eepose,
     action=policy.action.absolute_position,
 )
 
@@ -175,3 +175,21 @@ def sim_metrics():
     return Group(
         Derive(success=success, success_time=success_time, max_stacking_success=max_stacking_success), Identity()
     )
+
+
+act_latest = policy.policy.act_absolute.override(**{
+    'base.checkpoints_dir': 's3://checkpoints/full_ft/act/021225/',
+    'base.n_action_steps': 15,
+})
+act_q_latest = policy.policy.act_absolute.override(**{
+    'base.checkpoints_dir': 's3://checkpoints/full_ft_q/act/031225/',
+    'observation': policy.observation.eepose_q,
+    'base.n_action_steps': 15,
+})
+openpi = policy.policy.openpi_positronic.copy()
+openpi_q = openpi.override(observation=policy.observation.openpi_eeq)
+
+groot = policy.policy.groot_ee.copy()
+groot_q = policy.policy.groot_ee_q.copy()
+
+sample = policy.policy.sample.copy()
