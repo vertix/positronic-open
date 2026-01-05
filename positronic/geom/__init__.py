@@ -161,6 +161,7 @@ class Rotation(metaclass=RotationMeta):
         EULER = 'euler'
         ROTATION_MATRIX = 'rotation_matrix'
         ROTVEC = 'rotvec'
+        ROT6D = 'rot6d'  # First two rows of rotation matrix (6 elements)
 
         def from_value(self, value: Any) -> Rotation:
             if self == Rotation.Representation.QUAT:
@@ -173,6 +174,8 @@ class Rotation(metaclass=RotationMeta):
                 return Rotation.from_rotation_matrix(value)
             elif self == Rotation.Representation.ROTVEC:
                 return Rotation.from_rotvec(value)
+            elif self == Rotation.Representation.ROT6D:
+                return Rotation.from_rot6d(value)
             else:
                 raise NotImplementedError(f'Rotation representation {self} not implemented')
 
@@ -188,6 +191,8 @@ class Rotation(metaclass=RotationMeta):
                 return (3, 3)
             elif self == Rotation.Representation.ROTVEC:
                 return 3
+            elif self == Rotation.Representation.ROT6D:
+                return 6
             else:
                 raise NotImplementedError(f'Rotation representation {self} not implemented')
 
@@ -347,6 +352,41 @@ class Rotation(metaclass=RotationMeta):
         return cls.from_quat(np.array([w, x, y, z]))
 
     @classmethod
+    def from_rot6d(cls, rot6d: np.ndarray) -> Rotation:
+        """
+        Create rotation from 6D continuous representation using Gram-Schmidt orthogonalization.
+
+        Args:
+            rot6d: (numpy.ndarray) 6D array containing first two rows of rotation matrix flattened
+
+        Returns:
+            Rotation object representing the same rotation
+
+        Raises:
+            ValueError: If input vectors are zero-length or colinear
+        """
+        rot6d = np.asarray(rot6d)
+        a1 = rot6d[:3]
+        a2 = rot6d[3:6]
+
+        # Gram-Schmidt orthogonalization with degenerate input checks
+        norm_a1 = np.linalg.norm(a1)
+        if norm_a1 < 1e-10:
+            raise ValueError('rot6d first vector has near-zero norm, cannot normalize')
+        b1 = a1 / norm_a1
+
+        b2 = a2 - np.dot(b1, a2) * b1
+        norm_b2 = np.linalg.norm(b2)
+        if norm_b2 < 1e-10:
+            raise ValueError('rot6d vectors are colinear, cannot construct orthonormal basis')
+        b2 = b2 / norm_b2
+
+        b3 = np.cross(b1, b2)
+
+        R = np.stack([b1, b2, b3], axis=0)
+        return cls.from_rotation_matrix(R)
+
+    @classmethod
     def create_from(cls, value: Any, representation: Representation | str) -> Rotation:
         """
         Create a rotation from any supported rotation representation.
@@ -380,6 +420,8 @@ class Rotation(metaclass=RotationMeta):
             return self.as_rotation_matrix
         elif representation == Rotation.Representation.ROTVEC:
             return self.as_rotvec
+        elif representation == Rotation.Representation.ROT6D:
+            return self.as_rot6d
         else:
             raise ValueError(f'Invalid rotation representation: {representation}')
 
@@ -413,6 +455,18 @@ class Rotation(metaclass=RotationMeta):
         sin_theta_2 = np.sin(angle / 2)
         axis = np.array([q[1], q[2], q[3]]) / sin_theta_2
         return axis * angle
+
+    @property
+    def as_rot6d(self) -> np.ndarray:
+        """
+        Represent the rotation as a 6D continuous representation.
+
+        Returns:
+            numpy.ndarray: 6D array containing first two rows of rotation matrix flattened.
+                          This representation is continuous and avoids quaternion double-cover issues.
+        """
+        R = self.as_rotation_matrix
+        return np.concatenate([R[0], R[1]])  # (6,)
 
     @property
     def as_euler(self) -> np.ndarray:
