@@ -53,35 +53,58 @@ WandB logging is enabled by default. Add `docker/.env.wandb` containing your `WA
 
 ## 3. Serve Inference
 
-To serve the trained model, launch the `groot-server`. This exposes the policy via ZeroMQ. The model can be served from a machine with 8GB of GPU memory.
+To serve the trained model, launch the `groot-server`. This exposes a WebSocket API (same interface as lerobot-server) on port 8000. The model can be served from a machine with 8GB of GPU memory.
 
-**Command:**
+**Command (with pre-configured variant):**
 ```bash
 docker compose run --rm --service-ports -v ~/checkpoints:/checkpoints groot-server \
+  ee_rot6d_joints \
   --checkpoints_dir=/checkpoints/groot/experiment_v1/
+```
+
+**Available pre-configured variants:**
+- `ee`: End-effector pose (quaternion)
+- `ee_joints`: EE pose + joint feedback
+- `ee_rot6d`: EE pose (6D rotation)
+- `ee_rot6d_joints`: 6D rotation + joint feedback
+- `ee_rot6d_rel`: 6D rotation, relative actions
+- `ee_rot6d_joints_rel`: 6D rotation + joints, relative actions
+
+**Alternative (explicit encoder/decoder):**
+```bash
+docker compose run --rm --service-ports -v ~/checkpoints:/checkpoints groot-server \
+  server \
+  --checkpoints_dir=/checkpoints/groot/experiment_v1/ \
+  --observation_encoder=.groot_rot6d_joints \
+  --action_decoder=.groot_rot6d \
+  --modality_config=ee_rot6d_q
 ```
 
 **Parameters:**
 - `--checkpoints_dir`: Full path to the experiment directory containing checkpoints.
 - `--checkpoint`: (Optional) Specific checkpoint ID (e.g., `50000`). If omitted, loads the latest `checkpoint-N` folder.
-- `--modality_config`: (Optional) Modality config to use. Options: `ee` (default), `ee_q`. Must match the config used during training.
-- `--port`: (Optional) Port to serve on (default: 9000).
+- `--port`: (Optional) Port to serve on (default: 8000).
+
+**Endpoints:**
+- `GET /api/v1/models` - List available checkpoints
+- `WebSocket /api/v1/session` - Inference session (uses latest checkpoint)
+- `WebSocket /api/v1/session/{checkpoint_id}` - Inference with specific checkpoint
 
 ## 4. Run Inference
 
-To evaluate the policy with a visual interface, run the inference client locally.
+To evaluate the policy with a visual interface, run the inference client locally. The client uses the same `.remote` policy for all server types (GR00T, LeRobot, OpenPI).
 
 **Command:**
 ```bash
-uv run positronic-inference \
-  sim_groot \
+uv run positronic-inference sim \
   --driver.simulation_time=20 \
   --driver.show_gui=True \
   --output_dir=~/datasets/inference_logs \
+  --policy=.remote \
   --policy.host=vm-h100 \
-  --policy.port=9000
+  --policy.port=8000
 ```
 
-- `sim_groot`: The inference configuration preset for GR00T.
+- `--policy=.remote`: The remote policy client (WebSocket).
 - `--policy.host`: The machine that runs the inference server.
-- `--policy.port`: The port that the inference server exposes (default: 9000).
+- `--policy.port`: The port that the inference server exposes (default: 8000).
