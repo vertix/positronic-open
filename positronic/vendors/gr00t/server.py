@@ -16,6 +16,7 @@ import uvicorn
 import zmq
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
+from positronic.offboard.server_utils import monitor_async_task, wait_for_subprocess_ready
 from positronic.policy import Codec
 from positronic.utils.checkpoints import get_latest_checkpoint, list_checkpoints
 from positronic.utils.logging import init_logging
@@ -149,6 +150,13 @@ class Gr00tSubprocess:
 
         self._wait_for_ready()
 
+    def _check_crashed(self) -> tuple[bool, int | None]:
+        """Check if subprocess has crashed."""
+        if self.process is None:
+            return False, None
+        exit_code = self.process.poll()
+        return exit_code is not None, exit_code
+
     def _wait_for_ready(self, timeout: float = 120.0, poll_interval: float = 1.0):
         """Wait for the gr00t server to be ready by polling with ping."""
         client = PolicyClient(host='127.0.0.1', port=self.zmq_port, timeout_ms=2000)
@@ -167,6 +175,39 @@ class Gr00tSubprocess:
 
         client.close()
         raise RuntimeError(f'gr00t subprocess did not become ready within {timeout}s')
+
+    async def start_async(self, on_progress=None):
+        """Start the gr00t subprocess asynchronously with optional progress reporting.
+
+        Args:
+            on_progress: Optional async callback for progress updates.
+        """
+        groot_root = Path(__file__).parents[4] / 'gr00t'
+        python_bin = str(Path(self.groot_venv_path) / 'bin' / 'python')
+
+        command = [python_bin, 'gr00t/eval/run_gr00t_server.py']
+        command.extend(['--model_path', str(self.checkpoint_dir)])
+        command.extend(['--embodiment_tag', 'NEW_EMBODIMENT'])
+        command.extend(['--modality_config_path', self.modality_config_path])
+        command.extend(['--host', '127.0.0.1'])
+        command.extend(['--port', str(self.zmq_port)])
+
+        env = os.environ.copy()
+        logger.info(f'Starting gr00t subprocess: {" ".join(command)}')
+        self.process = subprocess.Popen(command, env=env, cwd=str(groot_root))
+
+        # Use a temporary client for readiness check
+        client = PolicyClient(host='127.0.0.1', port=self.zmq_port, timeout_ms=2000)
+        try:
+            await wait_for_subprocess_ready(
+                check_ready=client.ping,
+                check_crashed=self._check_crashed,
+                description='GR00T subprocess',
+                on_progress=on_progress,
+                max_wait=120.0,
+            )
+        finally:
+            client.close()
 
     @property
     def client(self) -> PolicyClient:
@@ -239,8 +280,14 @@ class InferenceServer:
 
         return get_latest_checkpoint(self.checkpoints_dir, 'checkpoint-')
 
-    def _get_subprocess(self, checkpoint_id: str | None) -> tuple[Gr00tSubprocess, dict]:
+    async def _get_subprocess(
+        self, checkpoint_id: str | None, websocket: WebSocket | None = None
+    ) -> tuple[Gr00tSubprocess, dict]:
         """Ensure subprocess is running with the specified checkpoint.
+
+        Args:
+            checkpoint_id: Checkpoint to load
+            websocket: Optional WebSocket to send status updates to
 
         Returns:
             Tuple of (subprocess, metadata_dict)
@@ -248,6 +295,11 @@ class InferenceServer:
         Raises:
             ValueError: If checkpoint_id is invalid or not found
         """
+
+        async def send_progress(msg: str):
+            if websocket is not None:
+                await websocket.send_bytes(serialise({'status': 'loading', 'message': msg}))
+
         resolved_id = self._resolve_checkpoint_id(checkpoint_id)
 
         available = list_checkpoints(self.checkpoints_dir, prefix='checkpoint-')
@@ -263,20 +315,29 @@ class InferenceServer:
 
         logger.info(f'Loading checkpoint {resolved_id}')
         checkpoint_path = f'{self.checkpoints_dir}/{resolved_id}'
-        checkpoint_dir = pos3.download(checkpoint_path, exclude=['optimizer.pt'])
+
+        # Download checkpoint in thread with periodic progress updates
+        download_task = asyncio.create_task(asyncio.to_thread(pos3.download, checkpoint_path, exclude=['optimizer.pt']))
+        await monitor_async_task(
+            download_task, description=f'Downloading checkpoint {resolved_id}', on_progress=send_progress
+        )
+        checkpoint_dir = download_task.result()
 
         logger.info(f'Starting subprocess for checkpoint {resolved_id}')
-        subprocess = Gr00tSubprocess(
+        subprocess_obj = Gr00tSubprocess(
             checkpoint_dir=str(checkpoint_dir),
             modality_config_path=self.modality_config_path,
             groot_venv_path=self.groot_venv_path,
             zmq_port=self.zmq_port,
         )
-        subprocess.start()
-        self.subprocess = subprocess
+
+        # Start subprocess with periodic progress updates (if websocket provided)
+        await subprocess_obj.start_async(on_progress=send_progress)
+
+        self.subprocess = subprocess_obj
         self.current_checkpoint_id = resolved_id
         self.current_checkpoint_dir = str(checkpoint_dir)
-        return subprocess, {'checkpoint_id': resolved_id, 'checkpoint_path': str(checkpoint_dir)}
+        return subprocess_obj, {'checkpoint_id': resolved_id, 'checkpoint_path': str(checkpoint_dir)}
 
     async def get_models(self):
         checkpoints = list_checkpoints(self.checkpoints_dir, prefix='checkpoint-')
@@ -284,18 +345,20 @@ class InferenceServer:
 
     async def websocket_endpoint(self, websocket: WebSocket, checkpoint_id: str | None = None):
         await websocket.accept()
+        logger.info(f'Connected to {websocket.client} requesting {checkpoint_id or "default"}')
 
         try:
-            subprocess, checkpoint_meta = self._get_subprocess(checkpoint_id)
+            # Get or start subprocess (sends status updates internally)
+            subprocess, checkpoint_meta = await self._get_subprocess(checkpoint_id, websocket)
+
+            # Send ready with metadata
             meta = {**self.metadata, **checkpoint_meta}
-            await websocket.send_bytes(serialise({'meta': meta}))
+            await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
         except Exception as e:
             logger.error(f'Failed to load checkpoint: {e}')
-            await websocket.send_bytes(serialise({'error': str(e)}))
+            await websocket.send_bytes(serialise({'status': 'error', 'error': str(e)}))
             await websocket.close(code=1008, reason=str(e)[:100])
             return
-
-        logger.info(f'Connected requesting {checkpoint_id}')
 
         try:
             subprocess.client.reset()
@@ -334,9 +397,9 @@ class InferenceServer:
             except Exception:
                 pass
 
-    def startup(self):
+    async def startup(self):
         """Start the subprocess on server startup."""
-        self._get_subprocess(None)
+        await self._get_subprocess(None, websocket=None)
 
     def shutdown(self):
         """Clean up subprocess on server shutdown."""
@@ -364,7 +427,7 @@ def server(
             groot_venv_path=groot_venv_path,
             port=port,
         )
-        server.startup()
+        asyncio.run(server.startup())
         try:
             asyncio.run(server.serve())
         except KeyboardInterrupt:

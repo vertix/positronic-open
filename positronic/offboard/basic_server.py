@@ -17,10 +17,23 @@ logger = logging.getLogger(__name__)
 
 
 class InferenceServer:
+    """Basic inference server for testing and simple deployments.
+
+    This server loads policies synchronously (in-process), which means it assumes
+    fast (<20s) policy loading to avoid WebSocket keepalive timeouts.
+
+    For slow model loading (e.g., downloading large checkpoints, subprocess startup),
+    use a subprocess-based server like OpenPI or GR00T which can send periodic
+    status updates during loading. See positronic.offboard.server_utils for details.
+    """
+
     def __init__(self, policy_registry: dict[str, Callable[[], Any]] | Any, host: str, port: int):
-        """
-        A basic server implementation for running inference with multiple policies.
-        Serve policies based on the request path.
+        """Initialize basic inference server.
+
+        Args:
+            policy_registry: Dict of policy factories or a single policy factory.
+            host: Host to bind to.
+            port: Port to bind to.
         """
         if isinstance(policy_registry, dict):
             self.policy_registry = policy_registry
@@ -55,16 +68,20 @@ class InferenceServer:
             policy_factory = self.policy_registry[model_id]
         else:
             logger.error(f'Policy not found: {model_id}')
-            # Reject connection with specific code
+            # Send error status
+            await websocket.send_bytes(serialise({'status': 'error', 'error': f'Policy not found: {model_id}'}))
             await websocket.close(code=1008, reason='Policy not found')
             return
 
         try:
+            # Send loading status before blocking operation
+            await websocket.send_bytes(serialise({'status': 'loading', 'message': 'Loading policy...'}))
+
             policy = policy_factory()
             policy.reset()
 
-            # Send Metadata
-            await websocket.send_bytes(serialise({'meta': policy.meta}))
+            # Send ready with metadata
+            await websocket.send_bytes(serialise({'status': 'ready', 'meta': policy.meta}))
 
             # Inference Loop
             async for message in websocket.iter_bytes():
