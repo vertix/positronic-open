@@ -23,11 +23,23 @@ def task_code(ep: Episode) -> str:
 def model(ep: Episode) -> str:
     match ep['inference.policy.type']:
         case 'act':
-            return 'Action Chunking Trasnformer'
+            return 'Action Chunking Transformer'
         case 'groot':
             return 'Nvidia Gr00t'
         case 'openpi':
             return 'Open PI 0.5'
+        case 'remote':
+            # For remote policies, use the server type
+            server_type = ep.get('inference.policy.server.type', '')
+            match server_type:
+                case 'groot':
+                    return 'Nvidia Gr00t'
+                case 'act':
+                    return 'Action Chunking Transformer'
+                case 'openpi':
+                    return 'Open PI 0.5'
+                case _:
+                    return server_type if server_type else ''
         case _:
             return ''
 
@@ -64,6 +76,10 @@ def ckpt(ep: Episode) -> str | None:
                 if len(parts) >= 3:
                     return f'{parts[0]}\\{parts[-2]}\\{parts[-1]}'
                 return raw_path
+            case 'remote':
+                # For remote policies, use checkpoint_id from server config
+                checkpoint_id = ep.get('inference.policy.server.checkpoint_id', '')
+                return str(checkpoint_id) if checkpoint_id else ''
         return ''
     except Exception:
         return ''
