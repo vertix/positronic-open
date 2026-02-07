@@ -14,8 +14,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pyarrow.parquet as pq
 
 from positronic.utils.git import get_git_state
+from positronic.utils.lazy import LazyDict
 
 from .dataset import ConcatDataset, Dataset, DatasetWriter
 from .episode import EPISODE_SCHEMA_VERSION, SIGNAL_FACTORY_T, Episode, EpisodeWriter, T
@@ -76,11 +78,20 @@ def _cached_env_writer_info() -> dict:
 class DiskEpisodeWriter(EpisodeWriter):
     """Writer for recording episode data containing multiple signals."""
 
-    def __init__(self, directory: Path, *, on_close: Callable[[DiskEpisodeWriter], None] | None = None) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        *,
+        on_close: Callable[[DiskEpisodeWriter], None] | None = None,
+        created_ts_ns: int | None = None,
+    ) -> None:
         """Initialize episode writer.
 
         Args:
             directory: Directory to write episode data to (must not exist)
+            on_close: Optional callback invoked after successful episode close
+            created_ts_ns: Optional creation timestamp (defaults to current time).
+                Use this to preserve original creation time during migration.
         """
         self._path = directory
         assert not self._path.exists(), f'Writing to existing directory {self._path}'
@@ -96,7 +107,8 @@ class DiskEpisodeWriter(EpisodeWriter):
         self._on_close = on_close
 
         # Write system metadata immediately
-        self._meta = {'schema_version': EPISODE_SCHEMA_VERSION, 'created_ts_ns': time.time_ns()}
+        # NB: falsy created_ts_ns (including 0) defaults to current time — epoch 0 is not a valid episode timestamp
+        self._meta = {'schema_version': EPISODE_SCHEMA_VERSION, 'created_ts_ns': created_ts_ns or time.time_ns()}
         self._meta['writer'] = _cached_env_writer_info()
         self._meta['writer']['name'] = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
         self._meta['path'] = str(self._path.resolve(strict=True))
@@ -163,6 +175,37 @@ class DiskEpisodeWriter(EpisodeWriter):
             )
         self._static_items[name] = data
 
+    def _scan_timestamps(self) -> tuple[int | None, int | None]:
+        """Scan parquet files for min/max timestamps."""
+        first_ts: int | None = None
+        last_ts: int | None = None
+
+        for parquet_file in self._path.glob('*.parquet'):
+            try:
+                schema = pq.read_schema(parquet_file)
+                # Vector signals use 'timestamp', video frames use 'ts_ns'
+                if 'timestamp' in schema.names:
+                    col_name = 'timestamp'
+                elif 'ts_ns' in schema.names:
+                    col_name = 'ts_ns'
+                else:
+                    continue
+
+                table = pq.read_table(parquet_file, columns=[col_name])
+                timestamps = table[col_name].to_pylist()
+                if not timestamps:
+                    continue
+
+                file_first, file_last = min(timestamps), max(timestamps)
+                if first_ts is None or file_first > first_ts:
+                    first_ts = file_first
+                if last_ts is None or file_last > last_ts:
+                    last_ts = file_last
+            except Exception:
+                continue
+
+        return first_ts, last_ts
+
     def __exit__(self, exc_type, exc, tb) -> None:
         """Finalize all signal writers and persist static items on context exit."""
         if exc_type is not None and not self._aborted:
@@ -183,6 +226,11 @@ class DiskEpisodeWriter(EpisodeWriter):
             return
         self._finished = True
 
+        # Compute duration by scanning parquet files
+        first_ts, last_ts = self._scan_timestamps()
+        if first_ts is not None and last_ts is not None:
+            self._meta['duration_ns'] = int(last_ts - first_ts)
+
         # Write all static items into a single static.json
         episode_json = self._path / 'static.json'
         if self._static_items or not episode_json.exists():
@@ -194,7 +242,7 @@ class DiskEpisodeWriter(EpisodeWriter):
 
         _clear_unfinished(self._path)
 
-        if exc_type is None and not self._aborted and self._on_close is not None:
+        if exc_type is None and self._on_close is not None:
             self._on_close(self)
 
     def abort(self) -> None:
@@ -238,6 +286,7 @@ class DiskEpisode(Episode):
         self._signal_factories: dict[str, SIGNAL_FACTORY_T] = {}
         self._static: dict[str, Any] | None = None
         self._meta: dict[str, Any] | None = None
+        self._cached_duration_ns: int | None = None
 
         # Discover available signal files but do not instantiate readers yet
         used_names: set[str] = set()
@@ -317,6 +366,15 @@ class DiskEpisode(Episode):
         available = list(self._signal_factories.keys()) + list(self._static_data.keys())
         raise KeyError(f"'{name}' not found in episode {self._dir}. Available keys: {', '.join(available)}")
 
+    def _compute_size_mb(self) -> float:
+        """Compute total size of episode directory in MB."""
+        size_bytes = 0
+        with suppress(OSError):
+            for entry in self._dir.rglob('*'):
+                if entry.is_file():
+                    size_bytes += entry.stat().st_size
+        return size_bytes / (1024 * 1024)
+
     @property
     def meta(self) -> dict:
         if self._meta is None:
@@ -330,15 +388,28 @@ class DiskEpisode(Episode):
                             meta.update(meta_data)
                     except Exception:
                         pass
-            self._meta = meta
-            self._meta['path'] = str(self._dir.expanduser().resolve(strict=False))
-            size_bytes = 0
-            with suppress(OSError):
-                for entry in self._dir.rglob('*'):
-                    if entry.is_file():
-                        size_bytes += entry.stat().st_size
-            self._meta['size_mb'] = size_bytes / (1024 * 1024)
+
+            # duration_ns is a first-class Episode property, not meta.
+            # Extract it as a private cache for DiskEpisode.duration_ns.
+            self._cached_duration_ns = meta.pop('duration_ns', None)
+
+            meta['path'] = str(self._dir.expanduser().resolve(strict=False))
+
+            lazy_getters: dict[str, Any] = {}
+            if 'size_mb' not in meta:
+                lazy_getters['size_mb'] = self._compute_size_mb
+
+            self._meta = LazyDict(meta, lazy_getters)
         return self._meta.copy()
+
+    @property
+    def duration_ns(self):
+        # Fast path: use cached value from meta.json (written at recording time)
+        _ = self.meta  # ensure meta is loaded
+        if self._cached_duration_ns is not None:
+            return self._cached_duration_ns
+        # Fallback: compute from signals (expensive, for old episodes without cached value)
+        return super().duration_ns
 
     @property
     def signals(self) -> dict[str, Signal[Any]]:
@@ -426,7 +497,13 @@ class LocalDatasetWriter(DatasetWriter):
                     max_id = eid
         return max_id + 1
 
-    def new_episode(self) -> DiskEpisodeWriter:
+    def new_episode(self, *, created_ts_ns: int | None = None) -> DiskEpisodeWriter:
+        """Create a new episode writer.
+
+        Args:
+            created_ts_ns: Optional creation timestamp (defaults to current time).
+                Use this to preserve original creation time during migration.
+        """
         eid = self._next_episode_id
         self._next_episode_id += 1  # Reserve id immediately
 
@@ -435,7 +512,7 @@ class LocalDatasetWriter(DatasetWriter):
         # responsible for creating it and expects it to not exist yet.
         ep_dir = block_dir / f'{eid:012d}'
 
-        writer = DiskEpisodeWriter(ep_dir)
+        writer = DiskEpisodeWriter(ep_dir, created_ts_ns=created_ts_ns)
         return writer
 
     def __exit__(self, exc_type, exc, tb) -> None:

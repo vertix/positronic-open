@@ -1,7 +1,11 @@
+import json
+
 import numpy as np
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from positronic.dataset import Episode
 from positronic.dataset.local_dataset import UNFINISHED_MARKER, DiskEpisode, DiskEpisodeWriter
 from positronic.dataset.tests.test_video import assert_frames_equal, create_frame
 
@@ -332,27 +336,20 @@ class TestCoreEpisodeTime:
     def test_array_preserves_static_and_samples(self):
         ts = [1500, 2500, 3000]
         sub = self.ep.time[ts]
-        # Expected full dictionary comparison (static + sampled values)
         expected = {'task': 'stack', 'version': 2, 'params': {'k': 1}, 'a': [1, 2, 3], 'b': [5, 7, 7]}
-        import numpy as np
-
         sub_norm = {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in sub.items()}
         assert sub_norm == expected
 
     def test_no_step_slice_raises_keyerror(self):
-        import pytest
-
         with pytest.raises(KeyError):
             _ = self.ep.time[1500:3000]
 
     def test_stepped_slice_without_end_defaults_to_episode_last_ts(self):
-        start = self.ep.start_ts  # common start across signals
+        start = self.ep.start_ts
         step = 500
         sub = self.ep.time[start::step]
         a_vals = sub['a']
         b_vals = sub['b']
-        import numpy as np
-
         expected_len = len(np.arange(start, self.ep.last_ts + 1, step))
         assert len(a_vals) == len(b_vals) == expected_len
 
@@ -365,7 +362,6 @@ def test_disk_episode_implements_abc(tmp_path):
         w.set_static('task', 'stack')
 
     ep = DiskEpisode(ep_dir)
-    from positronic.dataset import Episode
 
     assert isinstance(ep, Episode)
 
@@ -394,3 +390,155 @@ def test_episode_writer_with_extra_timelines(tmp_path):
     assert {'ts_ns', 'ts_ns.producer', 'ts_ns.consumer'} == set(frames_table.column_names)
     assert frames_table['ts_ns.producer'].to_pylist() == [1400, 2400]
     assert frames_table['ts_ns.consumer'].to_pylist() == [1600, 2600]
+
+
+class TestLazyMetaProperties:
+    """Tests for lazy computation of expensive meta properties."""
+
+    def test_duration_ns_stored_in_meta_json(self, tmp_path):
+        """Test that duration_ns is written to meta.json on episode close."""
+
+        ep_dir = tmp_path / 'ep_duration'
+        with DiskEpisodeWriter(ep_dir) as w:
+            w.append('a', 1, 1000)
+            w.append('a', 2, 2000)
+            w.append('b', 10, 1500)
+            w.append('b', 20, 5000)  # last timestamp
+
+        # Verify meta.json contains duration_ns
+        with (ep_dir / 'meta.json').open('r') as f:
+            stored_meta = json.load(f)
+        assert 'duration_ns' in stored_meta
+        assert stored_meta['duration_ns'] == 5000 - 1500  # max(last_ts) - max(start_ts)
+
+    def test_duration_ns_read_from_meta(self, tmp_path):
+        """Test that duration_ns uses cached value from meta.json (fast path)."""
+        ep_dir = tmp_path / 'ep_duration_read'
+        with DiskEpisodeWriter(ep_dir) as w:
+            w.append('a', 1, 1000)
+            w.append('a', 2, 3000)
+
+        ep = DiskEpisode(ep_dir)
+        # duration_ns should come from meta.json cache, not compute from signals
+        assert ep.duration_ns == 2000
+        # But duration_ns is NOT exposed through meta (it's a first-class Episode property)
+        assert 'duration_ns' not in ep.meta
+
+    def test_duration_ns_fallback_for_old_episodes(self, tmp_path):
+        """Test that duration_ns falls back to computing from signals for old episodes."""
+
+        ep_dir = tmp_path / 'ep_old'
+        with DiskEpisodeWriter(ep_dir) as w:
+            w.append('a', 1, 1000)
+            w.append('a', 2, 4000)
+
+        # Remove duration_ns from meta.json to simulate old episode
+        meta_path = ep_dir / 'meta.json'
+        with meta_path.open('r') as f:
+            meta = json.load(f)
+        del meta['duration_ns']
+        with meta_path.open('w') as f:
+            json.dump(meta, f)
+
+        # Read episode - should compute duration from signals
+        ep = DiskEpisode(ep_dir)
+        assert ep.duration_ns == 3000  # 4000 - 1000
+
+    def test_size_mb_computed_lazily(self, tmp_path):
+        """Test that size_mb is only computed when accessed."""
+        ep_dir = tmp_path / 'ep_lazy_size'
+        with DiskEpisodeWriter(ep_dir) as w:
+            w.append('a', 1, 1000)
+            w.append('a', 2, 2000)
+
+        ep = DiskEpisode(ep_dir)
+
+        # Access meta - should not compute size_mb yet
+        meta = ep.meta
+        # size_mb should be available (in keys) but lazy
+        assert 'size_mb' in meta
+
+        # Explicitly access size_mb
+        size = meta['size_mb']
+        assert isinstance(size, float)
+        assert size > 0
+
+    def test_meta_copy_preserves_laziness(self, tmp_path):
+        """Test that meta.copy() preserves lazy evaluation."""
+
+        ep_dir = tmp_path / 'ep_lazy_copy'
+        with DiskEpisodeWriter(ep_dir) as w:
+            w.append('a', 1, 1000)
+            w.append('a', 2, 2000)
+
+        ep = DiskEpisode(ep_dir)
+        # Get a copy of meta
+        meta_copy = ep.meta
+
+        # size_mb should be available (lazy) but duration_ns should NOT be in meta
+        assert 'size_mb' in meta_copy
+        assert 'duration_ns' not in meta_copy
+
+        # Accessing size_mb should work
+        assert meta_copy['size_mb'] > 0
+        # duration_ns is accessed as an Episode property
+        assert ep.duration_ns == 1000  # 2000 - 1000
+
+    def test_multiple_meta_accesses_cache_lazy_values(self, tmp_path):
+        """Test that lazy values are cached after first computation."""
+        ep_dir = tmp_path / 'ep_cache'
+        with DiskEpisodeWriter(ep_dir) as w:
+            w.append('a', 1, 1000)
+            w.append('a', 2, 2000)
+
+        ep = DiskEpisode(ep_dir)
+
+        # First access
+        meta1 = ep.meta
+        size1 = meta1['size_mb']
+
+        # Second access - should use cached internal meta
+        meta2 = ep.meta
+        size2 = meta2['size_mb']
+
+        assert size1 == size2
+
+    def test_created_ts_ns_preserved(self, tmp_path):
+        """Test that created_ts_ns parameter is preserved in meta.json."""
+        ep_dir = tmp_path / 'ep_created'
+        original_ts = 1234567890123456789
+
+        with DiskEpisodeWriter(ep_dir, created_ts_ns=original_ts) as w:
+            w.append('a', 1, 1000)
+
+        ep = DiskEpisode(ep_dir)
+        assert ep.meta['created_ts_ns'] == original_ts
+
+    def test_duration_computed_from_scanned_files(self, tmp_path):
+        """Test that duration is computed by scanning parquet files for raw writes."""
+        ep_dir = tmp_path / 'ep_scan'
+
+        with DiskEpisodeWriter(ep_dir):
+            # Write a parquet file directly (simulating migration's raw write)
+            timestamps = [1000, 2000, 5000]
+            table = pa.table({'timestamp': timestamps, 'value': [1, 2, 3]})
+            pq.write_table(table, ep_dir / 'signal.parquet')
+
+        # Duration should be computed from scanned file
+        ep = DiskEpisode(ep_dir)
+        assert ep.duration_ns == 4000  # 5000 - 1000
+
+    def test_duration_computed_from_frames_parquet(self, tmp_path):
+        """Test that duration is computed from .frames.parquet files (video signals)."""
+        ep_dir = tmp_path / 'ep_video_scan'
+
+        with DiskEpisodeWriter(ep_dir):
+            # Write a frames parquet file directly (simulating video migration)
+            timestamps = [2000, 3000, 8000]
+            table = pa.table({'ts_ns': timestamps})
+            pq.write_table(table, ep_dir / 'cam.frames.parquet')
+            # Also need to create dummy video file for completeness
+            (ep_dir / 'cam.mp4').write_bytes(b'dummy')
+
+        ep = DiskEpisode(ep_dir)
+        assert ep.duration_ns == 6000  # 8000 - 2000
