@@ -529,6 +529,17 @@ class Rotation(metaclass=RotationMeta):
         return np.allclose(self._quat, other._quat)
 
 
+def quat_closest(q: Rotation, reference: Rotation) -> Rotation:
+    """Return the equivalent quaternion closest to *reference*.
+
+    Quaternions have double cover: q and -q represent the same rotation.
+    This picks the sign that minimises the L2 distance to *reference*.
+    """
+    if np.dot(q.as_quat, reference.as_quat) < 0:
+        return Rotation.from_quat(-q.as_quat)
+    return q
+
+
 def degrees_to_radians(degrees: float) -> float:
     """
     Convert degrees to radians.
