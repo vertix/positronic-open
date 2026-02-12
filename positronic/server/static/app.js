@@ -35,9 +35,15 @@ async function checkDatasetStatus() {
 
       const urlFilters = Object.fromEntries(new URLSearchParams(window.location.search));
       filtersState.serverFilters = { ...filtersState.serverFilters, ...urlFilters };
-      const { episodes, columns, group_filters: groupFilters } = await loadEpisodes(filtersState.serverFilters);
+      const { episodes, columns, group_filters: groupFilters, default_sort: defaultSort } = await loadEpisodes(filtersState.serverFilters);
       currentEpisodes = episodes;
       filtersData = getFiltersData(episodes, columns);
+      if (defaultSort) {
+        const sortIndex = columns.findIndex((c) => c.key === defaultSort.column);
+        if (sortIndex !== -1) {
+          filtersState.sort = { columnIndex: String(sortIndex), direction: defaultSort.direction || 'desc' };
+        }
+      }
       renderServerFilters(groupFilters);
       renderClientFilters(columns);
       renderEpisodesTableHeader(columns);
@@ -126,6 +132,10 @@ function renderEpisodesTableHeader(columns) {
   }
 
   headerRow.prepend(...headerColumns);
+
+  if (sortState.columnIndex !== null) {
+    headerColumns[sortState.columnIndex]?.classList.add(`sorted-${sortState.direction}`);
+  }
 
   function sortByColumnHandler(event) {
     const headerColumn = event.currentTarget;
@@ -294,7 +304,7 @@ function populateEpisodesTable(columns) {
     } else {
       viewLink.href = `/episode/${episodeIndex}`;
     }
-    viewLink.textContent = 'View';
+    viewLink.textContent = window.VIEW_LABEL || 'View';
     viewCell.appendChild(viewLink);
     row.appendChild(viewCell);
 
@@ -305,10 +315,33 @@ function populateEpisodesTable(columns) {
     if (column.renderer?.type === 'badge') {
       return createBadge(entity, column.renderer.options?.[entity]);
     }
+    if (column.renderer?.type === 'icon') {
+      return createIconCell(entity, column.renderer.options);
+    }
 
     const value = Array.isArray(entity) ? entity[1] : entity;
 
     return value ?? '';
+  }
+
+  function createIconCell(value, options) {
+    if (value === null || value === undefined) return '';
+    const text = Array.isArray(value) ? value[1] : String(value);
+    const raw = Array.isArray(value) ? value[0] : value;
+    const cfg = options?.[raw];
+    const container = document.createElement('span');
+    container.classList.add('cell-with-icon');
+    if (cfg?.src) {
+      const img = document.createElement('img');
+      img.src = cfg.src;
+      img.alt = '';
+      img.classList.add('cell-icon');
+      container.appendChild(img);
+    }
+    const span = document.createElement('span');
+    span.textContent = cfg?.label ?? text;
+    container.appendChild(span);
+    return container;
   }
 
   function createBadge(value, options) {
