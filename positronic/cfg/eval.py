@@ -141,16 +141,16 @@ def unified_units_display(ep: Episode) -> str:
 
 
 def unified_uph(ep: Episode) -> float | None:
-    duration_hours = ep.duration_ns / 1e9 / 3600
     if 'eval.successful_items' in ep:
         items = ep['eval.successful_items']
         if items == 0:
             return None
-        return items / duration_hours
+        return items / (ep.duration_ns / 1e9 / 3600)
     if 'stacking_success' in ep:
-        if success(ep):
-            return 1 / duration_hours
-        return None
+        t = success_time(ep)
+        if t is None:
+            return None
+        return 1 / (t / 3600)
     return None
 
 
@@ -351,11 +351,11 @@ def units_sim(episode: Episode) -> int:
 
 
 def uph_sim(episode: Episode) -> float | None:
-    """Units per hour for simulation (UPH = units / (duration / 3600))."""
-    u = units_sim(episode)
-    if u == 0:
+    """Units per hour based on success_time (not full episode duration)."""
+    t = success_time(episode)
+    if t is None:
         return None
-    return u / (episode.duration_ns / 1e9 / 3600)
+    return 1 / (t / 3600)
 
 
 sim_episodes = base_cfg.transform.override(
@@ -405,16 +405,19 @@ def sim_episodes_table():
 def sim_checkpoint_table():
     """Grouped table by checkpoint with UPH and MTBF metrics."""
 
+    def _effective_duration(ep):
+        t = ep['success_time']
+        return t if t is not None else ep.duration_ns / 1e9
+
     def group_fn(episodes: list[Episode]):
         count = len(episodes)
-        total_duration = sum(ep.duration_ns / 1e9 for ep in episodes)
+        total_duration = sum(_effective_duration(ep) for ep in episodes)
         successful = [ep for ep in episodes if ep['success']]
         failed = [ep for ep in episodes if not ep['success']]
 
         successful_count = len(successful)
         failed_count = len(failed)
 
-        # UPH: total units / (total duration in hours)
         total_units = sum(ep['units'] for ep in episodes)
         uph_value = total_units / (total_duration / 3600) if total_duration > 0 else 0
 
