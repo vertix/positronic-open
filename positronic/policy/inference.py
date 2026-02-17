@@ -111,6 +111,7 @@ class Inference(pimm.ControlSystem):
                     commands_queue.clear()
                     self.robot_commands.emit(roboarm.command.Recover())
                 if in_error:
+                    yield pimm.Pass()
                     continue
 
                 if not commands_queue:

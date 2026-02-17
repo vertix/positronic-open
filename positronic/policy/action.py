@@ -29,16 +29,15 @@ def _relative_rot_vec(q_current: np.ndarray, q_target: np.ndarray, representatio
 class ActionDecoder(Derive):
     def __init__(self, *, action_fps: float, action_horizon_sec: float | None = None):
         super().__init__(action=self.encode_episode)
-        self._metadata = {}
         self.action_fps = action_fps
         self.action_horizon_sec = action_horizon_sec
+        self._metadata: dict[str, Any] = {'action_fps': action_fps}
+        if action_horizon_sec is not None:
+            self._metadata['action_horizon_sec'] = action_horizon_sec
 
     @property
     def meta(self) -> dict[str, Any]:
-        result = {**self._metadata, 'action_fps': self.action_fps}
-        if self.action_horizon_sec is not None:
-            result['action_horizon_sec'] = self.action_horizon_sec
-        return result
+        return self._metadata
 
     @meta.setter
     def meta(self, value: dict[str, Any]):
