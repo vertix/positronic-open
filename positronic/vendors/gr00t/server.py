@@ -17,7 +17,7 @@ import zmq
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from positronic.offboard.server_utils import monitor_async_task, wait_for_subprocess_ready
-from positronic.policy import Codec
+from positronic.policy import Codec, DecodedEncodedPolicy, Policy
 from positronic.utils.checkpoints import get_latest_checkpoint, list_checkpoints
 from positronic.utils.logging import init_logging
 from positronic.utils.serialization import deserialise, serialise
@@ -230,6 +230,29 @@ class Gr00tSubprocess:
 
 
 ###########################################################################################
+# Policy wrapper
+###########################################################################################
+
+
+class Gr00tPolicy(Policy):
+    """Wraps a GR00T ZMQ PolicyClient as a Policy."""
+
+    def __init__(self, client: PolicyClient):
+        self._client = client
+
+    def select_action(self, obs):
+        action_response, _info = self._client.get_action(obs)
+        action = {k: v[0] for k, v in action_response.items()}
+        lengths = {len(v) for v in action.values()}
+        assert len(lengths) == 1, f'All values in action must have the same length, got {lengths}'
+        time_horizon = lengths.pop()
+        return [{k: v[i] for k, v in action.items()} for i in range(time_horizon)]
+
+    def reset(self):
+        self._client.reset()
+
+
+###########################################################################################
 # FastAPI Inference Server
 ###########################################################################################
 
@@ -376,32 +399,21 @@ class InferenceServer:
             return
 
         try:
-            subprocess.client.reset()
+            policy = DecodedEncodedPolicy(
+                Gr00tPolicy(subprocess.client),
+                encoder=self.codec.observation.encode,
+                decoder=self.codec.action.decode,
+                action_horizon_sec=self.codec.action.action_horizon_sec,
+                action_fps=self.codec.action.action_fps,
+            )
+            policy.reset()
             try:
                 while True:
                     message = await websocket.receive_bytes()
                     try:
                         raw_obs = deserialise(message)
-                        encoded_obs = self.codec.observation.encode(raw_obs)
-                        action_response, _info = subprocess.client.get_action(encoded_obs)
-
-                        action = {k: v[0] for k, v in action_response.items()}
-                        lengths = {len(v) for v in action.values()}
-                        assert len(lengths) == 1, f'All values in action must have the same length, got {lengths}'
-                        time_horizon = lengths.pop()
-                        dt = 1.0 / self.codec.action.action_fps
-                        if self.codec.action.action_horizon_sec is not None:
-                            max_count = round(self.codec.action.action_horizon_sec * self.codec.action.action_fps)
-                            time_horizon = min(time_horizon, max_count)
-
-                        decoded_actions = []
-                        for i in range(time_horizon):
-                            step_action = {k: v[i] for k, v in action.items()}
-                            decoded = self.codec.action.decode(step_action, raw_obs)
-                            decoded['timestamp'] = i * dt
-                            decoded_actions.append(decoded)
-
-                        await websocket.send_bytes(serialise({'result': decoded_actions}))
+                        actions = policy.select_action(raw_obs)
+                        await websocket.send_bytes(serialise({'result': actions}))
                     except Exception as e:
                         logger.error(f'Error processing message: {e}')
                         logger.debug(traceback.format_exc())

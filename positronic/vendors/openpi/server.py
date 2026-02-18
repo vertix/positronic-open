@@ -15,7 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from openpi_client.websocket_client_policy import WebsocketClientPolicy
 
 from positronic.offboard.server_utils import monitor_async_task, wait_for_subprocess_ready
-from positronic.policy import Codec
+from positronic.policy import Codec, DecodedEncodedPolicy, Policy
 from positronic.utils.checkpoints import get_latest_checkpoint, list_checkpoints
 from positronic.utils.logging import init_logging
 from positronic.utils.serialization import deserialise, serialise
@@ -151,6 +151,23 @@ class OpenpiSubprocess:
                 logger.warning('OpenPI subprocess did not terminate, killing it')
                 self.process.kill()
             self.process = None
+
+
+###########################################################################################
+# Policy wrapper
+###########################################################################################
+
+
+class OpenpiPolicy(Policy):
+    """Wraps an OpenPI WebsocketClientPolicy as a Policy."""
+
+    def __init__(self, client: WebsocketClientPolicy):
+        self._client = client
+
+    def select_action(self, obs):
+        response = self._client.infer(obs)
+        actions = response['actions']
+        return [{'action': a} for a in actions]
 
 
 ###########################################################################################
@@ -293,41 +310,24 @@ class InferenceServer:
 
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
 
+            policy = DecodedEncodedPolicy(
+                OpenpiPolicy(subprocess_obj.client),
+                encoder=self.codec.observation.encode,
+                decoder=self.codec.action.decode,
+                action_horizon_sec=self.codec.action.action_horizon_sec,
+                action_fps=self.codec.action.action_fps,
+            )
+
             # Inference loop
             async for message in websocket.iter_bytes():
                 try:
-                    # Deserialize observation from client
                     raw_obs = deserialise(message)
-
-                    # Encode observation using codec
-                    encoded_obs = self.codec.observation.encode(raw_obs)
-
-                    # TODO: Wrap in asyncio.to_thread() to avoid blocking the async loop
-                    # during concurrent sessions. Currently not an issue for single-client use.
-                    openpi_response = subprocess_obj.client.infer(encoded_obs)
-
-                    # Decode actions using codec
-                    # OpenPI returns actions with shape (chunk_size, action_dim),
-                    # decode each timestep and truncate to action_horizon_sec
-                    actions = openpi_response['actions']
-                    dt = 1.0 / self.codec.action.action_fps
-                    if self.codec.action.action_horizon_sec is not None:
-                        max_count = round(self.codec.action.action_horizon_sec * self.codec.action.action_fps)
-                        actions = actions[:max_count]
-                    decoded_actions = [
-                        self.codec.action.decode({'action': a}, raw_obs) | {'timestamp': i * dt}
-                        for i, a in enumerate(actions)
-                    ]
-
-                    # Send to client
-                    await websocket.send_bytes(serialise({'result': decoded_actions}))
-                    logger.info(f'Sent {len(decoded_actions)} actions to client')
-
+                    actions = policy.select_action(raw_obs)
+                    await websocket.send_bytes(serialise({'result': actions}))
                 except Exception as e:
                     logger.error(f'Error processing message: {e}')
                     logger.error(traceback.format_exc())
-                    error_response = {'error': str(e)}
-                    await websocket.send_bytes(serialise(error_response))
+                    await websocket.send_bytes(serialise({'error': str(e)}))
 
         except (WebSocketDisconnect, Exception) as e:
             logger.info(f'Connection closed: {e}')
