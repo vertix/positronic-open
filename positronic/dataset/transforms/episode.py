@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, final
 
 from positronic.dataset.transforms import signals
 from positronic.dataset.transforms.signals import NpSignal
@@ -22,6 +22,28 @@ class EpisodeTransform(ABC):
     def meta(self) -> dict[str, Any]:
         """Metadata for this transform. Transformed episodes can have different metadata from transform metadata."""
         return {}
+
+    @final
+    def __or__(self, other: 'EpisodeTransform') -> 'EpisodeTransform':
+        return _ChainedTransform(self, other)
+
+
+class _ChainedTransform(EpisodeTransform):
+    """Sequential composition of two transforms: left runs first, right runs on left's output."""
+
+    def __init__(self, left: EpisodeTransform, right: EpisodeTransform):
+        self._left = left
+        self._right = right
+
+    def __call__(self, episode: Episode) -> Episode:
+        return self._right(self._left(episode))
+
+    @property
+    def meta(self) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        merge_dicts(result, self._left.meta)
+        merge_dicts(result, self._right.meta)
+        return result
 
 
 class _LazyDeriveEpisode(Episode):
@@ -67,11 +89,16 @@ class Derive(EpisodeTransform):
         )
     """
 
-    def __init__(self, **transforms: Callable[[Episode], Any]):
+    def __init__(self, *, meta: dict[str, Any] | None = None, **transforms: Callable[[Episode], Any]):
         self._transforms = transforms
+        self._meta = meta or {}
 
     def __call__(self, episode: Episode) -> Episode:
         return _LazyDeriveEpisode(episode, self._transforms)
+
+    @property
+    def meta(self) -> dict[str, Any]:
+        return self._meta
 
 
 class _LazyMergedEpisode(Episode):
@@ -192,14 +219,20 @@ class Identity(EpisodeTransform):
         Identity()  # Pass through all keys unchanged
     """
 
-    def __init__(self, select: list[str] = None, remove: list[str] = None):
+    def __init__(self, select: list[str] = None, remove: list[str] = None, *, meta: dict[str, Any] | None = None):
         """
         Args:
             select: Keys to include. If empty, returns the original episode unchanged.
             remove: Keys to exclude.
+            meta: Optional metadata dict surfaced via the `meta` property.
         """
         self._select = set(select or [])
         self._remove = set(remove or [])
+        self._meta = meta or {}
+
+    @property
+    def meta(self) -> dict[str, Any]:
+        return self._meta
 
     def __call__(self, episode: Episode) -> Episode:
         if not self._select and not self._remove:

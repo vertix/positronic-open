@@ -17,7 +17,7 @@ import zmq
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from positronic.offboard.server_utils import monitor_async_task, wait_for_subprocess_ready
-from positronic.policy import Codec, DecodedEncodedPolicy, Policy
+from positronic.policy import Codec, Policy
 from positronic.utils.checkpoints import get_latest_checkpoint, list_checkpoints
 from positronic.utils.logging import init_logging
 from positronic.utils.serialization import deserialise, serialise
@@ -290,10 +290,6 @@ class InferenceServer:
             'modality_config': modality_config,
             'experiment_name': checkpoints_dir.rstrip('/').split('/')[-1] or '',
         }
-        if hasattr(self.codec.observation, 'meta'):
-            self.metadata.update({f'observation.{k}': v for k, v in self.codec.observation.meta.items()})
-        if hasattr(self.codec.action, 'meta'):
-            self.metadata.update({f'action.{k}': v for k, v in self.codec.action.meta.items()})
 
         self.app = FastAPI()
         self.app.get('/api/v1/models')(self.get_models)
@@ -399,13 +395,7 @@ class InferenceServer:
             return
 
         try:
-            policy = DecodedEncodedPolicy(
-                Gr00tPolicy(subprocess.client),
-                encoder=self.codec.observation.encode,
-                decoder=self.codec.action.decode,
-                action_horizon_sec=self.codec.action.action_horizon_sec,
-                action_fps=self.codec.action.action_fps,
-            )
+            policy = self.codec.wrap(Gr00tPolicy(subprocess.client))
             policy.reset()
             try:
                 while True:
@@ -438,8 +428,8 @@ class InferenceServer:
         """Run one warmup inference to trigger JIT compilation."""
         try:
             logger.info('Running warmup inference...')
-            dummy = self.codec.observation.dummy_input()
-            encoded = self.codec.observation.encode(dummy)
+            dummy = self.codec.dummy_input()
+            encoded = self.codec.encode(dummy)
             await asyncio.to_thread(self.subprocess.client.reset)
             await asyncio.to_thread(self.subprocess.client.get_action, encoded)
             logger.info('Warmup inference complete')

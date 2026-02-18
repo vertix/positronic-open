@@ -1,4 +1,5 @@
-from .base import Codec, DecodedEncodedPolicy, Policy, SampledPolicy
+from .base import Policy, SampledPolicy
+from .codec import ActionTiming, Codec
 from .remote import RemotePolicy
 
-__all__ = ['Policy', 'SampledPolicy', 'RemotePolicy', 'DecodedEncodedPolicy', 'Codec']
+__all__ = ['Policy', 'SampledPolicy', 'RemotePolicy', 'Codec', 'ActionTiming']

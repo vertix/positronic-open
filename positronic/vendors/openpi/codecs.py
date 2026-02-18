@@ -8,12 +8,11 @@ OpenPI has different key format expectations for training vs inference:
 - **Inference (OpenPI format)**: Slash-separated keys like `observation/state`, `observation/image`.
   This is what OpenPI's policy classes (e.g., `positronic_policy.py`) expect at inference time.
 
-The `OpenpiObservationEncoder` class handles both cases:
-- `__call__` (training): Produces LeRobot-compatible format with dot-separated keys
+The `OpenpiObservationCodec` class handles both cases:
 - `encode()` (inference): Produces OpenPI-compatible format with slash-separated keys
+- `training_encoder` (training): Produces LeRobot-compatible format with dot-separated keys
 
 Note: `droid` codec is inference-only, designed to work with pretrained DROID models.
-It doesn't need training support since we don't generate DROID-format training data.
 """
 
 from functools import partial
@@ -27,10 +26,11 @@ from positronic.cfg import codecs
 from positronic.dataset import Signal, transforms
 from positronic.dataset.episode import Episode
 from positronic.dataset.transforms import image
-from positronic.policy.observation import ObservationEncoder
+from positronic.dataset.transforms.episode import Derive
+from positronic.policy.codec import Codec, lerobot_image, lerobot_state
 
 
-class OpenpiObservationEncoder(ObservationEncoder):
+class OpenpiObservationCodec(Codec):
     """Observation encoder that outputs LeRobot keys for training, OpenPI keys for inference."""
 
     def __init__(
@@ -45,61 +45,30 @@ class OpenpiObservationEncoder(ObservationEncoder):
         self._wrist_camera = wrist_camera
         self._image_size = image_size
 
-        # Define transforms for training (derive from Episode) using LeRobot keys (dot-separated)
-        super().__init__(**{
+        self._derive_transforms = {
             'observation.state': self._derive_state,
             'observation.images.left': partial(self._derive_image, wrist_camera),
             'observation.images.side': partial(self._derive_image, exterior_camera),
-        })
+        }
 
         state_dim = sum(state_features.values())
         w, h = image_size
-        self._metadata: dict[str, Any] = {
+        self._training_meta: dict[str, Any] = {
             'lerobot_features': {
-                'observation.state': {'shape': (state_dim,), 'names': list(state_features.keys()), 'dtype': 'float32'},
-                'observation.images.left': {
-                    'shape': (h, w, 3),
-                    'names': ['height', 'width', 'channel'],
-                    'dtype': 'video',
-                },
-                'observation.images.side': {
-                    'shape': (h, w, 3),
-                    'names': ['height', 'width', 'channel'],
-                    'dtype': 'video',
-                },
+                'observation.state': lerobot_state(state_dim, list(state_features.keys())),
+                'observation.images.left': lerobot_image(w, h),
+                'observation.images.side': lerobot_image(w, h),
             }
         }
 
-    @property
-    def meta(self) -> dict[str, Any]:
-        return self._metadata
-
     def _derive_state(self, episode: Episode) -> Signal[Any]:
-        """Concatenate state features into a single vector."""
         return transforms.concat(*[episode[key] for key in self._state_features], dtype=np.float32)
 
     def _derive_image(self, input_key: str, episode: Episode) -> Signal[Any]:
-        """Resize image to target size."""
         w, h = self._image_size
         return image.resize_with_pad(w, h, signal=episode[input_key])
 
     def encode(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        """Encode raw robot inputs into OpenPI format for inference.
-
-        Args:
-            inputs: Dict with keys matching state_features (e.g., 'robot_state.ee_pose', 'grip'),
-                   plus camera keys (e.g., 'image.wrist', 'image.exterior') and optional 'task'.
-
-        Returns:
-            Dict with OpenPI slash-separated keys:
-            {
-                'observation/state': np.ndarray,
-                'observation/image': np.ndarray (exterior camera),
-                'observation/wrist_image': np.ndarray,
-                'prompt': str (optional),
-            }
-        """
-        # Encode state vector (concatenate all state features)
         state_parts: list[np.ndarray] = []
         for feature_key in self._state_features:
             if feature_key not in inputs:
@@ -116,7 +85,6 @@ class OpenpiObservationEncoder(ObservationEncoder):
         return obs
 
     def _encode_image(self, input_key: str, inputs: dict[str, Any]) -> np.ndarray:
-        """Encode and resize a single image for inference."""
         if input_key not in inputs:
             raise KeyError(f"Missing image input '{input_key}', available keys: {list(inputs.keys())}")
         frame = inputs[input_key]
@@ -135,8 +103,9 @@ class OpenpiObservationEncoder(ObservationEncoder):
         dummy['task'] = 'warmup'
         return dummy
 
-
-# ===== Observation Encoder Configs =====
+    @property
+    def training_encoder(self):
+        return Derive(meta=self._training_meta, **self._derive_transforms)
 
 
 @cfn.config(
@@ -147,19 +116,15 @@ class OpenpiObservationEncoder(ObservationEncoder):
 )
 def observation(state_features: dict[str, int], exterior_camera: str, wrist_camera: str, image_size: tuple[int, int]):
     """General OpenPI observation encoder with configurable state features."""
-    return OpenpiObservationEncoder(
+    return OpenpiObservationCodec(
         state_features=state_features, exterior_camera=exterior_camera, wrist_camera=wrist_camera, image_size=image_size
     )
 
 
-# EE pose + grip (default config)
 eepose_observation = observation
-
-# EE pose + grip + joint positions
 eepose_q_observation = observation.override(state_features={'robot_state.ee_pose': 7, 'grip': 1, 'robot_state.q': 7})
 
-# DROID: inference-only, uses base general config with DROID-specific keys
-droid_observation = codecs.general.override(
+droid_observation = codecs.general_obs.override(
     state_name='observation/joint_position',
     state_features={'robot_state.q': 7, 'grip': 1},
     image_mappings={
@@ -170,25 +135,18 @@ droid_observation = codecs.general.override(
     task_field='prompt',
 )
 
+eepose = codecs.codec.override(observation=eepose_observation, action=codecs.absolute_pos_action(rotation_rep=None))
 
-# ===== Combined Codec Configs (observation + action pairs) =====
+eepose_q = codecs.codec.override(observation=eepose_q_observation, action=codecs.absolute_pos_action(rotation_rep=None))
 
-# EE pose + grip -> absolute position (primary codec for training and inference)
-eepose = codecs.codec.override(observation=eepose_observation, action=codecs.absolute_position(rotation_rep=None))
-
-# EE pose + grip + joint positions -> absolute position
-eepose_q = codecs.codec.override(observation=eepose_q_observation, action=codecs.absolute_position(rotation_rep=None))
-
-# Trajectory variants: use actual robot trajectory as action target instead of commanded targets
 eepose_traj = codecs.codec.override(
     observation=eepose_observation,
-    action=codecs.absolute_position(rotation_rep=None, tgt_ee_pose_key='robot_state.ee_pose', tgt_grip_key='grip'),
+    action=codecs.absolute_pos_action(rotation_rep=None, tgt_ee_pose_key='robot_state.ee_pose', tgt_grip_key='grip'),
 )
 
 eepose_q_traj = codecs.codec.override(
     observation=eepose_q_observation,
-    action=codecs.absolute_position(rotation_rep=None, tgt_ee_pose_key='robot_state.ee_pose', tgt_grip_key='grip'),
+    action=codecs.absolute_pos_action(rotation_rep=None, tgt_ee_pose_key='robot_state.ee_pose', tgt_grip_key='grip'),
 )
 
-# DROID codec for inference with pretrained DROID models (inference-only)
-droid = codecs.codec.override(observation=droid_observation, action=codecs.joint_delta(num_joints=7))
+droid = codecs.codec.override(observation=droid_observation, action=codecs.joint_delta_action(num_joints=7))

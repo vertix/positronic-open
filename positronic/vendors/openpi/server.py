@@ -15,7 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from openpi_client.websocket_client_policy import WebsocketClientPolicy
 
 from positronic.offboard.server_utils import monitor_async_task, wait_for_subprocess_ready
-from positronic.policy import Codec, DecodedEncodedPolicy, Policy
+from positronic.policy import Codec, Policy
 from positronic.utils.checkpoints import get_latest_checkpoint, list_checkpoints
 from positronic.utils.logging import init_logging
 from positronic.utils.serialization import deserialise, serialise
@@ -301,22 +301,10 @@ class InferenceServer:
             subprocess_obj = await self._get_subprocess(resolved_checkpoint_id, websocket)
 
             # Send ready with metadata
-            meta = {**self.metadata, 'checkpoint_id': resolved_checkpoint_id}
-            # Add codec metadata if available
-            if hasattr(self.codec.observation, 'meta'):
-                meta.update(self.codec.observation.meta)
-            if hasattr(self.codec.action, 'meta'):
-                meta.update(self.codec.action.meta)
-
+            meta = {**self.metadata, 'checkpoint_id': resolved_checkpoint_id, **self.codec.meta}
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
 
-            policy = DecodedEncodedPolicy(
-                OpenpiPolicy(subprocess_obj.client),
-                encoder=self.codec.observation.encode,
-                decoder=self.codec.action.decode,
-                action_horizon_sec=self.codec.action.action_horizon_sec,
-                action_fps=self.codec.action.action_fps,
-            )
+            policy = self.codec.wrap(OpenpiPolicy(subprocess_obj.client))
 
             # Inference loop
             async for message in websocket.iter_bytes():
@@ -355,8 +343,8 @@ class InferenceServer:
         """Run one warmup inference to trigger JIT compilation."""
         try:
             logger.info('Running warmup inference...')
-            dummy = self.codec.observation.dummy_input()
-            encoded = self.codec.observation.encode(dummy)
+            dummy = self.codec.dummy_input()
+            encoded = self.codec.encode(dummy)
             await asyncio.to_thread(subprocess_obj.client.infer, encoded)
             logger.info('Warmup inference complete')
         except Exception:
