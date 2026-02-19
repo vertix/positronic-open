@@ -32,6 +32,8 @@ class ObservationCodec(Codec):
 
         self._derive_transforms = {k: partial(self._derive_state, k) for k in state.keys()}
         self._derive_transforms.update({k: partial(self._derive_image, k) for k in images.keys()})
+        if task_field:
+            self._derive_transforms['task'] = lambda ep: ep['task'] if 'task' in ep else ''
 
         lerobot_features: dict[str, Any] = {}
         for name, features in state.items():

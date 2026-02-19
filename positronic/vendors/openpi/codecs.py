@@ -49,6 +49,7 @@ class OpenpiObservationCodec(Codec):
             'observation.state': self._derive_state,
             'observation.images.left': partial(self._derive_image, wrist_camera),
             'observation.images.side': partial(self._derive_image, exterior_camera),
+            'task': lambda ep: ep['task'] if 'task' in ep else '',
         }
 
         state_dim = sum(state_features.values())

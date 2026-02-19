@@ -258,9 +258,8 @@ def test_inference_clears_queue_on_reset_stepwise(world, clock):
     # 2. Emit Inputs -> Policy returns chunk 1 [100 ... 109]
     emit_ready_payload(frame_em, robot_em, grip_em, robot_state)
 
-    # Run enough steps to consume SOME but NOT ALL of current chunk
-    # e.g. 3 steps -> emits 100, 101, 102. Queue has 103..109
-    drive_scheduler(scheduler, clock=clock, steps=3)
+    # Each action takes 2 yields (Sleep + Pass). Run 5 steps to emit 2 actions and start 3rd.
+    drive_scheduler(scheduler, clock=clock, steps=5)
 
     # Verify we are consuming the chunk
     val = grip_rx.read().data
@@ -280,8 +279,8 @@ def test_inference_clears_queue_on_reset_stepwise(world, clock):
     # 5. Emit Inputs -> Policy returns chunk 2 [200 ... 209]
     emit_ready_payload(frame_em, robot_em, grip_em, robot_state)
 
-    # Run 2 steps: 1 to process inputs, 1 to emit first action of NEW chunk
-    drive_scheduler(scheduler, clock=clock, steps=2)
+    # 2 yields per action: need 4 steps to call policy + emit first action
+    drive_scheduler(scheduler, clock=clock, steps=4)
 
     # 6. Check emission.
     # If queue cleared: should be 200.0 (first of new chunk)
@@ -313,9 +312,8 @@ def test_inference_clears_queue_on_start_stepwise(world, clock):
     # 2. Emit Inputs -> Policy returns chunk 1 [100 ... 109]
     emit_ready_payload(frame_em, robot_em, grip_em, robot_state)
 
-    # Run enough steps to consume SOME but NOT ALL of current chunk
-    # e.g. 3 steps -> emits 100, 101, 102. Queue has 103..109
-    drive_scheduler(scheduler, clock=clock, steps=3)
+    # Each action takes 2 yields (Sleep + Pass). Run 5 steps to emit 2 actions and start 3rd.
+    drive_scheduler(scheduler, clock=clock, steps=5)
 
     # Verify recent emission is from chunk 1
     val = grip_rx.read().data
@@ -330,8 +328,8 @@ def test_inference_clears_queue_on_start_stepwise(world, clock):
     # 4. Emit Inputs -> Policy returns chunk 2 [200 ... 209]
     emit_ready_payload(frame_em, robot_em, grip_em, robot_state)
 
-    # Run 2 steps: 1 to select action (replenish queue), 1 to emit
-    drive_scheduler(scheduler, clock=clock, steps=2)
+    # 2 yields per action: need 4 steps to call policy + emit first action
+    drive_scheduler(scheduler, clock=clock, steps=4)
 
     # 5. Check emission.
     # If queue cleared: should be 200.0 (first of new chunk)

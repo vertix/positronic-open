@@ -118,7 +118,7 @@ class TestGrootCodec:
         """Test that codec outputs correct keys for training."""
         codec = GrootCodec(rotation_rep=None, include_joints=False)
 
-        expected = {'ee_pose', 'grip', 'wrist_image', 'exterior_image_1', 'action'}
+        expected = {'ee_pose', 'grip', 'wrist_image', 'exterior_image_1', 'action', 'task'}
         assert set(codec._derive_transforms.keys()) == expected
 
     def test_output_keys_with_joints(self):

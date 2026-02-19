@@ -55,6 +55,7 @@ class GrootCodec(Codec):
             'wrist_image': partial(self._derive_image, wrist_camera),
             'exterior_image_1': partial(self._derive_image, exterior_camera),
             'action': self._derive_action,
+            'task': lambda ep: ep['task'] if 'task' in ep else '',
         }
         if include_joints:
             self._derive_transforms['joint_position'] = self._derive_joints
