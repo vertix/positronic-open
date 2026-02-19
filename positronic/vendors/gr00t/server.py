@@ -428,10 +428,8 @@ class InferenceServer:
         """Run one warmup inference to trigger JIT compilation."""
         try:
             logger.info('Running warmup inference...')
-            dummy = self.codec.dummy_input()
-            encoded = self.codec.encode(dummy)
             await asyncio.to_thread(self.subprocess.client.reset)
-            await asyncio.to_thread(self.subprocess.client.get_action, encoded)
+            await asyncio.to_thread(self.subprocess.client.get_action, self.codec.dummy_encoded())
             logger.info('Warmup inference complete')
         except Exception:
             logger.warning('Warmup inference failed (non-fatal)', exc_info=True)

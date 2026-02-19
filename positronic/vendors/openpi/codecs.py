@@ -94,15 +94,16 @@ class OpenpiObservationCodec(Codec):
         w, h = self._image_size
         return image.resize_with_pad_per_frame(w, h, PilImage.Resampling.BILINEAR, frame)
 
-    def dummy_input(self) -> dict[str, Any]:
-        dummy: dict[str, Any] = {}
-        for key, dim in self._state_features.items():
-            dummy[key] = np.zeros(dim, dtype=np.float32)
+    def dummy_encoded(self, data=None) -> dict[str, Any]:
+        """Return a zero-filled encoded observation in OpenPI's slash-separated format."""
+        state_dim = sum(self._state_features.values())
         w, h = self._image_size
-        dummy[self._wrist_camera] = np.zeros((h, w, 3), dtype=np.uint8)
-        dummy[self._exterior_camera] = np.zeros((h, w, 3), dtype=np.uint8)
-        dummy['task'] = 'warmup'
-        return dummy
+        return {
+            'observation/state': np.zeros(state_dim, dtype=np.float32),
+            'observation/wrist_image': np.zeros((h, w, 3), dtype=np.uint8),
+            'observation/image': np.zeros((h, w, 3), dtype=np.uint8),
+            'prompt': 'warmup',
+        }
 
     @property
     def training_encoder(self):

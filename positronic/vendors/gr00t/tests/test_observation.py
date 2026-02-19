@@ -171,12 +171,13 @@ class TestGrootCodec:
     @pytest.mark.parametrize(
         'rotation_rep, include_joints', [(None, False), (RotRep.ROT6D, False), (None, True), (RotRep.ROT6D, True)]
     )
-    def test_dummy_input_roundtrip(self, rotation_rep, include_joints):
-        """Test that encode(dummy_input()) succeeds for all codec variants."""
+    def test_dummy_encoded_shape(self, rotation_rep, include_joints):
+        """Test that dummy_encoded() produces valid encoded observations for all variants."""
         codec = GrootCodec(rotation_rep=rotation_rep, include_joints=include_joints)
-        result = codec.encode(codec.dummy_input())
+        result = codec.dummy_encoded()
         assert 'video' in result
         assert 'state' in result
+        assert 'language' in result
 
     def test_custom_camera_keys(self, sample_inputs):
         """Test custom camera key mapping."""

@@ -133,17 +133,24 @@ class GrootCodec(Codec):
         w, h = self._image_size
         return image.resize_with_pad_per_frame(w, h, PilImage.Resampling.BILINEAR, frame)
 
-    def dummy_input(self) -> dict[str, Any]:
-        dummy: dict[str, Any] = {}
-        dummy['robot_state.ee_pose'] = geom.Transform3D.identity.as_vector(RotRep.QUAT).astype(np.float32)
-        dummy['grip'] = np.zeros(1, dtype=np.float32)
-        if self._include_joints:
-            dummy['robot_state.q'] = np.zeros(7, dtype=np.float32)
+    def dummy_encoded(self, data=None) -> dict[str, Any]:
+        """Return a zero-filled encoded observation in GR00T's nested format."""
+        ee_dim = self._rotation_rep.size + 3 if self._rotation_rep else 7
         w, h = self._image_size
-        dummy[self._wrist_camera] = np.zeros((h, w, 3), dtype=np.uint8)
-        dummy[self._exterior_camera] = np.zeros((h, w, 3), dtype=np.uint8)
-        dummy['task'] = 'warmup'
-        return dummy
+        state: dict[str, Any] = {
+            'ee_pose': np.zeros((1, 1, ee_dim), dtype=np.float32),
+            'grip': np.zeros((1, 1, 1), dtype=np.float32),
+        }
+        if self._include_joints:
+            state['joint_position'] = np.zeros((1, 1, 7), dtype=np.float32)
+        return {
+            'video': {
+                'wrist_image': np.zeros((1, 1, h, w, 3), dtype=np.uint8),
+                'exterior_image_1': np.zeros((1, 1, h, w, 3), dtype=np.uint8),
+            },
+            'state': state,
+            'language': {'annotation.language.language_instruction': [['warmup']]},
+        }
 
     def encode(self, inputs: dict[str, Any]) -> dict[str, Any]:
         ee_pose = self._encode_ee_pose(inputs)

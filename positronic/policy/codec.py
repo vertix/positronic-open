@@ -58,8 +58,15 @@ class Codec(ABC):
     def meta(self) -> dict:
         return {}
 
-    def dummy_input(self) -> dict | None:
-        return None
+    def dummy_encoded(self, data: dict | None = None) -> dict:
+        """Return a dummy version of what ``encode()`` would produce.
+
+        Each codec contributes its part of the encoded output. The default
+        pass-through returns the input unchanged — codecs that don't transform
+        observations (action decoders, timing) inherit this behavior.
+        Composed codecs pipeline left-to-right, mirroring ``encode()``.
+        """
+        return data or {}
 
     @final
     def wrap(self, policy: Policy) -> Policy:
@@ -94,8 +101,8 @@ class _ComposedCodec(Codec):
         merge_dicts(result, self._right.meta)
         return result
 
-    def dummy_input(self):
-        return self._left.dummy_input() or self._right.dummy_input()
+    def dummy_encoded(self, data=None):
+        return self._right.dummy_encoded(self._left.dummy_encoded(data))
 
 
 class ActionTiming(Codec):
