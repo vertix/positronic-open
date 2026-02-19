@@ -10,16 +10,27 @@ from .base import Policy
 
 
 class RemotePolicy(Policy):
-    """
-    A policy that forwards observations to a remote inference server using the
-    Positronic Inference Protocol.
+    """Policy that forwards observations to a remote inference server.
+
+    The server returns action chunks with embedded timestamps. ``horizon_sec``
+    truncates chunks on the client side so only actions within the given time
+    window are executed (e.g. ``horizon_sec=0.5`` keeps the first 0.5 s of each
+    chunk). When ``None``, the full chunk from the server is used as-is.
     """
 
-    def __init__(self, host: str, port: int, resize: int | None = None, model_id: str | None = None):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        resize: int | None = None,
+        model_id: str | None = None,
+        horizon_sec: float | None = None,
+    ):
         self._client = InferenceClient(host, port)
         self.__session: InferenceSession | None = None
         self._resize = resize
         self._model_id = model_id
+        self._horizon_sec = horizon_sec
 
     def reset(self):
         """
@@ -64,7 +75,10 @@ class RemotePolicy(Policy):
         Forwards the observation to the remote server and returns the action.
         Uses client-side buffering if the server returns a chunk of actions.
         """
-        return self._session.infer(self._prepare_obs(obs))
+        actions = self._session.infer(self._prepare_obs(obs))
+        if self._horizon_sec is not None and isinstance(actions, list):
+            actions = [a for a in actions if a.get('timestamp', 0.0) < self._horizon_sec]
+        return actions
 
     @property
     def meta(self) -> dict[str, Any]:

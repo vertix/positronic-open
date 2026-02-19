@@ -59,8 +59,10 @@ def sample(origins: list[cfn.Config], weights: list[float] | None):
     return SampledPolicy(*origins, weights=weights)
 
 
-@cfn.config(host='localhost', port=8000, resize=640, model_id=None)
-def remote(host: str, port: int, resize: int | None = None, model_id: str | None = None):
+@cfn.config(host='localhost', port=8000, resize=640, model_id=None, horizon_sec=None)
+def remote(
+    host: str, port: int, resize: int | None = None, model_id: str | None = None, horizon_sec: float | None = None
+):
     from positronic.policy.remote import RemotePolicy
 
-    return RemotePolicy(host, port, resize, model_id=model_id)
+    return RemotePolicy(host, port, resize, model_id=model_id, horizon_sec=horizon_sec)
