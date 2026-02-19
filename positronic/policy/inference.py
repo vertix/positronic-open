@@ -143,14 +143,13 @@ class Inference(pimm.ControlSystem):
                     return
 
                 roboarm_cmd, target_grip, scheduled_time = commands_queue.popleft()
-                wait = max(0.0, scheduled_time - clock.now())
-                yield pimm.Sleep(wait)
+                yield pimm.Sleep(max(0.0, scheduled_time - clock.now()))
 
                 self.robot_commands.emit(roboarm_cmd)
                 self.target_grip.emit(target_grip)
             except pimm.NoValueException:
                 pass
             finally:
-                yield pimm.Pass()
+                yield pimm.Sleep(0.01)
 
         self.policy.close()

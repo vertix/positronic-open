@@ -179,15 +179,15 @@ def test_inference_waits_for_complete_inputs(world, clock):
         assert policy.last_obs is None
 
     # First send robot/grip without a frame (inference should block), then the full payload.
-    # All sleeps are 0.0 so the priority-queue scheduler alternates fairly between
-    # Inference (which yields Pass) and ManualDriver.
+    # Inference sleeps 10ms on idle iterations, so ManualDriver steps need matching delays
+    # to keep the priority-queue scheduler interleaving fairly.
     driver = ManualDriver([
-        (partial(command_em.emit, InferenceCommand.START(task='dummy-task')), 0.0),
-        (partial(robot_em.emit, robot_state), 0.0),
-        (partial(grip_em.emit, 0.25), 0.0),
-        (assert_no_outputs, 0.0),  # still missing a frame
-        (partial(emit_ready_payload, frame_em, robot_em, grip_em, robot_state), 0.0),
-        (None, 0.0),
+        (partial(command_em.emit, InferenceCommand.START(task='dummy-task')), 0.01),
+        (partial(robot_em.emit, robot_state), 0.01),
+        (partial(grip_em.emit, 0.25), 0.01),
+        (assert_no_outputs, 0.01),  # still missing a frame
+        (partial(emit_ready_payload, frame_em, robot_em, grip_em, robot_state), 0.01),
+        (None, 0.01),
     ])
 
     scheduler = world.start([inference, driver])

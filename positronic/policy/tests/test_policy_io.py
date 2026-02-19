@@ -258,3 +258,26 @@ def test_codec_wrap_meta_merges():
     assert meta['base_key'] == 'base_value'
     assert meta['action_fps'] == 15.0
     assert meta['action_horizon_sec'] == 1.0
+
+
+def test_timestamps_survive_action_decoder_composition():
+    """Timestamps from ActionTiming must survive through composed action decoders."""
+    action_codec = AbsolutePositionAction('robot_commands.pose', 'target_grip', Rotation.Representation.QUAT)
+    timing = ActionTiming(fps=15.0, horizon=1.0)
+    composed = timing | action_codec
+
+    # Build a raw action vector: 4 quat + 3 trans + 1 grip = 8
+    raw_action = np.zeros(8, dtype=np.float32)
+    raw_action[:4] = Rotation.identity.as_quat
+    raw_action[4:7] = [0.1, 0.2, 0.3]
+    raw_action[7] = 0.5
+
+    raw_chunk = [{'action': raw_action} for _ in range(5)]
+    decoded = composed.decode(raw_chunk)
+
+    assert len(decoded) == 5
+    for i, action in enumerate(decoded):
+        assert 'robot_command' in action
+        assert 'target_grip' in action
+        assert 'timestamp' in action, f'Action {i} missing timestamp — stripped by action decoder'
+        assert action['timestamp'] == pytest.approx(i / 15.0)
