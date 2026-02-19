@@ -52,58 +52,38 @@ class PositronicEnvConfig(EnvConfig):
 
 
 def build_env_config_from_codec(codec: Codec) -> PositronicEnvConfig:
-    """Build PositronicEnvConfig from codec metadata with validation.
-
-    Args:
-        codec: Codec instance (composable)
-
-    Returns:
-        PositronicEnvConfig with features derived from codec metadata
-
-    Raises:
-        ValueError: If codec metadata is missing or invalid
-    """
+    """Build PositronicEnvConfig from codec metadata."""
     inference_meta = codec.meta
     training_meta = codec.training_encoder.meta
 
     fps = int(inference_meta.get('action_fps', 15))
 
-    if 'lerobot_features' not in training_meta:
-        raise ValueError(
-            f"Codec training_encoder missing 'lerobot_features' metadata. "
-            f'Available meta keys: {list(training_meta.keys())}'
-        )
-
+    assert 'lerobot_features' in training_meta, (
+        f"Codec training_encoder missing 'lerobot_features'. Keys: {list(training_meta.keys())}"
+    )
     lerobot_features = training_meta['lerobot_features']
 
     features = {}
     features_map = {}
 
     for key, meta in lerobot_features.items():
-        if 'shape' not in meta:
-            raise ValueError(f"Feature '{key}' missing 'shape' in metadata: {meta}")
-
+        assert 'shape' in meta, f"Feature '{key}' missing 'shape' in metadata: {meta}"
         dtype = meta.get('dtype', 'float32')
 
-        if key == 'action':
-            features[key] = PolicyFeature(type=FeatureType.ACTION, shape=meta['shape'])
-            features_map[key] = ACTION
-        elif dtype in ('float32', 'float64', 'int32', 'int64'):
-            features[key] = PolicyFeature(type=FeatureType.STATE, shape=meta['shape'])
-            features_map[key] = OBS_STATE
-        elif dtype == 'video':
-            if len(meta['shape']) != 3:
-                raise ValueError(f"Visual feature '{key}' expected shape (H, W, C), got {meta['shape']}")
-            h, w, c = meta['shape']
-            if c != 3:
-                raise ValueError(f"Visual feature '{key}' expected 3 channels (RGB), got {c} channels")
-            features[key] = PolicyFeature(type=FeatureType.VISUAL, shape=(c, h, w))
-            features_map[key] = OBS_IMAGE
-        else:
-            raise ValueError(
-                f"Feature '{key}' has unsupported dtype '{dtype}'. "
-                f"Expected 'video', 'float32', 'float64', 'int32', or 'int64'"
-            )
+        match key, dtype:
+            case 'action', _:
+                features[key] = PolicyFeature(type=FeatureType.ACTION, shape=meta['shape'])
+                features_map[key] = ACTION
+            case _, 'video':
+                h, w, c = meta['shape']
+                assert c == 3, f"Visual feature '{key}' expected 3 channels, got {c}"
+                features[key] = PolicyFeature(type=FeatureType.VISUAL, shape=(c, h, w))
+                features_map[key] = OBS_IMAGE
+            case _, ('float32' | 'float64' | 'int32' | 'int64'):
+                features[key] = PolicyFeature(type=FeatureType.STATE, shape=meta['shape'])
+                features_map[key] = OBS_STATE
+            case _:
+                raise ValueError(f"Feature '{key}' has unsupported dtype '{dtype}'")
 
     if not features:
         raise ValueError('No features extracted from codec metadata')

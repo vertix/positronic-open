@@ -185,34 +185,13 @@ def groot(rotation_rep: str | None, include_joints: bool, tgt_ee_pose_key: str, 
     )
 
 
-ee_absolute = codecs.codec.override(observation=groot(rotation_rep=None, include_joints=False))
+ee_absolute = codecs.compose.override(obs=groot)
+ee_joints = ee_absolute.override(**{'obs.include_joints': True})
+ee_rot6d = ee_absolute.override(**{'obs.rotation_rep': 'rot6d'})
+ee_rot6d_joints = ee_absolute.override(**{'obs.rotation_rep': 'rot6d', 'obs.include_joints': True})
 
-ee_rot6d = codecs.codec.override(observation=groot(rotation_rep='rot6d', include_joints=False))
-
-ee_joints = codecs.codec.override(observation=groot(rotation_rep=None, include_joints=True))
-
-ee_rot6d_joints = codecs.codec.override(observation=groot(rotation_rep='rot6d', include_joints=True))
-
-ee_absolute_traj = codecs.codec.override(
-    observation=groot(
-        rotation_rep=None, include_joints=False, tgt_ee_pose_key='robot_state.ee_pose', tgt_grip_key='grip'
-    )
-)
-
-ee_rot6d_traj = codecs.codec.override(
-    observation=groot(
-        rotation_rep='rot6d', include_joints=False, tgt_ee_pose_key='robot_state.ee_pose', tgt_grip_key='grip'
-    )
-)
-
-ee_joints_traj = codecs.codec.override(
-    observation=groot(
-        rotation_rep=None, include_joints=True, tgt_ee_pose_key='robot_state.ee_pose', tgt_grip_key='grip'
-    )
-)
-
-ee_rot6d_joints_traj = codecs.codec.override(
-    observation=groot(
-        rotation_rep='rot6d', include_joints=True, tgt_ee_pose_key='robot_state.ee_pose', tgt_grip_key='grip'
-    )
-)
+_traj = {'obs.tgt_ee_pose_key': 'robot_state.ee_pose', 'obs.tgt_grip_key': 'grip'}
+ee_absolute_traj = ee_absolute.override(**_traj)
+ee_rot6d_traj = ee_rot6d.override(**_traj)
+ee_joints_traj = ee_joints.override(**_traj)
+ee_rot6d_joints_traj = ee_rot6d_joints.override(**_traj)

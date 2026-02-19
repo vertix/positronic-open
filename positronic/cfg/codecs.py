@@ -48,11 +48,11 @@ eepose_q_obs = eepose_grip_joints_obs.override(
 
 
 @cfn.config(action_fps=15.0, action_horizon_sec=1.0, action=None)
-def codec(observation, action, action_fps: float, action_horizon_sec: float | None):
+def compose(obs, action, action_fps: float, action_horizon_sec: float | None):
     """Compose observation and action codecs with timing via ``|``."""
     from positronic.policy.codec import ActionTiming
 
-    result = observation if action is None else observation | action
+    result = obs if action is None else obs | action
     return result | ActionTiming(fps=action_fps, horizon=action_horizon_sec)
 
 

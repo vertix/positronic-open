@@ -12,10 +12,6 @@ from positronic.drivers import roboarm
 from positronic.utils import flatten_dict, frozen_view
 
 
-def _check_error(is_error, was_error):
-    return is_error, is_error and not was_error
-
-
 class InferenceCommandType(Enum):
     """Commands for the inference."""
 
@@ -101,17 +97,14 @@ class Inference(pimm.ControlSystem):
 
             try:
                 if not running:
-                    yield pimm.Pass()
                     continue
 
-                in_error, entered_error = _check_error(
-                    self.robot_state.value.status == roboarm.RobotStatus.ERROR, in_error
-                )
-                if entered_error:
+                was_ok = not in_error
+                in_error = self.robot_state.value.status == roboarm.RobotStatus.ERROR
+                if in_error and was_ok:
                     commands_queue.clear()
                     self.robot_commands.emit(roboarm.command.Recover())
                 if in_error:
-                    yield pimm.Pass()
                     continue
 
                 if not commands_queue:
@@ -126,7 +119,6 @@ class Inference(pimm.ControlSystem):
                     # Extract array from NumpySMAdapter
                     images = {k: v.array for k, v in frame_messages.items()}
                     if len(images) != len(self.frames):
-                        yield pimm.Pass()
                         continue
                     inputs.update(images)
 
@@ -150,19 +142,15 @@ class Inference(pimm.ControlSystem):
                     logging.error('Policy returned no commands, exiting inference')
                     return
 
-                # Wait until next action is due
-                _, _, scheduled_time = commands_queue[0]
+                roboarm_cmd, target_grip, scheduled_time = commands_queue.popleft()
                 wait = max(0.0, scheduled_time - clock.now())
-                if wait > 0:
-                    yield pimm.Sleep(wait)
-                    continue
+                yield pimm.Sleep(wait)
 
-                roboarm_cmd, target_grip, _ = commands_queue.popleft()
                 self.robot_commands.emit(roboarm_cmd)
                 self.target_grip.emit(target_grip)
-                yield pimm.Pass()
-
             except pimm.NoValueException:
+                pass
+            finally:
                 yield pimm.Pass()
 
         self.policy.close()

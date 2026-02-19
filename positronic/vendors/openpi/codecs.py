@@ -121,10 +121,10 @@ def observation(state_features: dict[str, int], exterior_camera: str, wrist_came
     )
 
 
-eepose_observation = observation
-eepose_q_observation = observation.override(state_features={'robot_state.ee_pose': 7, 'grip': 1, 'robot_state.q': 7})
+eepose_obs = observation
+eepose_q_obs = observation.override(state_features={'robot_state.ee_pose': 7, 'grip': 1, 'robot_state.q': 7})
 
-droid_observation = codecs.general_obs.override(
+droid_obs = codecs.general_obs.override(
     state_name='observation/joint_position',
     state_features={'robot_state.q': 7, 'grip': 1},
     image_mappings={
@@ -135,18 +135,11 @@ droid_observation = codecs.general_obs.override(
     task_field='prompt',
 )
 
-eepose = codecs.codec.override(observation=eepose_observation, action=codecs.absolute_pos_action(rotation_rep=None))
+eepose = codecs.compose.override(obs=eepose_obs, action=codecs.absolute_pos_action)
+eepose_q = eepose.override(obs=eepose_q_obs)
 
-eepose_q = codecs.codec.override(observation=eepose_q_observation, action=codecs.absolute_pos_action(rotation_rep=None))
+_traj = {'action.tgt_ee_pose_key': 'robot_state.ee_pose', 'action.tgt_grip_key': 'grip'}
+eepose_traj = eepose.override(**_traj)
+eepose_q_traj = eepose_q.override(**_traj)
 
-eepose_traj = codecs.codec.override(
-    observation=eepose_observation,
-    action=codecs.absolute_pos_action(rotation_rep=None, tgt_ee_pose_key='robot_state.ee_pose', tgt_grip_key='grip'),
-)
-
-eepose_q_traj = codecs.codec.override(
-    observation=eepose_q_observation,
-    action=codecs.absolute_pos_action(rotation_rep=None, tgt_ee_pose_key='robot_state.ee_pose', tgt_grip_key='grip'),
-)
-
-droid = codecs.codec.override(observation=droid_observation, action=codecs.joint_delta_action(num_joints=7))
+droid = codecs.compose.override(obs=droid_obs, action=codecs.joint_delta_action)

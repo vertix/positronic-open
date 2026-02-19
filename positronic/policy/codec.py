@@ -8,7 +8,7 @@ codec that encodes left-to-right and decodes right-to-left.
 from abc import ABC, abstractmethod
 from typing import Any, final
 
-from positronic.dataset.transforms.episode import EpisodeTransform, Group, Identity
+from positronic.dataset.transforms.episode import Derive, EpisodeTransform, Group
 from positronic.policy.base import Policy
 from positronic.utils import merge_dicts
 
@@ -52,7 +52,7 @@ class Codec(ABC):
 
     @property
     def training_encoder(self) -> EpisodeTransform:
-        return Identity()
+        return Derive()
 
     @property
     def meta(self) -> dict:
@@ -99,7 +99,7 @@ class _ComposedCodec(Codec):
 
 
 class ActionTiming(Codec):
-    """Attaches timing metadata to decoded actions.
+    """Attaches timings to decoded actions and truncates action sequences to a specified horizon.
 
     At inference time, truncates action chunks to ``horizon`` seconds and stamps each action
     with a ``timestamp`` field. At training time, surfaces ``action_fps`` (and optionally
@@ -126,7 +126,7 @@ class ActionTiming(Codec):
 
     @property
     def training_encoder(self) -> EpisodeTransform:
-        return Identity(meta=self.meta)
+        return Derive(meta=self.meta)
 
     @property
     def meta(self):
