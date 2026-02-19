@@ -37,6 +37,14 @@ class Codec(ABC):
     Subclasses implement ``encode`` (observation encoding or pass-through for action codecs)
     and optionally ``_decode_single`` (action decoding). The ``training_encoder`` property
     returns an ``EpisodeTransform`` used by the training pipeline to derive dataset columns.
+
+    Reserved ``meta`` key (part of the remote inference protocol):
+
+    ``image_sizes``
+        Expected image dimensions for raw observation inputs. Used by ``RemotePolicy``
+        to downscale images before sending them to the server, reducing bandwidth.
+        Either a ``(width, height)`` tuple (same size for all images) or a dict mapping
+        raw input keys to ``(width, height)`` tuples (per-image sizes).
     """
 
     @abstractmethod

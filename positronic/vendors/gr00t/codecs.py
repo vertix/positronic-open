@@ -180,6 +180,10 @@ class GrootCodec(Codec):
         }
 
     @property
+    def meta(self):
+        return {'image_sizes': self._image_size}
+
+    @property
     def training_encoder(self):
         return Derive(meta=self._training_meta, **self._derive_transforms)
 
