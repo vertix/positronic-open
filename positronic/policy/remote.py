@@ -43,8 +43,15 @@ class RemotePolicy(Policy):
         self.close()
         self.__session = self._client.new_session(model_id=self._model_id)
         sizes = self.__session.metadata.get('image_sizes')
-        self._default_image_size = sizes if isinstance(sizes, tuple) else None
-        self._image_sizes = sizes if isinstance(sizes, dict) else {}
+        if isinstance(sizes, dict):
+            self._image_sizes = {k: tuple(v) for k, v in sizes.items()}
+            self._default_image_size = None
+        elif isinstance(sizes, tuple | list):
+            self._default_image_size = tuple(sizes)
+            self._image_sizes = {}
+        else:
+            self._default_image_size = None
+            self._image_sizes = {}
 
     @property
     def _session(self) -> InferenceSession:

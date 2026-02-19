@@ -386,7 +386,7 @@ class InferenceServer:
             subprocess, checkpoint_meta = await self._get_subprocess(checkpoint_id, websocket)
 
             # Send ready with metadata
-            meta = {**self.metadata, **checkpoint_meta}
+            meta = {**self.metadata, **checkpoint_meta, **self.codec.meta}
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
         except Exception as e:
             logger.error(f'Failed to load checkpoint: {e}')
