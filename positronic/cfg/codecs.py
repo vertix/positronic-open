@@ -53,7 +53,7 @@ def compose(obs, action, action_fps: float, action_horizon_sec: float | None):
     from positronic.policy.codec import ActionTiming
 
     result = obs if action is None else obs | action
-    return ActionTiming(fps=action_fps, horizon=action_horizon_sec) | result
+    return ActionTiming(fps=action_fps, horizon_sec=action_horizon_sec) | result
 
 
 @cfn.config(rotation_rep=None, tgt_ee_pose_key='robot_commands.pose', tgt_grip_key='target_grip')

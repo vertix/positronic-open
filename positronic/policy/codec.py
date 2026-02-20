@@ -116,25 +116,30 @@ class _ComposedCodec(Codec):
 class ActionTiming(Codec):
     """Attaches timings to decoded actions and truncates action sequences to a specified horizon.
 
+    # TODO: Split into two codecs: ActionTimestamp (stamps actions using fps) and
+    # ActionHorizon (truncates by timestamp < horizon_sec). This lets horizon be
+    # composed independently — e.g. wrapping a RemotePolicy with just ActionHorizon
+    # instead of duplicating truncation logic in RemotePolicy.select_action.
+
     At inference time, truncates action chunks to ``horizon`` seconds and stamps each action
     with a ``timestamp`` field. At training time, surfaces ``action_fps`` (and optionally
     ``action_horizon_sec``) as transform metadata so the training pipeline can read it.
     """
 
-    def __init__(self, *, fps: float, horizon: float | None = None):
+    def __init__(self, *, fps: float, horizon_sec: float | None = None):
         self._fps = fps
-        self._horizon = horizon
+        self._horizon_sec = horizon_sec
 
     def encode(self, data):
         return data
 
     def decode(self, data, *, context=None):
         if isinstance(data, list):
-            if self._horizon is not None:
-                data = data[: round(self._horizon * self._fps)]
             dt = 1.0 / self._fps
             for i, d in enumerate(data):
                 d['timestamp'] = i * dt
+            if self._horizon_sec is not None:
+                data = [d for d in data if d['timestamp'] < self._horizon_sec]
             return data
         data['timestamp'] = 0.0
         return data
@@ -146,8 +151,8 @@ class ActionTiming(Codec):
     @property
     def meta(self):
         result = {'action_fps': self._fps}
-        if self._horizon is not None:
-            result['action_horizon_sec'] = self._horizon
+        if self._horizon_sec is not None:
+            result['action_horizon_sec'] = self._horizon_sec
         return result
 
 

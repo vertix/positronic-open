@@ -86,6 +86,8 @@ class RemotePolicy(Policy):
         Forwards the observation to the remote server and returns the action.
         Uses client-side buffering if the server returns a chunk of actions.
         """
+        # TODO: Remove horizon_sec from RemotePolicy — wrap with ActionHorizon codec instead
+        # (requires splitting ActionTiming into ActionTimestamp + ActionHorizon first).
         actions = self._session.infer(self._prepare_obs(obs))
         if self._horizon_sec is not None and isinstance(actions, list):
             actions = [a for a in actions if a.get('timestamp', 0.0) < self._horizon_sec]

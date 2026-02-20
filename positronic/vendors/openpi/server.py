@@ -169,6 +169,9 @@ class OpenpiPolicy(Policy):
         actions = response['actions']
         return [{'action': a} for a in actions]
 
+    def reset(self):
+        self._client.reset()
+
 
 ###########################################################################################
 # FastAPI Inference Server

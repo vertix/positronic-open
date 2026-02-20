@@ -185,7 +185,7 @@ class _MetaPolicy(Policy):
 def test_action_horizon_sec_truncates_chunk():
     actions = [{'v': i} for i in range(10)]
     # action_horizon_sec=0.1s at action_fps=30 -> 3 actions
-    codec = ActionTiming(fps=30.0, horizon=0.1)
+    codec = ActionTiming(fps=30.0, horizon_sec=0.1)
     policy = codec.wrap(_ChunkPolicy(actions))
     result = policy.select_action({})
     assert [r['v'] for r in result] == [0, 1, 2]
@@ -202,7 +202,7 @@ def test_action_horizon_sec_none_returns_full_chunk():
 def test_action_horizon_sec_larger_than_chunk():
     actions = [{'v': i} for i in range(3)]
     # action_horizon_sec=10s at action_fps=10 -> 100 actions max, but only 3 available
-    codec = ActionTiming(fps=10.0, horizon=10.0)
+    codec = ActionTiming(fps=10.0, horizon_sec=10.0)
     policy = codec.wrap(_ChunkPolicy(actions))
     result = policy.select_action({})
     assert len(result) == 3
@@ -221,7 +221,7 @@ def test_timestamps_embedded_in_actions():
 def test_action_horizon_sec_seconds_truncates():
     actions = [{'v': i} for i in range(100)]
     # 0.1s at 30fps -> 3 actions
-    codec = ActionTiming(fps=30.0, horizon=0.1)
+    codec = ActionTiming(fps=30.0, horizon_sec=0.1)
     policy = codec.wrap(_ChunkPolicy(actions))
     result = policy.select_action({})
     assert len(result) == 3
@@ -252,7 +252,7 @@ def test_codec_composition():
 
 def test_codec_wrap_meta_merges():
     """Test that wrapped policy meta merges base and codec meta."""
-    codec = ActionTiming(fps=15.0, horizon=1.0)
+    codec = ActionTiming(fps=15.0, horizon_sec=1.0)
     policy = codec.wrap(_MetaPolicy())
     meta = policy.meta
     assert meta['base_key'] == 'base_value'
@@ -263,7 +263,7 @@ def test_codec_wrap_meta_merges():
 def test_timestamps_survive_action_decoder_composition():
     """Timestamps from ActionTiming must survive through composed action decoders."""
     action_codec = AbsolutePositionAction('robot_commands.pose', 'target_grip', Rotation.Representation.QUAT)
-    timing = ActionTiming(fps=15.0, horizon=1.0)
+    timing = ActionTiming(fps=15.0, horizon_sec=1.0)
     composed = timing | action_codec
 
     # Build a raw action vector: 4 quat + 3 trans + 1 grip = 8
