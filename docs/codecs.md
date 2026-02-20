@@ -1,9 +1,8 @@
 # Codec Guide
 
-A **codec** (coder-decoder) is a pair of classes that transforms raw robot data to model-specific formats:
+A **codec** transforms raw robot data to model-specific formats. Each codec implements `encode()` (raw observations → model input) and `decode()` (model output → robot commands), used at both training and inference time.
 
-- **Observation encoder**: Raw robot state → model input (training and inference)
-- **Action decoder**: Model output → robot commands (training and inference)
+Codecs compose via the `|` operator: `observation_codec | action_codec | timing` produces a single codec that encodes left-to-right and decodes right-to-left. This lets you mix and match observation encoders, action decoders, and timing independently.
 
 Codecs enable **store once, use everywhere** – record demonstrations once, then project the same raw data to different model formats (LeRobot, GR00T, OpenPI) without re-recording.
 
@@ -109,7 +108,7 @@ cd docker && docker compose run --rm lerobot-server \
 
 ## Writing Custom Codecs
 
-For custom robot platforms or action spaces, see existing implementations in vendor codec files for reference patterns. API details in [Dataset Library documentation](../positronic/dataset/README.md).
+Subclass `positronic.policy.codec.Codec` and implement `encode()` and optionally `_decode_single()`. Codecs that only transform observations leave `_decode_single()` as the default pass-through; codecs that only decode actions leave `encode()` as pass-through. Compose them with `|` to build a full pipeline. See existing implementations in vendor codec files for reference patterns.
 
 ## See Also
 

@@ -32,7 +32,7 @@ cd docker && docker compose run --rm positronic-to-lerobot convert \
 |-----------|-------------|---------|
 | `--dataset.dataset` | Dataset configuration | `.local` for local directories, `@positronic.cfg.ds.phail.phail` for public datasets |
 | `--dataset.dataset.path` | Path to raw Positronic dataset (only for `.local`, not needed for phail datasets) | `~/datasets/stack_cubes_raw` |
-| `--dataset.codec` | Codec (observation encoder + action decoder) | `@positronic.vendors.lerobot.codecs.eepose_absolute` |
+| `--dataset.codec` | Codec for observation/action encoding | `@positronic.vendors.lerobot.codecs.eepose_absolute` |
 | `--output_dir` | Destination for converted dataset | `~/datasets/lerobot/stack_cubes` or `s3://bucket/path` |
 | `--fps` | Target frames per second | `15`, `30` |
 | `--task` | (Optional) Task description to embed | `"pick up the green cube"` |
