@@ -111,7 +111,7 @@ def emit_ready_payload(frame_emitter, robot_emitter, grip_emitter, robot_state):
 def test_inference_emits_cartesian_move(world, clock):
     pose = Transform3D(translation=np.array([0.4, 0.5, 0.6], dtype=np.float32), rotation=Rotation.identity)
     policy = SpyPolicy(command=CartesianPosition(pose=pose), target_grip=0.33)
-    inference = Inference(policy, inference_fps=15)
+    inference = Inference(policy)
 
     # Wire inference interfaces so we can inspect the produced commands and grip targets.
     frame_em = world.pair(inference.frames['image.cam'])
@@ -159,7 +159,7 @@ def test_inference_emits_cartesian_move(world, clock):
 def test_inference_waits_for_complete_inputs(world, clock):
     pose = Transform3D(translation=np.array([0.4, 0.5, 0.6], dtype=np.float32), rotation=Rotation.identity)
     policy = SpyPolicy(command=CartesianPosition(pose=pose), target_grip=0.33)
-    inference = Inference(policy, inference_fps=15)
+    inference = Inference(policy)
 
     # Keep handles to the control system IO so we can drip feed partial data.
     frame_em = world.pair(inference.frames['image.cam'])
@@ -179,13 +179,15 @@ def test_inference_waits_for_complete_inputs(world, clock):
         assert policy.last_obs is None
 
     # First send robot/grip without a frame (inference should block), then the full payload.
+    # Inference sleeps 10ms on idle iterations, so ManualDriver steps need matching delays
+    # to keep the priority-queue scheduler interleaving fairly.
     driver = ManualDriver([
-        (partial(command_em.emit, InferenceCommand.START(task='dummy-task')), 0.0),
+        (partial(command_em.emit, InferenceCommand.START(task='dummy-task')), 0.01),
         (partial(robot_em.emit, robot_state), 0.01),
-        (partial(grip_em.emit, 0.25), 0.0),
-        (assert_no_outputs, 0.005),  # still missing a frame
+        (partial(grip_em.emit, 0.25), 0.01),
+        (assert_no_outputs, 0.01),  # still missing a frame
         (partial(emit_ready_payload, frame_em, robot_em, grip_em, robot_state), 0.01),
-        (None, 0.05),
+        (None, 0.01),
     ])
 
     scheduler = world.start([inference, driver])
@@ -211,7 +213,7 @@ def test_inference_waits_for_complete_inputs(world, clock):
 @pytest.mark.timeout(3.0)
 def test_inference_reset_emits_reset_and_calls_policy_reset(world, clock):
     policy = StubPolicy()
-    inference = Inference(policy, inference_fps=15)
+    inference = Inference(policy)
 
     command_em = world.pair(inference.command)
     command_rx = world.pair(inference.robot_commands)
@@ -237,7 +239,7 @@ def test_inference_reset_emits_reset_and_calls_policy_reset(world, clock):
 def test_inference_clears_queue_on_reset_stepwise(world, clock):
     """Verify that RESET clears any pending actions in the queue (stepwise check)."""
     policy = ChunkPolicy()
-    inference = Inference(policy, inference_fps=10)
+    inference = Inference(policy)
 
     frame_em = world.pair(inference.frames['image.cam'])
     robot_em = world.pair(inference.robot_state)
@@ -256,9 +258,8 @@ def test_inference_clears_queue_on_reset_stepwise(world, clock):
     # 2. Emit Inputs -> Policy returns chunk 1 [100 ... 109]
     emit_ready_payload(frame_em, robot_em, grip_em, robot_state)
 
-    # Run enough steps to consume SOME but NOT ALL of current chunk
-    # e.g. 3 steps -> emits 100, 101, 102. Queue has 103..109
-    drive_scheduler(scheduler, clock=clock, steps=3)
+    # Each action takes 2 yields (Sleep + Pass). Run 5 steps to emit 2 actions and start 3rd.
+    drive_scheduler(scheduler, clock=clock, steps=5)
 
     # Verify we are consuming the chunk
     val = grip_rx.read().data
@@ -278,8 +279,8 @@ def test_inference_clears_queue_on_reset_stepwise(world, clock):
     # 5. Emit Inputs -> Policy returns chunk 2 [200 ... 209]
     emit_ready_payload(frame_em, robot_em, grip_em, robot_state)
 
-    # Run 2 steps: 1 to process inputs, 1 to emit first action of NEW chunk
-    drive_scheduler(scheduler, clock=clock, steps=2)
+    # 2 yields per action: need 4 steps to call policy + emit first action
+    drive_scheduler(scheduler, clock=clock, steps=4)
 
     # 6. Check emission.
     # If queue cleared: should be 200.0 (first of new chunk)
@@ -292,7 +293,7 @@ def test_inference_clears_queue_on_reset_stepwise(world, clock):
 def test_inference_clears_queue_on_start_stepwise(world, clock):
     """Verify that START clears any pending actions in the queue."""
     policy = ChunkPolicy()
-    inference = Inference(policy, inference_fps=10)
+    inference = Inference(policy)
 
     frame_em = world.pair(inference.frames['image.cam'])
     robot_em = world.pair(inference.robot_state)
@@ -311,9 +312,8 @@ def test_inference_clears_queue_on_start_stepwise(world, clock):
     # 2. Emit Inputs -> Policy returns chunk 1 [100 ... 109]
     emit_ready_payload(frame_em, robot_em, grip_em, robot_state)
 
-    # Run enough steps to consume SOME but NOT ALL of current chunk
-    # e.g. 3 steps -> emits 100, 101, 102. Queue has 103..109
-    drive_scheduler(scheduler, clock=clock, steps=3)
+    # Each action takes 2 yields (Sleep + Pass). Run 5 steps to emit 2 actions and start 3rd.
+    drive_scheduler(scheduler, clock=clock, steps=5)
 
     # Verify recent emission is from chunk 1
     val = grip_rx.read().data
@@ -328,8 +328,8 @@ def test_inference_clears_queue_on_start_stepwise(world, clock):
     # 4. Emit Inputs -> Policy returns chunk 2 [200 ... 209]
     emit_ready_payload(frame_em, robot_em, grip_em, robot_state)
 
-    # Run 2 steps: 1 to select action (replenish queue), 1 to emit
-    drive_scheduler(scheduler, clock=clock, steps=2)
+    # 2 yields per action: need 4 steps to call policy + emit first action
+    drive_scheduler(scheduler, clock=clock, steps=4)
 
     # 5. Check emission.
     # If queue cleared: should be 200.0 (first of new chunk)

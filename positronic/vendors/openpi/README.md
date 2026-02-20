@@ -6,7 +6,7 @@ This guide details the end-to-end workflow for training and deploying OpenPI mod
 
 ## Available Codecs
 
-OpenPI supports multiple codecs (observation encoder + action decoder pairs) for different use cases:
+OpenPI supports multiple codecs for different use cases:
 
 | Codec | Observation | Action | Use Case |
 |-------|-------------|--------|----------|
@@ -171,20 +171,19 @@ action = response['result']
 
 ## 5. Run Inference
 
-To evaluate the policy with a visual interface, run the inference client locally.
+To evaluate the policy, run the inference client locally using the unified `.remote` policy (same client for all vendors).
 
 **Command:**
 ```bash
-uv run positronic-inference \
-  sim_openpi_positronic \
+uv run positronic-inference sim \
+  --policy=.remote \
+  --policy.host=vm-h100 \
+  --policy.port=8000 \
   --driver.simulation_time=20 \
   --driver.show_gui=True \
-  --output_dir=~/datasets/inference_logs \
-  --policy.host=vm-h100 \
-  --policy.port=8000
+  --output_dir=~/datasets/inference_logs
 ```
 
-- `sim_openpi_positronic`: The inference configuration preset.
 - `--policy.host`: The machine that runs the inference server.
 - `--policy.port`: The port that the inference server exposes.
 

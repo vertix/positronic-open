@@ -17,7 +17,7 @@ import zmq
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from positronic.offboard.server_utils import monitor_async_task, wait_for_subprocess_ready
-from positronic.policy import Codec
+from positronic.policy import Codec, Policy
 from positronic.utils.checkpoints import get_latest_checkpoint, list_checkpoints
 from positronic.utils.logging import init_logging
 from positronic.utils.serialization import deserialise, serialise
@@ -230,6 +230,29 @@ class Gr00tSubprocess:
 
 
 ###########################################################################################
+# Policy wrapper
+###########################################################################################
+
+
+class Gr00tPolicy(Policy):
+    """Wraps a GR00T ZMQ PolicyClient as a Policy."""
+
+    def __init__(self, client: PolicyClient):
+        self._client = client
+
+    def select_action(self, obs):
+        action_response, _info = self._client.get_action(obs)
+        action = {k: v[0] for k, v in action_response.items()}
+        lengths = {len(v) for v in action.values()}
+        assert len(lengths) == 1, f'All values in action must have the same length, got {lengths}'
+        time_horizon = lengths.pop()
+        return [{k: v[i] for k, v in action.items()} for i in range(time_horizon)]
+
+    def reset(self):
+        self._client.reset()
+
+
+###########################################################################################
 # FastAPI Inference Server
 ###########################################################################################
 
@@ -267,10 +290,6 @@ class InferenceServer:
             'modality_config': modality_config,
             'experiment_name': checkpoints_dir.rstrip('/').split('/')[-1] or '',
         }
-        if hasattr(self.codec.observation, 'meta'):
-            self.metadata.update({f'observation.{k}': v for k, v in self.codec.observation.meta.items()})
-        if hasattr(self.codec.action, 'meta'):
-            self.metadata.update({f'action.{k}': v for k, v in self.codec.action.meta.items()})
 
         self.app = FastAPI()
         self.app.get('/api/v1/models')(self.get_models)
@@ -367,7 +386,7 @@ class InferenceServer:
             subprocess, checkpoint_meta = await self._get_subprocess(checkpoint_id, websocket)
 
             # Send ready with metadata
-            meta = {**self.metadata, **checkpoint_meta}
+            meta = {**self.metadata, **checkpoint_meta, **self.codec.meta}
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
         except Exception as e:
             logger.error(f'Failed to load checkpoint: {e}')
@@ -376,27 +395,15 @@ class InferenceServer:
             return
 
         try:
-            subprocess.client.reset()
+            policy = self.codec.wrap(Gr00tPolicy(subprocess.client))
+            policy.reset()
             try:
                 while True:
                     message = await websocket.receive_bytes()
                     try:
                         raw_obs = deserialise(message)
-                        encoded_obs = self.codec.observation.encode(raw_obs)
-                        action_response, _info = subprocess.client.get_action(encoded_obs)
-
-                        action = {k: v[0] for k, v in action_response.items()}
-                        lengths = {len(v) for v in action.values()}
-                        assert len(lengths) == 1, f'All values in action must have the same length, got {lengths}'
-                        time_horizon = lengths.pop()
-
-                        decoded_actions = []
-                        for i in range(time_horizon):
-                            step_action = {k: v[i] for k, v in action.items()}
-                            decoded = self.codec.action.decode(step_action, raw_obs)
-                            decoded_actions.append(decoded)
-
-                        await websocket.send_bytes(serialise({'result': decoded_actions}))
+                        actions = policy.select_action(raw_obs)
+                        await websocket.send_bytes(serialise({'result': actions}))
                     except Exception as e:
                         logger.error(f'Error processing message: {e}')
                         logger.debug(traceback.format_exc())
@@ -421,10 +428,8 @@ class InferenceServer:
         """Run one warmup inference to trigger JIT compilation."""
         try:
             logger.info('Running warmup inference...')
-            dummy = self.codec.observation.dummy_input()
-            encoded = self.codec.observation.encode(dummy)
             await asyncio.to_thread(self.subprocess.client.reset)
-            await asyncio.to_thread(self.subprocess.client.get_action, encoded)
+            await asyncio.to_thread(self.subprocess.client.get_action, self.codec.dummy_encoded())
             logger.info('Warmup inference complete')
         except Exception:
             logger.warning('Warmup inference failed (non-fatal)', exc_info=True)

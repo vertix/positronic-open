@@ -193,19 +193,19 @@ To preview exactly what the training will see, pass the same codec configuration
 uv run positronic-server \
     --dataset=@positronic.cfg.ds.local_all \
     --dataset.path=~/datasets/stack_cubes_raw \
-    --dataset.codec=@positronic.vendors.openpi.codecs.eepose_absolute \
+    --dataset.codec=@positronic.vendors.openpi.codecs.eepose \
     --port=5001
 ```
 
 ### 3. Prepare Data for Training
 
-Convert curated runs using a codec (observation encoder + action decoder):
+Convert curated runs using a codec:
 
 ```bash
 cd docker && docker compose run --rm positronic-to-lerobot convert \
     --dataset.dataset=.local \
     --dataset.dataset.path=~/datasets/stack_cubes_raw \
-    --dataset.codec=@positronic.vendors.openpi.codecs.eepose_absolute \
+    --dataset.codec=@positronic.vendors.openpi.codecs.eepose \
     --output_dir=~/datasets/lerobot/stack_cubes \
     --task="pick up the green cube and place it on the red cube" \
     --fps=30

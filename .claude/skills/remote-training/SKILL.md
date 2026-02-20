@@ -71,6 +71,30 @@ If you modify code in `../gr00t` or `../openpi`:
 
 ## VM Machine Management
 
+**IMPORTANT**: Before using any VM, always check if it is already running a job. Never assume a machine is free. For experiments and validation runs, start a fresh VM rather than reusing one that may be occupied.
+
+### Selecting a Machine
+
+1. Check which VMs are reachable and what they're running:
+   ```bash
+   # Check connectivity
+   ssh -o ConnectTimeout=5 vertix@vm-train 'echo connected' 2>&1
+   ssh -o ConnectTimeout=5 vertix@vm-train2 'echo connected' 2>&1
+   ssh -o ConnectTimeout=5 vertix@vm-train3 'echo connected' 2>&1
+
+   # Check running containers on reachable VMs
+   docker --context vm-train ps 2>/dev/null
+   docker --context vm-train2 ps 2>/dev/null
+   docker --context vm-train3 ps 2>/dev/null
+   ```
+
+2. If a VM has running containers, it is **taken** — pick a different one or start a stopped VM.
+
+3. If no free VM is available, start one that is currently stopped:
+   ```bash
+   ../internal/scripts/start.sh train   # or train2, train3
+   ```
+
 ### Start a VM
 
 ```bash
@@ -80,14 +104,6 @@ If you modify code in `../gr00t` or `../openpi`:
 ```
 
 **Note**: Requires Nebius CLI authentication. Must be run from a terminal with browser access for OAuth flow.
-
-### Check VM Status
-
-```bash
-ssh -o ConnectTimeout=5 vertix@vm-train 'echo connected'
-ssh -o ConnectTimeout=5 vertix@vm-train2 'echo connected'
-ssh -o ConnectTimeout=5 vertix@vm-train3 'echo connected'
-```
 
 ### Docker Contexts
 
@@ -122,27 +138,23 @@ From `docker/` directory (can run on `desktop`):
 ```bash
 docker compose run --rm --pull always positronic-to-lerobot convert \
   --dataset=@positronic.cfg.ds.internal.sim_stack_groot_ft \
-  --dataset.observation=.groot_rot6d_joints \
-  --dataset.action=.groot_rot6d \
+  --dataset.codec=@positronic.vendors.gr00t.codecs.ee_rot6d_joints \
   --output_dir=s3://interim/sim_ft/groot_rot6d_q/ \
   --fps=15
 ```
 
-### Observation/Action Configs
+### Available Codecs
 
-| Observation | Description |
-|-------------|-------------|
-| `.groot` | EE pose (quaternion) |
-| `.groot_joints` | EE pose + joint positions |
-| `.groot_rot6d` | EE pose (6D rotation) |
-| `.groot_rot6d_joints` | 6D rotation + joint positions |
-| `.eepose` | For OpenPI/ACT |
-
-| Action | Description |
-|--------|-------------|
-| `.groot` | EE delta (quaternion) |
-| `.groot_rot6d` | EE delta (6D rotation) |
-| `.absolute_position` | Absolute EE pose |
+| Vendor | Codec | Description |
+|--------|-------|-------------|
+| GR00T | `@positronic.vendors.gr00t.codecs.ee_absolute` | EE pose (quaternion) + grip |
+| GR00T | `@positronic.vendors.gr00t.codecs.ee_joints` | EE pose + joint positions + grip |
+| GR00T | `@positronic.vendors.gr00t.codecs.ee_rot6d` | EE pose (6D rotation) + grip |
+| GR00T | `@positronic.vendors.gr00t.codecs.ee_rot6d_joints` | 6D rotation + joint positions + grip |
+| LeRobot | `@positronic.vendors.lerobot.codecs.eepose_absolute` | EE pose (quat) + grip, absolute actions |
+| LeRobot | `@positronic.vendors.lerobot.codecs.joints_absolute` | Joint positions + grip, absolute actions |
+| OpenPI | `@positronic.vendors.openpi.codecs.eepose` | EE pose + grip, absolute actions |
+| OpenPI | `@positronic.vendors.openpi.codecs.eepose_q` | EE pose + joints + grip, absolute actions |
 
 ## GR00T Training
 
@@ -243,11 +255,11 @@ MUJOCO_GL=egl uv run positronic-inference sim \
 
 ### Server Types
 
-| Server Type | Encoder/Decoder Config | Notes |
-|-------------|------------------------|-------|
-| GR00T | `--observation_encoder=.groot_rot6d_joints --action_decoder=.groot_rot6d` | Matches `modality_config=ee_rot6d_q` |
-| LeRobot ACT | `--observation_encoder=.eepose --action_decoder=.absolute_position` | Default configs |
-| OpenPI | Uses internal encoding | No encoder/decoder args needed |
+| Server Type | Codec Config | Notes |
+|-------------|--------------|-------|
+| GR00T | `ee_rot6d_joints` (positional variant arg) | Matches `modality_config=ee_rot6d_q` |
+| LeRobot ACT | `--codec=@positronic.vendors.lerobot.codecs.eepose_absolute` | Default codec |
+| OpenPI | `--codec=@positronic.vendors.openpi.codecs.eepose` | Default codec |
 
 ## Sim Eval End-to-End
 
@@ -283,12 +295,17 @@ CACHE_ROOT=/home/vertix docker --context <machine> compose run --rm --pull alway
 
 ### 3. View results (locally)
 
+Use the eval server (not `positronic-server` directly) to get grouping by model/checkpoint with success rates, UPH, and MTBF:
+
 ```bash
 uv run python -m positronic.cfg.eval sim \
-  --dataset.base.path=s3://inference/sim_stack_validation/<run_name>
+  --dataset.base.path=s3://inference/sim_stack_validation/<run_name> \
+  --reset_cache
 ```
 
-Opens on http://localhost:5001. The path should point to the parent directory containing model subdirs (e.g., `160226-dinov3`, not `160226-dinov3/lerobot`).
+**Note**: Always use `--reset_cache` to clear stale RRD files from previous runs.
+
+Opens on http://localhost:5001. The path should point to the parent directory containing model subdirs (e.g., `170226`, not `170226/lerobot`). Episodes are grouped by model and checkpoint on the home page.
 
 ### 4. Clean up: stop the inference server
 

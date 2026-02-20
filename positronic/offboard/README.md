@@ -44,19 +44,22 @@ Upon connection, the server sends a metadata packet:
 ```json
 {
   "meta": {
+    "type": "lerobot",
     "host": "localhost",
     "port": "8000",
-    "checkpoint_path": "~/checkpoints/lerobot/experiment_v1/checkpoint-10000",
+    "checkpoint_path": "~/checkpoints/lerobot/experiment_v1",
     "checkpoint_id": "10000",
-    "codec": "@positronic.vendors.lerobot.codecs.eepose_absolute"
+    "image_sizes": [224, 224],
+    "action_fps": 15.0,
+    "action_horizon_sec": 1.0
   }
 }
 ```
 
 This metadata tells the client:
 - Which checkpoint is loaded
-- What codec is being used (observation/action format)
 - Server connection details
+- Codec metadata (`image_sizes` for client-side resize, `action_fps` and `action_horizon_sec` for timing)
 
 #### 2. Status Updates (Long Model Loading)
 

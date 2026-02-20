@@ -13,7 +13,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from lerobot.policies.act.modeling_act import ACTPolicy
 from lerobot.policies.pretrained import PreTrainedPolicy
 
-from positronic.policy import Codec, DecodedEncodedPolicy, Policy
+from positronic.policy import Codec, Policy
 from positronic.policy.lerobot import LerobotPolicy
 from positronic.utils.checkpoints import get_latest_checkpoint, list_checkpoints
 from positronic.utils.logging import init_logging
@@ -158,10 +158,8 @@ class InferenceServer:
         if hasattr(policy, 'metadata') and policy.metadata:
             base_meta.update(policy.metadata)
 
-        base = LerobotPolicy(policy, self.device)
-        return DecodedEncodedPolicy(
-            base, encoder=self.codec.observation.encode, decoder=self.codec.action.decode, extra_meta=base_meta
-        )
+        base = LerobotPolicy(policy, self.device, extra_meta=base_meta)
+        return self.codec.wrap(base)
 
     async def get_models(self):
         try:

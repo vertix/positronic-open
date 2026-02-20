@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 from functools import partial
 from typing import Any
 
@@ -9,33 +8,10 @@ from positronic.dataset import Signal, transforms
 from positronic.dataset.episode import Episode
 from positronic.dataset.transforms import image
 from positronic.dataset.transforms.episode import Derive
+from positronic.policy.codec import Codec, lerobot_image, lerobot_state
 
 
-class ObservationEncoder(Derive, ABC):
-    """Abstract base for observation encoders.
-
-    Encoders must implement:
-    - __call__(episode): for training data generation (inherited from Derive)
-    - encode(inputs): for inference
-    - meta: metadata dict (e.g., lerobot_features), default empty
-    """
-
-    @property
-    def meta(self) -> dict[str, Any]:
-        return {}
-
-    @abstractmethod
-    def encode(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        """Encode raw robot inputs into observation dict for inference."""
-        ...
-
-    @abstractmethod
-    def dummy_input(self) -> dict[str, Any]:
-        """Generate dummy inputs matching the expected format."""
-        ...
-
-
-class SimpleObservationEncoder(ObservationEncoder):
+class ObservationCodec(Codec):
     """Configurable observation encoder that uses the same keys for training and inference.
 
     Args:
@@ -50,32 +26,32 @@ class SimpleObservationEncoder(ObservationEncoder):
         images: dict[str, tuple[str, tuple[int, int]]],
         task_field: str | None = 'task',
     ):
-        derive_transforms = {k: partial(self._encode_state, k) for k in state.keys()}
-        derive_transforms.update({k: partial(self._encode_image, k) for k in images.keys()})
-        super().__init__(**derive_transforms)
         self._state = state
         self._image_configs = images
         self._task_field = task_field
-        self._metadata: dict[str, Any] = {}
 
-    @property
-    def meta(self) -> dict[str, Any]:
-        return self._metadata
+        self._derive_transforms = {k: partial(self._derive_state, k) for k in state.keys()}
+        self._derive_transforms.update({k: partial(self._derive_image, k) for k in images.keys()})
+        if task_field:
+            self._derive_transforms['task'] = lambda ep: ep['task'] if 'task' in ep else ''
 
-    @meta.setter
-    def meta(self, value: dict[str, Any]):
-        self._metadata = value
+        lerobot_features: dict[str, Any] = {}
+        for name, features in state.items():
+            if isinstance(features, dict):
+                lerobot_features[name] = lerobot_state(sum(features.values()), list(features.keys()))
+        for name, (_, (w, h)) in images.items():
+            lerobot_features[name] = lerobot_image(w, h)
+        self._training_meta = {'lerobot_features': lerobot_features}
 
-    def _encode_state(self, out_name: str, episode: Episode) -> Signal[Any]:
+    def _derive_state(self, out_name: str, episode: Episode) -> Signal[Any]:
         state_features = self._state[out_name]
         return transforms.concat(*[episode[k] for k in state_features], dtype=np.float32)
 
-    def _encode_image(self, out_name: str, episode: Episode) -> Signal[Any]:
+    def _derive_image(self, out_name: str, episode: Episode) -> Signal[Any]:
         input_key, (width, height) = self._image_configs[out_name]
         return image.resize_with_pad(width, height, signal=episode[input_key])
 
     def encode(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        """Encode raw inputs for inference (uses same keys as training)."""
         obs: dict[str, Any] = {}
 
         if self._task_field and 'task' in inputs:
@@ -101,11 +77,23 @@ class SimpleObservationEncoder(ObservationEncoder):
 
         return obs
 
-    def dummy_input(self) -> dict[str, Any]:
-        dummy: dict[str, Any] = {}
-        for features in self._state.values():
-            for key, dim in features.items():
-                dummy[key] = np.zeros(dim, dtype=np.float32)
-        for _out_name, (input_key, (width, height)) in self._image_configs.items():
-            dummy[input_key] = np.zeros((height, width, 3), dtype=np.uint8)
-        return dummy
+    def dummy_encoded(self, data=None) -> dict[str, Any]:
+        """Return a zero-filled encoded observation matching the shapes ``encode()`` produces."""
+        obs: dict[str, Any] = {}
+        for out_name, features in self._state.items():
+            obs[out_name] = np.zeros(sum(features.values()), dtype=np.float32)
+        for out_name, (_input_key, (width, height)) in self._image_configs.items():
+            obs[out_name] = np.zeros((height, width, 3), dtype=np.uint8)
+        if self._task_field:
+            obs[self._task_field] = 'warmup'
+        return obs
+
+    @property
+    def meta(self):
+        sizes = {input_key: (w, h) for _out, (input_key, (w, h)) in self._image_configs.items()}
+        unique = set(sizes.values())
+        return {'image_sizes': unique.pop() if len(unique) == 1 else sizes}
+
+    @property
+    def training_encoder(self):
+        return Derive(meta=self._training_meta, **self._derive_transforms)

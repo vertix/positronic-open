@@ -51,69 +51,39 @@ class PositronicEnvConfig(EnvConfig):
         return {}
 
 
-def build_env_config_from_codec(codec: Codec, fps: int = 15) -> PositronicEnvConfig:
-    """Build PositronicEnvConfig from codec metadata with validation.
+def build_env_config_from_codec(codec: Codec) -> PositronicEnvConfig:
+    """Build PositronicEnvConfig from codec metadata."""
+    inference_meta = codec.meta
+    training_meta = codec.training_encoder.meta
 
-    Args:
-        codec: Codec instance with observation and action encoders
-        fps: Frames per second for the environment
+    fps = int(inference_meta.get('action_fps', 15))
 
-    Returns:
-        PositronicEnvConfig with features derived from codec metadata
-
-    Raises:
-        ValueError: If codec metadata is missing or invalid
-    """
-    # Validate codec has required metadata
-    if not hasattr(codec.observation, 'meta') or 'lerobot_features' not in codec.observation.meta:
-        raise ValueError(
-            f"Codec observation encoder missing 'lerobot_features' metadata. "
-            f'Available meta keys: {getattr(codec.observation, "meta", {}).keys()}'
-        )
-
-    if not hasattr(codec.action, 'meta') or 'lerobot_features' not in codec.action.meta:
-        raise ValueError(
-            f"Codec action decoder missing 'lerobot_features' metadata. "
-            f'Available meta keys: {getattr(codec.action, "meta", {}).keys()}'
-        )
-
-    obs_features = codec.observation.meta['lerobot_features']
-    action_features = codec.action.meta['lerobot_features']
+    assert 'lerobot_features' in training_meta, (
+        f"Codec training_encoder missing 'lerobot_features'. Keys: {list(training_meta.keys())}"
+    )
+    lerobot_features = training_meta['lerobot_features']
 
     features = {}
     features_map = {}
 
-    # Convert action features
-    for key, meta in action_features.items():
-        if 'shape' not in meta:
-            raise ValueError(f"Action feature '{key}' missing 'shape' in metadata: {meta}")
-        features[key] = PolicyFeature(type=FeatureType.ACTION, shape=meta['shape'])
-        features_map[key] = ACTION
+    for key, meta in lerobot_features.items():
+        assert 'shape' in meta, f"Feature '{key}' missing 'shape' in metadata: {meta}"
+        dtype = meta.get('dtype', 'float32')
 
-    # Convert observation features
-    for key, meta in obs_features.items():
-        if 'shape' not in meta or 'dtype' not in meta:
-            raise ValueError(f"Observation feature '{key}' missing 'shape' or 'dtype': {meta}")
-
-        if meta['dtype'] == 'video':
-            # Validate image shape is (H, W, C)
-            if len(meta['shape']) != 3:
-                raise ValueError(f"Visual feature '{key}' expected shape (H, W, C), got {meta['shape']}")
-            h, w, c = meta['shape']
-            if c != 3:
-                raise ValueError(f"Visual feature '{key}' expected 3 channels (RGB), got {c} channels")
-            # Convert HWC → CHW for LeRobot
-            features[key] = PolicyFeature(type=FeatureType.VISUAL, shape=(c, h, w))
-            features_map[key] = OBS_IMAGE
-        elif meta['dtype'] in ('float32', 'float64', 'int32', 'int64'):
-            # State features (scalars/vectors)
-            features[key] = PolicyFeature(type=FeatureType.STATE, shape=meta['shape'])
-            features_map[key] = OBS_STATE
-        else:
-            raise ValueError(
-                f"Observation feature '{key}' has unsupported dtype '{meta['dtype']}'. "
-                f"Expected 'video', 'float32', 'float64', 'int32', or 'int64'"
-            )
+        match key, dtype:
+            case 'action', _:
+                features[key] = PolicyFeature(type=FeatureType.ACTION, shape=meta['shape'])
+                features_map[key] = ACTION
+            case _, 'video':
+                h, w, c = meta['shape']
+                assert c == 3, f"Visual feature '{key}' expected 3 channels, got {c}"
+                features[key] = PolicyFeature(type=FeatureType.VISUAL, shape=(c, h, w))
+                features_map[key] = OBS_IMAGE
+            case _, ('float32' | 'float64' | 'int32' | 'int64'):
+                features[key] = PolicyFeature(type=FeatureType.STATE, shape=meta['shape'])
+                features_map[key] = OBS_STATE
+            case _:
+                raise ValueError(f"Feature '{key}' has unsupported dtype '{dtype}'")
 
     if not features:
         raise ValueError('No features extracted from codec metadata')

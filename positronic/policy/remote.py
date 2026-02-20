@@ -10,23 +10,48 @@ from .base import Policy
 
 
 class RemotePolicy(Policy):
-    """
-    A policy that forwards observations to a remote inference server using the
-    Positronic Inference Protocol.
+    """Policy that forwards observations to a remote inference server.
+
+    Images are resized before sending to reduce bandwidth. The server reports
+    expected sizes via ``image_sizes`` in its metadata (see ``Codec.meta``).
+    The ``resize`` parameter acts as a fallback when the server does not report
+    sizes. Server-reported sizes always take precedence.
+
+    ``horizon_sec`` truncates action chunks on the client side so only actions
+    within the given time window are executed (e.g. ``horizon_sec=0.5`` keeps
+    the first 0.5 s of each chunk). When ``None``, the full chunk is used as-is.
     """
 
-    def __init__(self, host: str, port: int, resize: int | None = None, model_id: str | None = None):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        resize: int | None = None,
+        model_id: str | None = None,
+        horizon_sec: float | None = None,
+    ):
         self._client = InferenceClient(host, port)
         self.__session: InferenceSession | None = None
         self._resize = resize
         self._model_id = model_id
+        self._horizon_sec = horizon_sec
+        self._image_sizes: dict[str, tuple[int, int]] = {}
+        self._default_image_size: tuple[int, int] | None = None
 
     def reset(self):
-        """
-        Resets the policy by starting a new session with the server.
-        """
+        """Resets the policy by starting a new session with the server."""
         self.close()
         self.__session = self._client.new_session(model_id=self._model_id)
+        sizes = self.__session.metadata.get('image_sizes')
+        if isinstance(sizes, dict):
+            self._image_sizes = {k: tuple(v) for k, v in sizes.items()}
+            self._default_image_size = None
+        elif isinstance(sizes, tuple | list):
+            self._default_image_size = tuple(sizes)
+            self._image_sizes = {}
+        else:
+            self._default_image_size = None
+            self._image_sizes = {}
 
     @property
     def _session(self) -> InferenceSession:
@@ -36,27 +61,24 @@ class RemotePolicy(Policy):
         return self.__session
 
     @staticmethod
-    def _resize_if_needed(image: np.ndarray, max_resolution: int) -> np.ndarray:
-        height, width = image.shape[:2]
-        scale = min(1, max_resolution / max(width, height))
-        max_width, max_height = int(width * scale), int(height * scale)
-
-        # Downscale if needed
-        if width != max_width or height != max_height:
-            new_size = max_width, max_height
-            return np.array(PilImage.fromarray(image).resize(new_size, resample=PilImage.Resampling.BILINEAR))
-        return image
+    def _resize_to(image: np.ndarray, width: int, height: int) -> np.ndarray:
+        h, w = image.shape[:2]
+        if w == width and h == height:
+            return image
+        return np.array(PilImage.fromarray(image).resize((width, height), resample=PilImage.Resampling.BILINEAR))
 
     def _prepare_obs(self, obs: dict[str, Any]) -> dict[str, Any]:
-        if self._resize is None:
-            return obs
-
         result = {}
         for key, value in obs.items():
             if isinstance(value, np.ndarray) and value.ndim == 3 and value.shape[2] == 3:
-                result[key] = self._resize_if_needed(value, self._resize)
-            else:
-                result[key] = value
+                target = self._image_sizes.get(key, self._default_image_size)
+                if target is not None:
+                    value = self._resize_to(value, *target)
+                elif self._resize is not None:
+                    h, w = value.shape[:2]
+                    scale = min(1, self._resize / max(w, h))
+                    value = self._resize_to(value, int(w * scale), int(h * scale))
+            result[key] = value
         return result
 
     def select_action(self, obs: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
@@ -64,7 +86,12 @@ class RemotePolicy(Policy):
         Forwards the observation to the remote server and returns the action.
         Uses client-side buffering if the server returns a chunk of actions.
         """
-        return self._session.infer(self._prepare_obs(obs))
+        # TODO: Remove horizon_sec from RemotePolicy — wrap with ActionHorizon codec instead
+        # (requires splitting ActionTiming into ActionTimestamp + ActionHorizon first).
+        actions = self._session.infer(self._prepare_obs(obs))
+        if self._horizon_sec is not None and isinstance(actions, list):
+            actions = [a for a in actions if a.get('timestamp', 0.0) < self._horizon_sec]
+        return actions
 
     @property
     def meta(self) -> dict[str, Any]:

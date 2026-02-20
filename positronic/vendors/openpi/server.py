@@ -15,7 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from openpi_client.websocket_client_policy import WebsocketClientPolicy
 
 from positronic.offboard.server_utils import monitor_async_task, wait_for_subprocess_ready
-from positronic.policy import Codec
+from positronic.policy import Codec, Policy
 from positronic.utils.checkpoints import get_latest_checkpoint, list_checkpoints
 from positronic.utils.logging import init_logging
 from positronic.utils.serialization import deserialise, serialise
@@ -154,6 +154,26 @@ class OpenpiSubprocess:
 
 
 ###########################################################################################
+# Policy wrapper
+###########################################################################################
+
+
+class OpenpiPolicy(Policy):
+    """Wraps an OpenPI WebsocketClientPolicy as a Policy."""
+
+    def __init__(self, client: WebsocketClientPolicy):
+        self._client = client
+
+    def select_action(self, obs):
+        response = self._client.infer(obs)
+        actions = response['actions']
+        return [{'action': a} for a in actions]
+
+    def reset(self):
+        self._client.reset()
+
+
+###########################################################################################
 # FastAPI Inference Server
 ###########################################################################################
 
@@ -284,45 +304,21 @@ class InferenceServer:
             subprocess_obj = await self._get_subprocess(resolved_checkpoint_id, websocket)
 
             # Send ready with metadata
-            meta = {**self.metadata, 'checkpoint_id': resolved_checkpoint_id}
-            # Add codec metadata if available
-            if hasattr(self.codec.observation, 'meta'):
-                meta.update(self.codec.observation.meta)
-            if hasattr(self.codec.action, 'meta'):
-                meta.update(self.codec.action.meta)
-
+            meta = {**self.metadata, 'checkpoint_id': resolved_checkpoint_id, **self.codec.meta}
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
+
+            policy = self.codec.wrap(OpenpiPolicy(subprocess_obj.client))
 
             # Inference loop
             async for message in websocket.iter_bytes():
                 try:
-                    # Deserialize observation from client
                     raw_obs = deserialise(message)
-
-                    # Encode observation using codec
-                    encoded_obs = self.codec.observation.encode(raw_obs)
-
-                    # TODO: Wrap in asyncio.to_thread() to avoid blocking the async loop
-                    # during concurrent sessions. Currently not an issue for single-client use.
-                    openpi_response = subprocess_obj.client.infer(encoded_obs)
-
-                    # Decode actions using codec
-                    # OpenPI returns actions with shape (action_horizon, action_dim),
-                    # decode each timestep in the action horizon
-                    decoded_actions = [
-                        self.codec.action.decode({'action': step_action}, raw_obs)
-                        for step_action in openpi_response['actions']
-                    ]
-
-                    # Send to client
-                    await websocket.send_bytes(serialise({'result': decoded_actions}))
-                    logger.info(f'Sent {len(decoded_actions)} actions to client')
-
+                    actions = policy.select_action(raw_obs)
+                    await websocket.send_bytes(serialise({'result': actions}))
                 except Exception as e:
                     logger.error(f'Error processing message: {e}')
                     logger.error(traceback.format_exc())
-                    error_response = {'error': str(e)}
-                    await websocket.send_bytes(serialise(error_response))
+                    await websocket.send_bytes(serialise({'error': str(e)}))
 
         except (WebSocketDisconnect, Exception) as e:
             logger.info(f'Connection closed: {e}')
@@ -350,9 +346,7 @@ class InferenceServer:
         """Run one warmup inference to trigger JIT compilation."""
         try:
             logger.info('Running warmup inference...')
-            dummy = self.codec.observation.dummy_input()
-            encoded = self.codec.observation.encode(dummy)
-            await asyncio.to_thread(subprocess_obj.client.infer, encoded)
+            await asyncio.to_thread(subprocess_obj.client.infer, self.codec.dummy_encoded())
             logger.info('Warmup inference complete')
         except Exception:
             logger.warning('Warmup inference failed (non-fatal)', exc_info=True)
