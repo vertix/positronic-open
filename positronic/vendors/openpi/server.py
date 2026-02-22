@@ -15,7 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from openpi_client.websocket_client_policy import WebsocketClientPolicy
 
 from positronic.offboard.server_utils import monitor_async_task, wait_for_subprocess_ready
-from positronic.policy import Codec, Policy
+from positronic.policy import Codec, Policy, RecordingCodec
 from positronic.utils.checkpoints import get_latest_checkpoint, list_checkpoints
 from positronic.utils.logging import init_logging
 from positronic.utils.serialization import deserialise, serialise
@@ -191,6 +191,7 @@ class InferenceServer:
         port: int = 8000,
         openpi_ws_port: int = 8001,
         metadata: dict[str, Any] | None = None,
+        recording_dir: str | None = None,
     ):
         self.codec = codec
         self.checkpoints_dir = str(checkpoints_dir).rstrip('/')
@@ -199,6 +200,8 @@ class InferenceServer:
         self.host = host
         self.port = port
         self.openpi_ws_port = openpi_ws_port
+        if recording_dir:
+            self.codec = RecordingCodec(self.codec, pos3.sync(recording_dir))
 
         self.metadata = metadata or {}
         self.metadata.update(
@@ -308,6 +311,7 @@ class InferenceServer:
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
 
             policy = self.codec.wrap(OpenpiPolicy(subprocess_obj.client))
+            policy.reset()
 
             # Inference loop
             async for message in websocket.iter_bytes():
@@ -386,9 +390,17 @@ class InferenceServer:
     host='0.0.0.0',
     port=8000,
     openpi_ws_port=8001,
+    recording_dir=None,
 )
 def server(
-    codec, checkpoints_dir: str, config_name: str, checkpoint: str | None, host: str, port: int, openpi_ws_port: int
+    codec,
+    checkpoints_dir: str,
+    config_name: str,
+    checkpoint: str | None,
+    host: str,
+    port: int,
+    openpi_ws_port: int,
+    recording_dir: str | None,
 ):
     """OpenPI inference server.
 
@@ -404,6 +416,7 @@ def server(
         host: Server host address.
         port: Server port.
         openpi_ws_port: Internal WebSocket port for OpenPI subprocess.
+        recording_dir: Directory for recording .rrd files (optional, supports S3 paths).
     """
     InferenceServer(
         codec=codec,
@@ -413,6 +426,7 @@ def server(
         host=host,
         port=port,
         openpi_ws_port=openpi_ws_port,
+        recording_dir=recording_dir,
     ).serve()
 
 
