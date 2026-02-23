@@ -1,13 +1,16 @@
 """Composable codec for encoding observations and decoding actions.
 
 A Codec pairs an observation encoder (for training and inference) with an action decoder.
-Codecs compose via ``|``: ``observation_codec | action_codec | timing`` produces a single
-codec that encodes left-to-right and decodes right-to-left.
+Two composition operators:
+
+- ``|`` (sequential): left's output feeds into right. Use for codecs that modify data
+  before others see it (e.g. BinarizeGrip before observation/action encoders).
+- ``&`` (parallel): both see the same input, outputs merged. Use for independent codecs
+  (e.g. observation encoder & action decoder).
 """
 
 import itertools
 import time
-from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, final
 
@@ -15,7 +18,8 @@ import numpy as np
 import rerun as rr
 import rerun.blueprint as rrb
 
-from positronic.dataset.transforms.episode import Derive, EpisodeTransform, Group
+from positronic.dataset.transforms import Elementwise
+from positronic.dataset.transforms.episode import Derive, EpisodeTransform, Group, Identity
 from positronic.policy.base import Policy
 from positronic.utils import merge_dicts
 from positronic.utils.rerun_compat import log_numeric_series, set_timeline_sequence, set_timeline_time
@@ -39,11 +43,11 @@ def lerobot_action(dim: int) -> dict[str, Any]:
     return {'shape': (dim,), 'names': ['actions'], 'dtype': 'float32'}
 
 
-class Codec(ABC):
+class Codec:
     """Base class for observation/action codecs.
 
-    Subclasses implement ``encode`` (observation encoding or pass-through for action codecs)
-    and optionally ``_decode_single`` (action decoding). The ``training_encoder`` property
+    Subclasses override ``encode`` (observation encoding) and/or ``_decode_single``
+    (action decoding). The ``training_encoder`` property
     returns an ``EpisodeTransform`` used by the training pipeline to derive dataset columns.
 
     Reserved ``meta`` key (part of the remote inference protocol):
@@ -55,8 +59,8 @@ class Codec(ABC):
         raw input keys to ``(width, height)`` tuples (per-image sizes).
     """
 
-    @abstractmethod
-    def encode(self, data: dict) -> dict: ...
+    def encode(self, data: dict) -> dict:
+        return {}
 
     def decode(self, data, *, context=None):
         if isinstance(data, list):
@@ -64,7 +68,7 @@ class Codec(ABC):
         return self._decode_single(data, context)
 
     def _decode_single(self, data: dict, context: dict | None) -> dict:
-        return data
+        return {}
 
     @property
     def training_encoder(self) -> EpisodeTransform:
@@ -91,6 +95,10 @@ class Codec(ABC):
     def __or__(self, other: 'Codec') -> 'Codec':
         return _ComposedCodec(self, other)
 
+    @final
+    def __and__(self, other: 'Codec') -> 'Codec':
+        return _ParallelCodec(self, other)
+
 
 class _ComposedCodec(Codec):
     """Two codecs composed via ``|``. Encodes left-to-right, decodes right-to-left."""
@@ -107,7 +115,7 @@ class _ComposedCodec(Codec):
 
     @property
     def training_encoder(self):
-        return Group(self._left.training_encoder, self._right.training_encoder)
+        return self._left.training_encoder | self._right.training_encoder
 
     @property
     def meta(self):
@@ -118,6 +126,38 @@ class _ComposedCodec(Codec):
 
     def dummy_encoded(self, data=None):
         return self._right.dummy_encoded(self._left.dummy_encoded(data))
+
+
+class _ParallelCodec(Codec):
+    """Two codecs composed via ``&``. Both see the same input, outputs merged."""
+
+    def __init__(self, left: Codec, right: Codec):
+        self._left = left
+        self._right = right
+
+    def encode(self, data):
+        return {**self._left.encode(data), **self._right.encode(data)}
+
+    def decode(self, data, *, context=None):
+        left_out = self._left.decode(data, context=context)
+        right_out = self._right.decode(data, context=context)
+        if isinstance(data, list):
+            return [{**lf, **rt} for lf, rt in zip(left_out, right_out, strict=True)]
+        return {**left_out, **right_out}
+
+    @property
+    def training_encoder(self):
+        return self._left.training_encoder & self._right.training_encoder
+
+    @property
+    def meta(self):
+        result: dict[str, Any] = {}
+        merge_dicts(result, self._left.meta)
+        merge_dicts(result, self._right.meta)
+        return result
+
+    def dummy_encoded(self, data=None):
+        return {**self._left.dummy_encoded(data), **self._right.dummy_encoded(data)}
 
 
 class ActionTiming(Codec):
@@ -153,7 +193,7 @@ class ActionTiming(Codec):
 
     @property
     def training_encoder(self) -> EpisodeTransform:
-        return Derive(meta=self.meta)
+        return Identity(meta=self.meta)
 
     @property
     def meta(self):
@@ -161,6 +201,66 @@ class ActionTiming(Codec):
         if self._horizon_sec is not None:
             result['action_horizon_sec'] = self._horizon_sec
         return result
+
+
+class BinarizeGripTraining(Codec):
+    """Binarize grip signals in training data.
+
+    Overrides the specified episode signals with thresholded values (> threshold → 1.0,
+    else 0.0) so the model learns to predict binary grip. Compose to the left of
+    obs/action codecs::
+
+        timing | BinarizeGripTraining(('grip', 'target_grip')) | BinarizeGripInference() | obs & action
+    """
+
+    def __init__(self, keys: tuple[str, ...], threshold: float = 0.5):
+        self._keys = keys
+        self._threshold = threshold
+
+    def encode(self, data):
+        return data
+
+    def _decode_single(self, data: dict, context: dict | None) -> dict:
+        return data
+
+    @property
+    def training_encoder(self) -> EpisodeTransform:
+        threshold = self._threshold
+
+        def _binarize_signal(key):
+            def _derive(episode):
+                return Elementwise(
+                    episode[key], lambda v: (np.asarray(v, dtype=np.float32) > threshold).astype(np.float32)
+                )
+
+            return _derive
+
+        transforms = {k: _binarize_signal(k) for k in self._keys}
+        return Group(Derive(**transforms), Identity())
+
+
+class BinarizeGripInference(Codec):
+    """Threshold grip in decoded actions at inference time.
+
+    Compose to the left of action codecs so it runs after action decoding::
+
+        timing | BinarizeGripInference() | obs & action
+    """
+
+    def __init__(self, threshold: float = 0.5):
+        self._threshold = threshold
+
+    def encode(self, data):
+        return data
+
+    @property
+    def training_encoder(self) -> EpisodeTransform:
+        return Identity()
+
+    def _decode_single(self, data: dict, context: dict | None) -> dict:
+        if 'target_grip' in data:
+            data['target_grip'] = 1.0 if data['target_grip'] > self._threshold else 0.0
+        return data
 
 
 class _WrappedPolicy(Policy):
