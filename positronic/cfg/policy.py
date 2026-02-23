@@ -70,5 +70,6 @@ def remote(
 ):
     from positronic.policy.remote import RemotePolicy
 
-    policy = RemotePolicy(host, port, None if codec else resize, model_id=model_id, horizon_sec=horizon_sec)
+    effective_resize = None if codec and codec.meta.get('image_sizes') else resize
+    policy = RemotePolicy(host, port, effective_resize, model_id=model_id, horizon_sec=horizon_sec)
     return codec.wrap(policy) if codec else policy
