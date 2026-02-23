@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 import rerun as rr
 
+from positronic.dataset.transforms.episode import Derive
 from positronic.policy.base import Policy
 from positronic.policy.codec import (
     Codec,
@@ -224,3 +225,67 @@ def test_full_pipeline(tmp_path):
     assert len(result) == 3
     assert all('decoded' in r for r in result)
     assert (tmp_path / 'episode_0001.rrd').exists()
+
+
+def test_recording_codec_none_inner_identity(tmp_path):
+    codec = RecordingCodec(None, tmp_path)
+
+    assert codec.encode({'x': 1}) == {'x': 1}
+    assert codec.decode({'y': 2}) == {'y': 2}
+    assert codec.decode([{'a': 1}, {'b': 2}]) == [{'a': 1}, {'b': 2}]
+    assert codec.meta == {}
+    assert codec.dummy_encoded() == {}
+    assert codec.dummy_encoded({'z': 3}) == {'z': 3}
+    assert isinstance(codec.training_encoder, Derive)
+
+
+def test_recording_codec_none_inner_wrap(tmp_path):
+    codec = RecordingCodec(None, tmp_path)
+    actions = [{'v': 1}, {'v': 2}]
+    policy = codec.wrap(_TrackingPolicy(actions))
+    assert isinstance(policy, _RecordingPolicy)
+
+    policy.reset()
+    result = policy.select_action({'x': 1.0})
+    assert result == actions
+    assert (tmp_path / 'episode_0001.rrd').exists()
+
+
+def test_session_none_inner_identity(tmp_path):
+    rec = rr.new_recording(application_id='test')
+    rec.save(str(tmp_path / 'test.rrd'))
+    session = _RecordingSession(None, rec, action_fps=10.0)
+
+    encoded = session.encode({'x': 1.0, 'img': np.zeros((4, 4, 3), dtype=np.uint8)})
+    assert encoded == {'x': 1.0, 'img': encoded['img']}
+
+    single = session.decode({'v': 0})
+    assert single == {'v': 0}
+
+    decoded = session.decode([{'v': 1}, {'v': 2}])
+    assert decoded == [{'v': 1}, {'v': 2}]
+
+    assert session.meta == {}
+    assert session.dummy_encoded() == {}
+    assert session.dummy_encoded({'z': 1}) == {'z': 1}
+    assert isinstance(session.training_encoder, Derive)
+
+
+def test_session_none_inner_logs_input_and_model_only(tmp_path):
+    rec = rr.new_recording(application_id='test')
+    rec.save(str(tmp_path / 'test.rrd'))
+    session = _RecordingSession(None, rec, action_fps=10.0)
+
+    session.encode({'grip': 0.5, 'camera': np.zeros((4, 4, 3), dtype=np.uint8)})
+    # input paths should be logged
+    assert len(session._image_paths) > 0 or len(session._numeric_paths) > 0
+
+    input_paths = session._image_paths + session._numeric_paths
+    assert all('input' in p for p in input_paths)
+    # no 'encoded' paths since inner is None
+    assert not any('encoded' in p for p in input_paths)
+
+    session.decode([{'action': np.array([1.0])}])
+    all_paths = session._image_paths + session._numeric_paths
+    assert any('model' in p for p in all_paths)
+    assert not any('decoded' in p for p in all_paths)

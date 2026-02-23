@@ -260,7 +260,7 @@ class Gr00tPolicy(Policy):
 class InferenceServer:
     def __init__(
         self,
-        codec: Codec,
+        codec: Codec | None,
         checkpoints_dir: str,
         checkpoint: str | None,
         modality_config: str,
@@ -387,9 +387,10 @@ class InferenceServer:
         try:
             # Get or start subprocess (sends status updates internally)
             subprocess, checkpoint_meta = await self._get_subprocess(checkpoint_id, websocket)
-
-            # Send ready with metadata
-            meta = {**self.metadata, **checkpoint_meta, **self.codec.meta}
+            base_policy = Gr00tPolicy(subprocess.client)
+            policy = self.codec.wrap(base_policy) if self.codec else base_policy
+            policy.reset()
+            meta = {**self.metadata, **checkpoint_meta, **policy.meta}
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
         except Exception as e:
             logger.error(f'Failed to load checkpoint: {e}')
@@ -398,8 +399,6 @@ class InferenceServer:
             return
 
         try:
-            policy = self.codec.wrap(Gr00tPolicy(subprocess.client))
-            policy.reset()
             try:
                 while True:
                     message = await websocket.receive_bytes()
@@ -432,7 +431,8 @@ class InferenceServer:
         try:
             logger.info('Running warmup inference...')
             await asyncio.to_thread(self.subprocess.client.reset)
-            await asyncio.to_thread(self.subprocess.client.get_action, self.codec.dummy_encoded())
+            dummy = self.codec.dummy_encoded() if self.codec else {}
+            await asyncio.to_thread(self.subprocess.client.get_action, dummy)
             logger.info('Warmup inference complete')
         except Exception:
             logger.warning('Warmup inference failed (non-fatal)', exc_info=True)
