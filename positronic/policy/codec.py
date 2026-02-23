@@ -333,7 +333,7 @@ class _RecordingSession(Codec):
     Created by ``RecordingCodec._new_session()`` — one per episode, with independent state.
     """
 
-    def __init__(self, inner: Codec, rec: Any, *, action_fps: float):
+    def __init__(self, inner: Codec | None, rec: Any, *, action_fps: float):
         self._inner = inner
         self._rec = rec
         self._action_fps = action_fps
@@ -377,25 +377,26 @@ class _RecordingSession(Codec):
         # __wall_time_ns__ / __inference_time_ns__ injected by Inference.run(); ignored by inner codecs
         self._time_ns = data.get('__wall_time_ns__', time.time_ns())
         self._inference_time_ns = data.get('__inference_time_ns__')
-        encoded = self._inner.encode(data)
+        encoded = self._inner.encode(data) if self._inner else data
         with self._rec:
             self._set_timelines(self._time_ns, self._inference_time_ns)
             self._log('input', data)
-            self._log('encoded', encoded)
+            if self._inner:
+                self._log('encoded', encoded)
         return encoded
 
     def decode(self, data, *, context=None):
-        decoded = self._inner.decode(data, context=context)
+        decoded = self._inner.decode(data, context=context) if self._inner else data
         actions = data if isinstance(data, list) else [data]
-        decoded_list = decoded if isinstance(decoded, list) else [decoded]
         dt_ns = int(1e9 / self._action_fps)
+        decoded_list = (decoded if isinstance(decoded, list) else [decoded]) if self._inner else []
         with self._rec:
-            # Log raw and decoded actions at future timestamps (one per chunk step)
-            for i, (action, dec) in enumerate(zip(actions, decoded_list, strict=False)):
+            for i, action in enumerate(actions):
                 inf_t = self._inference_time_ns + i * dt_ns if self._inference_time_ns is not None else None
                 self._set_timelines(self._time_ns + i * dt_ns, inf_t)
                 self._log('model', action)
-                self._log('decoded', dec)
+                if i < len(decoded_list):
+                    self._log('decoded', decoded_list[i])
             if self._step == 0:
                 self._send_blueprint()
         self._step += 1
@@ -403,14 +404,14 @@ class _RecordingSession(Codec):
 
     @property
     def training_encoder(self):
-        return self._inner.training_encoder
+        return self._inner.training_encoder if self._inner else Derive()
 
     @property
     def meta(self):
-        return self._inner.meta
+        return self._inner.meta if self._inner else {}
 
     def dummy_encoded(self, data=None):
-        return self._inner.dummy_encoded(data)
+        return self._inner.dummy_encoded(data) if self._inner else (data or {})
 
 
 class RecordingCodec(Codec):
@@ -420,11 +421,11 @@ class RecordingCodec(Codec):
     state, so concurrent sessions don't interfere with each other.
     """
 
-    def __init__(self, inner: Codec, recording_dir: str | Path):
+    def __init__(self, inner: Codec | None, recording_dir: str | Path):
         self._inner = inner
         self._dir = Path(recording_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._action_fps: float = inner.meta.get('action_fps', 15.0)
+        self._action_fps: float = inner.meta.get('action_fps', 15.0) if inner else 15.0
         self._counter = itertools.count(1)
 
     def _new_session(self) -> _RecordingSession:
@@ -434,24 +435,24 @@ class RecordingCodec(Codec):
         return _RecordingSession(self._inner, rec, action_fps=self._action_fps)
 
     def encode(self, data: dict) -> dict:
-        return self._inner.encode(data)
+        return self._inner.encode(data) if self._inner else data
 
     def decode(self, data, *, context=None):
-        return self._inner.decode(data, context=context)
+        return self._inner.decode(data, context=context) if self._inner else data
 
     @property
     def training_encoder(self):
-        return self._inner.training_encoder
+        return self._inner.training_encoder if self._inner else Derive()
 
     @property
     def meta(self):
-        return self._inner.meta
+        return self._inner.meta if self._inner else {}
 
     def wrap(self, policy: Policy) -> Policy:
         return _RecordingPolicy(policy, self)
 
     def dummy_encoded(self, data=None):
-        return self._inner.dummy_encoded(data)
+        return self._inner.dummy_encoded(data) if self._inner else (data or {})
 
 
 class _RecordingPolicy(Policy):

@@ -183,7 +183,7 @@ class InferenceServer:
 
     def __init__(
         self,
-        codec: Codec,
+        codec: Codec | None,
         checkpoints_dir: str | Path,
         config_name: str = 'pi05_positronic_lowmem',
         checkpoint: str | None = None,
@@ -305,13 +305,11 @@ class InferenceServer:
         try:
             # Get or start subprocess (sends status updates internally)
             subprocess_obj = await self._get_subprocess(resolved_checkpoint_id, websocket)
-
-            # Send ready with metadata
-            meta = {**self.metadata, 'checkpoint_id': resolved_checkpoint_id, **self.codec.meta}
-            await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
-
-            policy = self.codec.wrap(OpenpiPolicy(subprocess_obj.client))
+            base_policy = OpenpiPolicy(subprocess_obj.client)
+            policy = self.codec.wrap(base_policy) if self.codec else base_policy
             policy.reset()
+            meta = {**self.metadata, 'checkpoint_id': resolved_checkpoint_id, **policy.meta}
+            await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
 
             # Inference loop
             async for message in websocket.iter_bytes():
@@ -350,7 +348,8 @@ class InferenceServer:
         """Run one warmup inference to trigger JIT compilation."""
         try:
             logger.info('Running warmup inference...')
-            await asyncio.to_thread(subprocess_obj.client.infer, self.codec.dummy_encoded())
+            dummy = self.codec.dummy_encoded() if self.codec else {}
+            await asyncio.to_thread(subprocess_obj.client.infer, dummy)
             logger.info('Warmup inference complete')
         except Exception:
             logger.warning('Warmup inference failed (non-fatal)', exc_info=True)

@@ -116,7 +116,7 @@ class InferenceServer:
     def __init__(
         self,
         policy_factory: Callable[[str], PreTrainedPolicy],
-        codec: Codec,
+        codec: Codec | None,
         checkpoints_dir: str | Path,
         checkpoint: str | None = None,
         host: str = '0.0.0.0',
@@ -218,7 +218,7 @@ class InferenceServer:
         try:
             base_policy = await self.policy_manager.get_policy(checkpoint_id, websocket)
             try:
-                policy = self.codec.wrap(base_policy)
+                policy = self.codec.wrap(base_policy) if self.codec else base_policy
                 policy.reset()
                 await websocket.send_bytes(serialise({'status': 'ready', 'meta': policy.meta}))
                 try:
