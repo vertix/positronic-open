@@ -60,25 +60,25 @@ _TRAIL_FADE_NS = 5_000_000_000  # 5-second window of full visibility
 _TRAIL_UPDATE_INTERVAL = 30  # Only re-log full trail every N pose samples
 
 
-def _log_trajectory_trail(
-    entity_path: str, positions: list[list[float]], timestamps_ns: list[int], base_rgb: list[int]
-) -> None:
-    """Log trajectory as per-segment line strips with time-based fade.
+def _log_trajectory_trail(entity_path: str, positions: np.ndarray, start: int, base_rgb: list[int]) -> None:
+    """Log trail for positions[start:] only (the recent window)."""
+    window = positions[start:]
+    if len(window) < 2:
+        return
+    segments = np.stack([window[:-1], window[1:]], axis=1)
+    alphas = np.linspace(80, 255, len(segments), dtype=np.uint8)
+    colors = np.column_stack([np.full((len(segments), 3), base_rgb, dtype=np.uint8), alphas[:, None]])
+    rr.log(entity_path, rr.LineStrips3D(segments, colors=colors, radii=0.003))
 
-    Segments within the last 5 s are bright (alpha scales up to 255).
-    Older segments drop to near-transparent (alpha ~15).
-    """
+
+def _log_static_trail(entity_path: str, positions: np.ndarray, base_rgb: list[int]) -> None:
+    """Log the full trajectory as a thin, muted static background."""
     if len(positions) < 2:
         return
-    now = timestamps_ns[-1]
-    segments = []
-    colors = []
-    for a, b, ts in zip(positions, positions[1:], timestamps_ns[1:], strict=False):
-        segments.append([a, b])
-        age = now - ts
-        alpha = 15 if age >= _TRAIL_FADE_NS else int(15 + 240 * (1.0 - age / _TRAIL_FADE_NS))
-        colors.append([*base_rgb, alpha])
-    rr.log(entity_path, rr.LineStrips3D(segments, colors=colors))
+    segments = np.stack([positions[:-1], positions[1:]], axis=1)
+    muted = [c // 3 + 40 for c in base_rgb]  # blend toward gray; rerun 3D doesn't do alpha
+    colors = np.tile([*muted, 255], (len(segments), 1)).astype(np.uint8)
+    rr.log(entity_path, rr.LineStrips3D(segments, colors=colors, radii=0.0005), static=True)
 
 
 def _format_value(value: Any, formatter: str | None, default: Any) -> Any:
@@ -145,16 +145,20 @@ def _build_blueprint(signals: EpisodeSignals) -> rrb.Blueprint:
         for sig in signals.numerics
     ]
 
-    grid_items = []
+    # Right column: 3D on top, images below (vertical split)
+    right_items = []
+    if signals.poses:
+        right_items.append(rrb.Spatial3DView(name='3D Trajectory', origin='/3d'))
+    if image_views:
+        right_items.append(rrb.Grid(*image_views))
+
+    columns = []
     column_shares = []
     if per_signal_views:
-        grid_items.append(rrb.Grid(*per_signal_views))
+        columns.append(rrb.Grid(*per_signal_views))
         column_shares.append(1)
-    if signals.poses:
-        grid_items.append(rrb.Spatial3DView(name='3D Trajectory', origin='/3d'))
-        column_shares.append(1)
-    if image_views:
-        grid_items.append(rrb.Grid(*image_views))
+    if right_items:
+        columns.append(right_items[0] if len(right_items) == 1 else rrb.Vertical(*right_items))
         column_shares.append(2)
 
     return rrb.Blueprint(
@@ -162,7 +166,7 @@ def _build_blueprint(signals: EpisodeSignals) -> rrb.Blueprint:
         rrb.SelectionPanel(state=rrb.PanelState.Hidden),
         rrb.TopPanel(state=rrb.PanelState.Expanded),
         rrb.TimePanel(state=rrb.PanelState.Collapsed),
-        rrb.Grid(*grid_items, column_shares=column_shares),
+        rrb.Grid(*columns, column_shares=column_shares),
     )
 
 
@@ -223,20 +227,17 @@ def _log_numeric_signals(
     pose_data: dict[str, tuple[np.ndarray, np.ndarray]] = {}
 
     for key in signals.numerics:
-        timestamps = []
-        values = []
-        for payload, ts_ns in ep.signals[key]:
-            arr = flatten_numeric(payload)
-            if arr is not None:
-                timestamps.append(ts_ns)
-                values.append(arr)
-
-        if not timestamps:
+        sig = ep.signals[key]
+        if len(sig) == 0:
             continue
-
-        ts_arr = np.array(timestamps, dtype=np.int64)
-        vals = np.stack(values)
-        dim = vals.shape[1] if vals.ndim > 1 else 1
+        ts_arr = np.asarray(sig.keys(), dtype=np.int64)
+        try:
+            vals = np.asarray(sig.values(), dtype=np.float64)
+        except (TypeError, ValueError):
+            continue
+        if vals.ndim == 1:
+            vals = vals.reshape(-1, 1)
+        dim = vals.shape[1]
 
         if dim == 1:
             rr.send_columns(
@@ -279,16 +280,16 @@ def _log_pose_signals(
                 positions=positions, colors=np.tile(color, (len(ts_arr), 1)), radii=np.full(len(ts_arr), 0.01)
             ),
         )
-        # Log trajectory trail at periodic intervals so it's visible when scrubbing
-        pos_list = positions.tolist()
-        timestamps = ts_arr.tolist()
-        trail_path = f'/3d/{key}/trail'
-        for i in range(_TRAIL_UPDATE_INTERVAL, len(pos_list), _TRAIL_UPDATE_INTERVAL):
-            set_timeline_time('time', timestamps[i])
-            _log_trajectory_trail(trail_path, pos_list[: i + 1], timestamps[: i + 1], color)
+        _log_static_trail(f'/3d/{key}/trail/background', positions, color)
+        active_path = f'/3d/{key}/trail/active'
+        for i in range(_TRAIL_UPDATE_INTERVAL, len(ts_arr), _TRAIL_UPDATE_INTERVAL):
+            set_timeline_time('time', int(ts_arr[i]))
+            win_start = int(np.searchsorted(ts_arr[: i + 1], ts_arr[i] - _TRAIL_FADE_NS))
+            _log_trajectory_trail(active_path, positions[: i + 1], win_start, color)
         # Final trail at last timestamp
-        set_timeline_time('time', timestamps[-1])
-        _log_trajectory_trail(trail_path, pos_list, timestamps, color)
+        set_timeline_time('time', int(ts_arr[-1]))
+        win_start = int(np.searchsorted(ts_arr, ts_arr[-1] - _TRAIL_FADE_NS))
+        _log_trajectory_trail(active_path, positions, win_start, color)
         yield from drainer.drain()
 
 
@@ -315,6 +316,7 @@ def stream_episode_rrd(ds: Dataset, episode_id: int) -> Iterator[bytes]:
 
         yield from _log_video_signals(ep, signals, drainer)
         pose_data = yield from _log_numeric_signals(ep, signals, drainer)
+        yield from drainer.drain(force=True)  # flush numerics to client before slow pose trails
         yield from _log_pose_signals(signals, pose_data, drainer)
 
     yield from drainer.drain(force=True)
