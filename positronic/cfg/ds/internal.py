@@ -14,17 +14,9 @@ import pos3
 
 from positronic.dataset.dataset import ConcatDataset, FilterDataset
 from positronic.dataset.local_dataset import load_all_datasets
-from positronic.dataset.transforms import TransformedDataset
+from positronic.dataset.transforms import TransformedDataset, agg_fraction_true, agg_max, agg_percentile
 from positronic.dataset.transforms.episode import Concat, Derive, FromValue, Group, Identity, Rename
-from positronic.dataset.transforms.quality import (
-    agg_fraction_true,
-    agg_max,
-    agg_p95,
-    cmd_lag,
-    cmd_velocity,
-    idle_mask,
-    jerk,
-)
+from positronic.dataset.transforms.quality import cmd_lag, cmd_velocity, idle_mask, jerk
 from positronic.server.positronic_server import ColumnConfig as C
 from positronic.server.positronic_server import main as server_main
 from positronic.utils.logging import init_logging
@@ -172,8 +164,8 @@ _quality_signals = Derive(
 _quality_scalars = Derive(
     idle_frac=lambda ep: agg_fraction_true(ep.signals['quality_idle']) * 100,
     cmd_lag_max=lambda ep: agg_max(ep.signals['quality_cmd_lag']),
-    cmd_lag_p95=lambda ep: agg_p95(ep.signals['quality_cmd_lag']),
-    jerk_p95=lambda ep: agg_p95(ep.signals['quality_jerk']),
+    cmd_lag_p95=lambda ep: agg_percentile(ep.signals['quality_cmd_lag'], 95),
+    jerk_p95=lambda ep: agg_percentile(ep.signals['quality_jerk'], 95),
     cmd_vel_max=lambda ep: agg_max(ep.signals['quality_cmd_vel']),
 )
 

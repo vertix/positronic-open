@@ -437,6 +437,84 @@ def view(signal: NpSignal, slice: slice) -> NpSignal:
     return Elementwise(signal, fn)
 
 
+def diff(signal: NpSignal, dt_sec: float, order: int = 1) -> NpSignal:
+    """Centered finite-difference derivative of a vector signal.
+
+    Args:
+        signal: Input signal with ndarray values of shape (dim,).
+        dt_sec: Time window in seconds for the finite difference stencil.
+        order: Derivative order. 1 = velocity, 2 = acceleration.
+
+    Returns:
+        Signal of per-frame derivative vectors (same dim as input).
+        order=1: (f(t+dt) - f(t-dt)) / 2dt
+        order=2: (f(t-dt) - 2f(t) + f(t+dt)) / dt²
+    """
+    if order < 1 or order > 2:
+        raise ValueError(f'diff supports order 1 or 2, got {order}')
+    dt_ns = int(dt_sec * 1e9)
+
+    if order == 1:
+
+        def fn(pairs):
+            arr = np.array(pairs)  # (batch, 2, dim)
+            return (arr[:, 1] - arr[:, 0]) / (2 * dt_sec)
+
+        return Elementwise(TimeOffsets(signal, -dt_ns, dt_ns), fn)
+    else:
+
+        def fn(triples):
+            arr = np.array(triples)  # (batch, 3, dim)
+            return (arr[:, 2] - 2 * arr[:, 1] + arr[:, 0]) / (dt_sec * dt_sec)
+
+        return Elementwise(TimeOffsets(signal, -dt_ns, 0, dt_ns), fn)
+
+
+def norm(signal: NpSignal) -> NpSignal:
+    """Per-frame L2 norm. Signal[ndarray(dim,)] → Signal[scalar]."""
+
+    def fn(vals):
+        arr = np.array(vals)
+        if arr.ndim == 1:
+            return np.abs(arr)
+        return np.linalg.norm(arr, axis=-1)
+
+    return Elementwise(signal, fn)
+
+
+# ---------------------------------------------------------------------------
+# Scalar aggregators — reduce a Signal to a single value
+# ---------------------------------------------------------------------------
+
+
+def _signal_values(signal: Signal) -> np.ndarray:
+    """Extract all values from a Signal as a numpy array."""
+    n = len(signal)
+    if n == 0:
+        return np.array([])
+    return np.array(signal._values_at(np.arange(n)))
+
+
+def agg_max(signal: Signal) -> float:
+    """Maximum value across all frames."""
+    return float(np.max(_signal_values(signal)))
+
+
+def agg_mean(signal: Signal) -> float:
+    """Mean value across all frames."""
+    return float(np.mean(_signal_values(signal)))
+
+
+def agg_percentile(signal: Signal, q: float) -> float:
+    """q-th percentile across all frames (q in 0..100)."""
+    return float(np.percentile(_signal_values(signal), q))
+
+
+def agg_fraction_true(signal: Signal) -> float:
+    """For boolean signals: fraction of True values."""
+    return float(np.mean(_signal_values(signal)))
+
+
 class _PairwiseMap:
     def __init__(self, op: Callable[[Any, Any], Any]):
         self._op = op
