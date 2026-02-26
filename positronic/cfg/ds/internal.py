@@ -26,7 +26,6 @@ from positronic.dataset.transforms.quality import (
     jerk,
 )
 from positronic.server.positronic_server import ColumnConfig as C
-from positronic.server.positronic_server import RendererConfig
 from positronic.server.positronic_server import main as server_main
 from positronic.utils.logging import init_logging
 
@@ -179,28 +178,10 @@ _quality_scalars = Derive(
 )
 
 
-def _quality_label(ep):
-    if ep.duration_ns / 1e9 < 2.0 or ep['idle_frac'] > 85:
-        return 'bad'
-    if ep['cmd_vel_max'] > 1.0 or ep['jerk_p95'] > 30 or ep['cmd_lag_max'] > 0.5:
-        return 'warn'
-    return 'good'
-
-
-_quality_badge = RendererConfig(
-    type='badge',
-    options={
-        'good': {'label': 'Good', 'variant': 'success'},
-        'warn': {'label': 'Warn', 'variant': 'warning'},
-        'bad': {'label': 'Bad', 'variant': 'danger'},
-    },
-)
-
 _droid_debug_table = {
     '__index__': C(label='#', format='%d'),
     '__duration__': C(label='Duration', format='%.0f sec'),
     'task': C(label='Task', filter=True),
-    'quality': C(label='Quality', renderer=_quality_badge, filter=True),
     'idle_frac': C(label='Idle %', format='%.1f%%'),
     'cmd_lag_max': C(label='Lag Max', format='%.3f m'),
     'cmd_lag_p95': C(label='Lag p95', format='%.3f m'),
@@ -208,12 +189,8 @@ _droid_debug_table = {
     'cmd_vel_max': C(label='Cmd Vel Max', format='%.2f m/s'),
 }
 
-# Chain: add quality signals → compute scalar metrics → derive quality label
-_quality_transform = (
-    Group(_quality_signals, Identity())
-    | Group(_quality_scalars, Identity())
-    | Group(Derive(quality=_quality_label), Identity())
-)
+# Chain: add quality signals → compute scalar metrics
+_quality_transform = Group(_quality_signals, Identity()) | Group(_quality_scalars, Identity())
 
 droid_debug = server_main.override(
     dataset=transform.override(base=droid, transforms=[_quality_transform]), ep_table_cfg=_droid_debug_table

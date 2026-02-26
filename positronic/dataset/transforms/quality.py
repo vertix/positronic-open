@@ -28,12 +28,11 @@ def idle_mask(episode, signal='robot_state.q', velocity_threshold=0.015, fps=15)
     dt = _dt(fps)
 
     def fn(pairs):
-        a = np.array([p[0] for p in pairs])
-        b = np.array([p[1] for p in pairs])
-        velocity = np.linalg.norm(b - a, axis=-1) * fps
+        arr = np.array(pairs)  # (batch, 2, dim)
+        velocity = np.linalg.norm(arr[:, 1] - arr[:, 0], axis=-1) / (2 / fps)
         return velocity < velocity_threshold
 
-    return Elementwise(TimeOffsets(q, 0, dt), fn)
+    return Elementwise(TimeOffsets(q, -dt, dt), fn)
 
 
 def jerk(episode, signal='robot_state.q', fps=15):
@@ -43,13 +42,11 @@ def jerk(episode, signal='robot_state.q', fps=15):
     fps2 = fps * fps
 
     def fn(triples):
-        v0 = np.array([t[0] for t in triples])
-        v1 = np.array([t[1] for t in triples])
-        v2 = np.array([t[2] for t in triples])
-        accel = (v2 - 2 * v1 + v0) * fps2
+        arr = np.array(triples)  # (batch, 3, dim)
+        accel = (arr[:, 2] - 2 * arr[:, 1] + arr[:, 0]) * fps2
         return np.linalg.norm(accel, axis=-1)
 
-    return Elementwise(TimeOffsets(q, 0, dt, 2 * dt), fn)
+    return Elementwise(TimeOffsets(q, -dt, 0, dt), fn)
 
 
 def cmd_lag(episode, cmd_signal='robot_commands.pose', state_signal='robot_state.ee_pose', components=_TRANSLATION):
@@ -61,9 +58,8 @@ def cmd_lag(episode, cmd_signal='robot_commands.pose', state_signal='robot_state
     ee = episode.signals[state_signal]
 
     def fn(pairs):
-        c = np.array([p[0] for p in pairs])
-        e = np.array([p[1] for p in pairs])
-        return np.linalg.norm(c[:, components] - e[:, components], axis=-1)
+        arr = np.array(pairs)  # (batch, 2, dim)
+        return np.linalg.norm(arr[:, 0, components] - arr[:, 1, components], axis=-1)
 
     return Elementwise(Join(cmd, ee), fn)
 
@@ -74,11 +70,10 @@ def cmd_velocity(episode, signal='robot_commands.pose', components=_TRANSLATION,
     dt = _dt(fps)
 
     def fn(pairs):
-        a = np.array([p[0] for p in pairs])
-        b = np.array([p[1] for p in pairs])
-        return np.linalg.norm(b[:, components] - a[:, components], axis=-1) * fps
+        arr = np.array(pairs)  # (batch, 2, dim)
+        return np.linalg.norm(arr[:, 1, components] - arr[:, 0, components], axis=-1) / (2 / fps)
 
-    return Elementwise(TimeOffsets(cmd, 0, dt), fn)
+    return Elementwise(TimeOffsets(cmd, -dt, dt), fn)
 
 
 # ---------------------------------------------------------------------------

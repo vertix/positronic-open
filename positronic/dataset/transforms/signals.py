@@ -124,6 +124,8 @@ class IndexOffsets(Signal[tuple]):
 
         n = len(self._offs)
         if not self._include_ref_ts:
+            # TODO: same as TimeOffsets — return np.stack(vals_parts, axis=1) once the
+            # Signal contract allows stacked ndarrays from _values_at.
             return list(zip(*vals_parts, strict=False)) if n > 1 else vals_parts[0]
         else:
             if n == 1:
@@ -241,6 +243,10 @@ class TimeOffsets(Signal[tuple]):
 
         n = len(self._deltas)
         if not self._include_ref_ts:
+            # TODO: vals_parts are already batched arrays — zip tears them into per-row
+            # tuples that downstream Elementwise fns often reassemble with np.array().
+            # Return np.stack(vals_parts, axis=1) instead once the Signal contract is
+            # extended to allow _values_at to return stacked ndarrays.
             return list(zip(*vals_parts, strict=False)) if n > 1 else vals_parts[0]
 
         if n == 1:
@@ -353,6 +359,8 @@ class Join(Signal[tuple]):
         tss_all = [s._ts_at(idx) for s, idx in zip(self._signals, idx_all, strict=False)]
 
         if not self._include_ref_ts:
+            # TODO: same as TimeOffsets — return np.stack(vals_all, axis=1) once the
+            # Signal contract allows stacked ndarrays from _values_at.
             return [tuple(row) for row in zip(*vals_all, strict=False)]
         else:
             ts_mat = np.stack([np.asarray(t, dtype=np.int64) for t in tss_all], axis=1)
