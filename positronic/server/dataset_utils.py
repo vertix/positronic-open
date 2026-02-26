@@ -140,7 +140,10 @@ def _build_blueprint(signals: EpisodeSignals) -> rrb.Blueprint:
     image_views = [rrb.Spatial2DView(name=k, origin=f'/{k}') for k in signals.videos]
     per_signal_views = [
         rrb.TimeSeriesView(
-            name=sig, origin=f'/signals/{sig}', plot_legend=rrb.PlotLegend(visible=signals.dims.get(sig, 1) > 1)
+            name=sig,
+            origin=f'/signals/{sig}',
+            plot_legend=rrb.PlotLegend(visible=signals.dims.get(sig, 1) > 1),
+            axis_y=rrb.ScalarAxis(zoom_lock=True),
         )
         for sig in signals.numerics
     ]
@@ -148,7 +151,7 @@ def _build_blueprint(signals: EpisodeSignals) -> rrb.Blueprint:
     # Right column: 3D on top, images below (vertical split)
     right_items = []
     if signals.poses:
-        right_items.append(rrb.Spatial3DView(name='3D Trajectory', origin='/3d'))
+        right_items.append(rrb.Spatial3DView(name='3D Trajectory', origin='/3d', background=[30, 30, 30]))
     if image_views:
         right_items.append(rrb.Grid(*image_views))
 
@@ -156,10 +159,10 @@ def _build_blueprint(signals: EpisodeSignals) -> rrb.Blueprint:
     column_shares = []
     if per_signal_views:
         columns.append(rrb.Grid(*per_signal_views))
-        column_shares.append(1)
+        column_shares.append(2)
     if right_items:
         columns.append(right_items[0] if len(right_items) == 1 else rrb.Vertical(*right_items))
-        column_shares.append(2)
+        column_shares.append(1)
 
     return rrb.Blueprint(
         rrb.BlueprintPanel(state=rrb.PanelState.Hidden),

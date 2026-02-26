@@ -12,6 +12,14 @@ from ..signal import IndicesLike, RealNumericArrayLike, Signal
 T = TypeVar('T')
 U = TypeVar('U')
 
+
+def _as_indices(indices: IndicesLike, n: int) -> np.ndarray:
+    """Normalize IndicesLike to a concrete int64 array (handles slice)."""
+    if isinstance(indices, slice):
+        return np.arange(*indices.indices(n), dtype=np.int64)
+    return np.asarray(indices, dtype=np.int64)
+
+
 RotRep = geom.Rotation.Representation
 NpSignal = Signal[np.ndarray]
 
@@ -101,11 +109,11 @@ class IndexOffsets(Signal[tuple]):
         return n - 1 - max(0, self._max_off)
 
     def _ts_at(self, indices: IndicesLike) -> Sequence[int] | np.ndarray:
-        base = np.asarray(indices, dtype=np.int64) + self._base_start()
+        base = _as_indices(indices, len(self)) + self._base_start()
         return self._signal._ts_at(base)
 
     def _values_at(self, indices: IndicesLike):
-        base = np.asarray(indices, dtype=np.int64) + self._base_start()
+        base = _as_indices(indices, len(self)) + self._base_start()
         vals_parts = []
         ts_parts = []
         for off in self._offs:
@@ -116,6 +124,8 @@ class IndexOffsets(Signal[tuple]):
 
         n = len(self._offs)
         if not self._include_ref_ts:
+            # TODO: same as TimeOffsets — return np.stack(vals_parts, axis=1) once the
+            # Signal contract allows stacked ndarrays from _values_at.
             return list(zip(*vals_parts, strict=False)) if n > 1 else vals_parts[0]
         else:
             if n == 1:
@@ -209,7 +219,7 @@ class TimeOffsets(Signal[tuple]):
 
     def _ts_at(self, indices: IndicesLike) -> Sequence[int] | np.ndarray:
         self._compute_bounds()
-        idxs = np.asarray(indices, dtype=np.int64)
+        idxs = _as_indices(indices, len(self))
         if self._start_offset == 0:
             return self._signal._ts_at(idxs)
         else:
@@ -217,7 +227,7 @@ class TimeOffsets(Signal[tuple]):
 
     def _values_at(self, indices: IndicesLike):
         self._compute_bounds()
-        base = np.asarray(indices, dtype=np.int64)
+        base = _as_indices(indices, len(self))
         if self._start_offset > 0:
             base = base + self._start_offset
         ref_ts = np.asarray(self._signal._ts_at(base), dtype=np.int64)
@@ -233,6 +243,10 @@ class TimeOffsets(Signal[tuple]):
 
         n = len(self._deltas)
         if not self._include_ref_ts:
+            # TODO: vals_parts are already batched arrays — zip tears them into per-row
+            # tuples that downstream Elementwise fns often reassemble with np.array().
+            # Return np.stack(vals_parts, axis=1) instead once the Signal contract is
+            # extended to allow _values_at to return stacked ndarrays.
             return list(zip(*vals_parts, strict=False)) if n > 1 else vals_parts[0]
 
         if n == 1:
@@ -334,7 +348,7 @@ class Join(Signal[tuple]):
 
     def _ts_at(self, indices: IndicesLike) -> Sequence[int] | np.ndarray:
         self._compute_bounds()
-        idxs = np.asarray(indices)
+        idxs = _as_indices(indices, len(self))
         return self._union_ts[idxs]
 
     def _values_at(self, indices: IndicesLike):
@@ -345,6 +359,8 @@ class Join(Signal[tuple]):
         tss_all = [s._ts_at(idx) for s, idx in zip(self._signals, idx_all, strict=False)]
 
         if not self._include_ref_ts:
+            # TODO: same as TimeOffsets — return np.stack(vals_all, axis=1) once the
+            # Signal contract allows stacked ndarrays from _values_at.
             return [tuple(row) for row in zip(*vals_all, strict=False)]
         else:
             ts_mat = np.stack([np.asarray(t, dtype=np.int64) for t in tss_all], axis=1)
