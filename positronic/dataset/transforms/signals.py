@@ -12,6 +12,14 @@ from ..signal import IndicesLike, RealNumericArrayLike, Signal
 T = TypeVar('T')
 U = TypeVar('U')
 
+
+def _as_indices(indices: IndicesLike, n: int) -> np.ndarray:
+    """Normalize IndicesLike to a concrete int64 array (handles slice)."""
+    if isinstance(indices, slice):
+        return np.arange(*indices.indices(n), dtype=np.int64)
+    return np.asarray(indices, dtype=np.int64)
+
+
 RotRep = geom.Rotation.Representation
 NpSignal = Signal[np.ndarray]
 
@@ -101,11 +109,11 @@ class IndexOffsets(Signal[tuple]):
         return n - 1 - max(0, self._max_off)
 
     def _ts_at(self, indices: IndicesLike) -> Sequence[int] | np.ndarray:
-        base = np.asarray(indices, dtype=np.int64) + self._base_start()
+        base = _as_indices(indices, len(self)) + self._base_start()
         return self._signal._ts_at(base)
 
     def _values_at(self, indices: IndicesLike):
-        base = np.asarray(indices, dtype=np.int64) + self._base_start()
+        base = _as_indices(indices, len(self)) + self._base_start()
         vals_parts = []
         ts_parts = []
         for off in self._offs:
@@ -209,7 +217,7 @@ class TimeOffsets(Signal[tuple]):
 
     def _ts_at(self, indices: IndicesLike) -> Sequence[int] | np.ndarray:
         self._compute_bounds()
-        idxs = np.asarray(indices, dtype=np.int64)
+        idxs = _as_indices(indices, len(self))
         if self._start_offset == 0:
             return self._signal._ts_at(idxs)
         else:
@@ -217,7 +225,7 @@ class TimeOffsets(Signal[tuple]):
 
     def _values_at(self, indices: IndicesLike):
         self._compute_bounds()
-        base = np.asarray(indices, dtype=np.int64)
+        base = _as_indices(indices, len(self))
         if self._start_offset > 0:
             base = base + self._start_offset
         ref_ts = np.asarray(self._signal._ts_at(base), dtype=np.int64)
@@ -334,7 +342,7 @@ class Join(Signal[tuple]):
 
     def _ts_at(self, indices: IndicesLike) -> Sequence[int] | np.ndarray:
         self._compute_bounds()
-        idxs = np.asarray(indices)
+        idxs = _as_indices(indices, len(self))
         return self._union_ts[idxs]
 
     def _values_at(self, indices: IndicesLike):
