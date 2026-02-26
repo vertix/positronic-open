@@ -1,8 +1,7 @@
-"""Per-frame quality signals and scalar aggregators for dataset debugging.
+"""Per-frame quality signals for dataset debugging.
 
 Quality signals are composed from general-purpose signal transforms (diff, norm,
-view) — nothing expensive happens until values are accessed. Scalar aggregators
-extract all values from a signal and compute a summary statistic.
+view) — nothing expensive happens until values are accessed.
 """
 
 import numpy as np
@@ -43,33 +42,3 @@ def cmd_lag(episode, cmd_signal='robot_commands.pose', state_signal='robot_state
 def cmd_velocity(episode, signal='robot_commands.pose', components=_TRANSLATION, dt_sec=_DT_SEC):
     """Per-frame command translation velocity (m/s). Spikes = tracking glitches."""
     return norm(diff(view(episode.signals[signal], components), dt_sec))
-
-
-# ---------------------------------------------------------------------------
-# Scalar aggregators
-# ---------------------------------------------------------------------------
-
-
-def _signal_values(signal):
-    """Extract all values from a Signal as a numpy array."""
-    n = len(signal)
-    if n == 0:
-        return np.array([])
-    return np.array(signal._values_at(np.arange(n)))
-
-
-def agg_max(signal):
-    return float(np.max(_signal_values(signal)))
-
-
-def agg_p95(signal):
-    return float(np.percentile(_signal_values(signal), 95))
-
-
-def agg_mean(signal):
-    return float(np.mean(_signal_values(signal)))
-
-
-def agg_fraction_true(signal):
-    """For boolean signals: fraction of True values."""
-    return float(np.mean(_signal_values(signal)))

@@ -9,6 +9,10 @@ from .signals import (
     IndexOffsets,
     Join,
     TimeOffsets,
+    agg_fraction_true,
+    agg_max,
+    agg_mean,
+    agg_percentile,
     astype,
     concat,
     diff,
@@ -35,6 +39,11 @@ __all__ = [
     'recode_transform',
     'recode_rotation',
     'view',
+    # Scalar aggregators
+    'agg_fraction_true',
+    'agg_max',
+    'agg_mean',
+    'agg_percentile',
     # Episode transforms
     'EpisodeTransform',
     'TransformedEpisode',

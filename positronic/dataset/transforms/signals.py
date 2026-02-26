@@ -482,6 +482,39 @@ def norm(signal: NpSignal) -> NpSignal:
     return Elementwise(signal, fn)
 
 
+# ---------------------------------------------------------------------------
+# Scalar aggregators — reduce a Signal to a single value
+# ---------------------------------------------------------------------------
+
+
+def _signal_values(signal: Signal) -> np.ndarray:
+    """Extract all values from a Signal as a numpy array."""
+    n = len(signal)
+    if n == 0:
+        return np.array([])
+    return np.array(signal._values_at(np.arange(n)))
+
+
+def agg_max(signal: Signal) -> float:
+    """Maximum value across all frames."""
+    return float(np.max(_signal_values(signal)))
+
+
+def agg_mean(signal: Signal) -> float:
+    """Mean value across all frames."""
+    return float(np.mean(_signal_values(signal)))
+
+
+def agg_percentile(signal: Signal, q: float) -> float:
+    """q-th percentile across all frames (q in 0..100)."""
+    return float(np.percentile(_signal_values(signal), q))
+
+
+def agg_fraction_true(signal: Signal) -> float:
+    """For boolean signals: fraction of True values."""
+    return float(np.mean(_signal_values(signal)))
+
+
 class _PairwiseMap:
     def __init__(self, op: Callable[[Any, Any], Any]):
         self._op = op
