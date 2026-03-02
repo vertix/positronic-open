@@ -27,9 +27,10 @@ Episode {{ episode_id }} / {{ num_episodes }} - Positronic Dataset Viewer
         const raw = sessionStorage.getItem('filteredEpisodeIds');
         if (!raw) return null;
 
-        const ids = JSON.parse(raw);
+        let ids;
+        try { ids = JSON.parse(raw); } catch { return null; }
         const currentId = {{ episode_id }};
-        if (ids.indexOf(currentId) === -1) return null;
+        if (!Array.isArray(ids) || ids.indexOf(currentId) === -1) return null;
 
         const nav = document.getElementById('episode-nav');
         const input = document.getElementById('episode-input');
