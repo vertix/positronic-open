@@ -23,7 +23,7 @@ Episode {{ episode_id }} / {{ num_episodes }} - Positronic Dataset Viewer
      filtered list, and passes prev_episode_id/next_episode_id/filtered_count/filtered_index
      in the template context. That gives stable URLs but requires server and template changes. -->
 <script>
-    const filteredIds = (function() {
+    let filteredIds = (function() {
         const raw = sessionStorage.getItem('filteredEpisodeIds');
         if (!raw) return null;
 
@@ -67,6 +67,7 @@ Episode {{ episode_id }} / {{ num_episodes }} - Positronic Dataset Viewer
             document.getElementById('prev-btn').onclick = () => { window.location.href = `/episode/{{ (episode_id - 1) % num_episodes }}`; };
             document.getElementById('next-btn').onclick = () => { window.location.href = `/episode/{{ (episode_id + 1) % num_episodes }}`; };
             document.getElementById('breadcrumb-root').href = '/';
+            filteredIds = null;
             dismiss.remove();
             badge.remove();
         };
