@@ -2,61 +2,26 @@
 
 import os
 import subprocess
-from pathlib import Path
 
 import configuronic as cfn
 import pos3
 
 from positronic import utils
-
-DREAMZERO_ROOT = Path('/dreamzero')
-DREAMZERO_VENV = Path('/.venv')
-CACHE_DIR = Path('/root/.cache/dreamzero')
-
-WAN_REPO = 'Wan-AI/Wan2.1-I2V-14B-480P'
-UMT5_REPO = 'google/umt5-xxl'
+from positronic.vendors.dreamzero.server import DREAMZERO_ROOT, DREAMZERO_VENV, _download_base_weights
 
 
-def _download_base_weights():
-    """Download Wan2.1-I2V-14B-480P and umt5-xxl tokenizer to persistent cache."""
-    python = str(DREAMZERO_VENV / 'bin' / 'python')
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-    wan_dir = CACHE_DIR / 'Wan2.1-I2V-14B-480P'
-    umt5_dir = CACHE_DIR / 'umt5-xxl'
-
-    if not wan_dir.exists():
-        print(f'Downloading {WAN_REPO} to {wan_dir}...')
-        subprocess.run(
-            [
-                python,
-                '-c',
-                f'from huggingface_hub import snapshot_download; '
-                f'snapshot_download("{WAN_REPO}", local_dir="{wan_dir}")',
-            ],
-            check=True,
-        )
-    else:
-        print(f'Base weights already cached at {wan_dir}')
-
-    if not umt5_dir.exists():
-        print(f'Downloading {UMT5_REPO} to {umt5_dir}...')
-        subprocess.run(
-            [
-                python,
-                '-c',
-                f'from huggingface_hub import snapshot_download; '
-                f'snapshot_download("{UMT5_REPO}", local_dir="{umt5_dir}")',
-            ],
-            check=True,
-        )
-    else:
-        print(f'Tokenizer already cached at {umt5_dir}')
-
-    return wan_dir, umt5_dir
-
-
-@cfn.config(num_gpus=1, max_steps=100, learning_rate=1e-5, save_steps=1000, resume=False, extra_args=[])
+@cfn.config(
+    num_gpus=1,
+    max_steps=100,
+    learning_rate=1e-5,
+    save_steps=1000,
+    batch_size=1,
+    gradient_accumulation_steps=1,
+    warmup_ratio=0.05,
+    dataloader_num_workers=10,
+    resume=False,
+    extra_args=[],
+)
 def main(
     input_path: str,
     output_path: str,
@@ -65,6 +30,10 @@ def main(
     max_steps: int,
     learning_rate: float,
     save_steps: int,
+    batch_size: int,
+    gradient_accumulation_steps: int,
+    warmup_ratio: float,
+    dataloader_num_workers: int,
     resume: bool,
     extra_args: list[str],
 ):
@@ -102,12 +71,14 @@ def main(
             'image_resolution_height=176',
             'frame_seqlen=880',
             'max_chunk_size=4',
-            'per_device_train_batch_size=1',
+            f'per_device_train_batch_size={batch_size}',
+            f'gradient_accumulation_steps={gradient_accumulation_steps}',
+            f'dataloader_num_workers={dataloader_num_workers}',
             'bf16=true',
             'tf32=true',
             f'training_args.deepspeed={DREAMZERO_ROOT}/groot/vla/configs/deepspeed/zero2.json',
             f'training_args.learning_rate={learning_rate}',
-            'training_args.warmup_ratio=0.05',
+            f'training_args.warmup_ratio={warmup_ratio}',
             f'max_steps={max_steps}',
             f'save_steps={save_steps}',
             f'output_dir={output_dir}',
