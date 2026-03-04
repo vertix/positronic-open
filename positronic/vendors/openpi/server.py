@@ -319,8 +319,18 @@ def server(
     ).serve()
 
 
+phail = server.override(
+    checkpoints_dir='s3://checkpoints/phail_unified/openpi/pi05_positronic_lowmem/270226-ee/',
+    recording_dir='s3://inference/phail_unified/server_recordings/openpi/270226-ee/',
+)
+sim_stack = server.override(
+    checkpoints_dir='s3://checkpoints/sim_stack/openpi/ee/pi05_positronic_lowmem/230226/',
+    recording_dir='s3://inference/sim_stack/server_recordings/openpi/230226/',
+)
+
+
 if __name__ == '__main__':
     init_logging()
     ensure_paligemma_tokenizer()
     with pos3.mirror():
-        cfn.cli(server)
+        cfn.cli({'serve': server, 'phail': phail, 'sim_stack': sim_stack})

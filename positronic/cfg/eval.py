@@ -14,6 +14,8 @@ from positronic.utils.logging import init_logging
 
 
 def task_code(ep: Episode) -> str:
+    if 'eval.object' in ep:
+        return ep['eval.object']
     match ep['task']:
         case 'Pick all the towels one by one from transparent tote and place them into the large grey tote.':
             return 'Towels'

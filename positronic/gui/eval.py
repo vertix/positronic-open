@@ -18,13 +18,20 @@ class State(Enum):
     REVIEWING = auto()
 
 
+UNIFIED_TASK = 'Pick all the items one by one from transparent tote and place them into the large grey tote.'
+
+OBJECTS = ['Towels', 'Wooden spoons', 'Scissors', 'Batteries']
+
 TASKS = [
+    UNIFIED_TASK,
     'Pick all the towels one by one from transparent tote and place them into the large grey tote.',
     'Pick all the wooden spoons one by one from transparent tote and place them into the large grey tote.',
     'Pick all the scissors one by one from transparent tote and place them into the large grey tote.',
     'Pick up the green cube and place it on the red cube.',
     'Pick up objects from the red tote and place them in the green tote.',
 ]
+
+TASK_TO_OBJECT = {TASKS[1]: 'Towels', TASKS[2]: 'Wooden spoons', TASKS[3]: 'Scissors'}
 
 
 class EvalUI(pimm.ControlSystem):
@@ -165,7 +172,7 @@ class EvalUI(pimm.ControlSystem):
     def _build_configuration(self):
         dpg.add_text('Configuration')
         with dpg.group(horizontal=True):
-            with dpg.child_window(height=self.size(180), width=self.size(480), border=True):
+            with dpg.child_window(height=self.size(210), width=self.size(480), border=True):
                 dpg.add_text('Task')
                 self._register(
                     dpg.add_radio_button(
@@ -173,84 +180,102 @@ class EvalUI(pimm.ControlSystem):
                     ),
                     [State.WAITING],
                 )
-                dpg.add_spacer(height=self.size(5))
                 self._register(
                     dpg.add_input_text(show=False, width=self.size(350), tag='custom_input'), [State.WAITING]
                 )
 
-            with dpg.group():
+            dpg.add_spacer(width=self.size(5))
+
+            with dpg.child_window(height=self.size(210), width=self.size(200), border=True, tag='object_window'):
+                dpg.add_text('Object', tag='object_label')
                 self._register(
-                    dpg.add_input_int(
-                        label='Total items',
-                        default_value=1,
-                        step=1,
-                        min_value=1,
-                        min_clamped=True,
-                        width=self.size(100),
-                        tag='total_items_input',
-                        callback=self.validate_items_callback,
+                    dpg.add_radio_button(
+                        items=[*OBJECTS, 'Other'],
+                        default_value=OBJECTS[0],
+                        callback=self.radio_callback,
+                        tag='object_radio',
                     ),
                     [State.WAITING],
                 )
-                dpg.add_spacer(height=self.size(5))
-
                 self._register(
-                    dpg.add_input_int(
-                        label='Successful items',
-                        default_value=0,
-                        step=1,
-                        min_value=0,
-                        min_clamped=True,
-                        width=self.size(100),
-                        tag='successful_items_input',
-                        callback=self.validate_items_callback,
-                    ),
-                    [State.RUNNING, State.REVIEWING],
+                    dpg.add_input_text(show=False, width=self.size(180), tag='object_custom_input'), [State.WAITING]
                 )
 
-                dpg.add_spacer(height=self.size(5))
-                self._register(
-                    dpg.add_input_int(
-                        label='Cap/item (s)',
-                        default_value=self.cap_per_item,
-                        width=self.size(100),
-                        tag='cap_per_item_input',
-                        callback=self.cap_callback,
-                        step=1,
-                    ),
-                    [State.WAITING],
-                )
+        dpg.add_spacer(height=self.size(25))
+        with dpg.group(horizontal=True):
+            self._register(
+                dpg.add_input_int(
+                    label='Total items',
+                    default_value=1,
+                    step=1,
+                    min_value=1,
+                    min_clamped=True,
+                    width=self.size(80),
+                    tag='total_items_input',
+                    callback=self.validate_items_callback,
+                ),
+                [State.WAITING],
+            )
+            dpg.add_spacer(width=self.size(5))
+            self._register(
+                dpg.add_input_int(
+                    label='Successful',
+                    default_value=0,
+                    step=1,
+                    min_value=0,
+                    min_clamped=True,
+                    width=self.size(80),
+                    tag='successful_items_input',
+                    callback=self.validate_items_callback,
+                ),
+                [State.RUNNING, State.REVIEWING],
+            )
+            dpg.add_spacer(width=self.size(30))
+            self._register(
+                dpg.add_input_int(
+                    label='Cap/item (s)',
+                    default_value=self.cap_per_item,
+                    width=self.size(80),
+                    tag='cap_per_item_input',
+                    callback=self.cap_callback,
+                    step=1,
+                ),
+                [State.WAITING],
+            )
+            dpg.add_spacer(width=self.size(10))
+            dpg.add_text('Total run cap: 0 sec', tag='total_run_cap_text')
 
-                dpg.add_spacer(height=self.size(5))
-                dpg.add_text('Total run cap: 0 sec', tag='total_run_cap_text')
+        dpg.add_spacer(height=self.size(30))
+        with dpg.group(horizontal=True):
+            dpg.add_text('Tote Placement')
+            self._register(
+                dpg.add_radio_button(
+                    items=['left', 'right', 'NA'], default_value='NA', horizontal=True, tag='tote_radio'
+                ),
+                [State.WAITING, State.RUNNING, State.REVIEWING],
+            )
+            dpg.add_spacer(width=self.size(20))
+            dpg.add_text('External Camera')
+            self._register(
+                dpg.add_radio_button(
+                    items=['left', 'right', 'NA'], default_value='NA', horizontal=True, tag='camera_radio'
+                ),
+                [State.WAITING, State.RUNNING, State.REVIEWING],
+            )
 
-                dpg.add_spacer(height=self.size(10))
-                dpg.add_text('Tote Placement')
-                self._register(
-                    dpg.add_radio_button(
-                        items=['left', 'right', 'NA'], default_value='NA', horizontal=True, tag='tote_radio'
-                    ),
-                    [State.WAITING, State.RUNNING, State.REVIEWING],
-                )
-
-                dpg.add_text('External Camera')
-                self._register(
-                    dpg.add_radio_button(
-                        items=['left', 'right', 'NA'], default_value='NA', horizontal=True, tag='camera_radio'
-                    ),
-                    [State.WAITING, State.RUNNING, State.REVIEWING],
-                )
-
-        dpg.add_spacer(height=self.size(10))
-        dpg.add_text('Outcome')
-        self._register(
-            dpg.add_radio_button(
-                items=['Success', 'Fail', 'Stalled', 'Ran out of time', 'Safety', 'System'],
-                default_value='Success',
-                tag='outcome_radio',
-            ),
-            [State.REVIEWING],
-        )
+        dpg.add_spacer(height=self.size(30))
+        with dpg.group(horizontal=True):
+            dpg.add_text('Outcome')
+            dpg.add_spacer(width=self.size(5))
+            self._register(
+                dpg.add_radio_button(
+                    items=['Success', 'Fail', 'Stalled', 'Ran out of time', 'Safety', 'System'],
+                    default_value='Success',
+                    horizontal=True,
+                    tag='outcome_radio',
+                ),
+                [State.REVIEWING],
+            )
 
     def _build_notes(self):
         dpg.add_text('Notes')
@@ -276,7 +301,13 @@ class EvalUI(pimm.ControlSystem):
         with dpg.handler_registry():
 
             def safe_trigger(callback):
-                text_inputs = ['notes_input', 'custom_input', 'total_items_input', 'successful_items_input']
+                text_inputs = [
+                    'notes_input',
+                    'custom_input',
+                    'object_custom_input',
+                    'total_items_input',
+                    'successful_items_input',
+                ]
                 for tag in text_inputs:
                     if dpg.is_item_focused(tag):
                         return
@@ -327,12 +358,19 @@ class EvalUI(pimm.ControlSystem):
         self.update_ui()
 
         # Emit commands
-        task_name = (
-            dpg.get_value('custom_input') if dpg.get_value('task_radio') == 'Other' else dpg.get_value('task_radio')
-        )
+        task_value = dpg.get_value('task_radio')
+        task_name = dpg.get_value('custom_input') if task_value == 'Other' else task_value
+        static_data = {'task': task_name}
+
+        if task_value in TASK_TO_OBJECT or task_value == UNIFIED_TASK:
+            obj_value = dpg.get_value('object_radio')
+            if obj_value == 'Other':
+                obj_value = dpg.get_value('object_custom_input')
+            static_data['eval.object'] = obj_value
+
         self.run_start_time = self.clock.now()
         self.inference_command.emit(InferenceCommand.START(task=task_name))
-        self.ds_writer_command.emit(DsWriterCommand.START(static_data={'task': task_name}))
+        self.ds_writer_command.emit(DsWriterCommand.START(static_data=static_data))
 
     def stop_run(self, reason):
         if self.state != State.RUNNING:
@@ -467,6 +505,19 @@ class EvalUI(pimm.ControlSystem):
         is_other = task_value == 'Other'
         dpg.configure_item('custom_input', show=is_other)
 
+        # Object window visibility
+        if task_value == UNIFIED_TASK:
+            dpg.configure_item('object_window', show=True)
+            dpg.configure_item('object_radio', enabled=self.state == State.WAITING)
+            dpg.configure_item('object_custom_input', show=dpg.get_value('object_radio') == 'Other')
+        elif task_value in TASK_TO_OBJECT:
+            dpg.configure_item('object_window', show=True)
+            dpg.configure_item('object_radio', enabled=False)
+            dpg.set_value('object_radio', TASK_TO_OBJECT[task_value])
+            dpg.configure_item('object_custom_input', show=False)
+        else:
+            dpg.configure_item('object_window', show=False)
+
         if self.state == State.WAITING:
             dpg.set_value('successful_items_input', 0)
             dpg.set_value('notes_input', '')
@@ -506,13 +557,13 @@ class EvalUI(pimm.ControlSystem):
                     dpg.add_spacer(height=self.size(5))
                     self._build_controls()
 
-                    dpg.add_spacer(height=self.size(15))
+                    dpg.add_spacer(height=self.size(45))
                     dpg.add_separator()
                     dpg.add_spacer(height=self.size(10))
 
                     self._build_configuration()
 
-                    dpg.add_spacer(height=self.size(15))
+                    dpg.add_spacer(height=self.size(45))
                     dpg.add_separator()
                     dpg.add_spacer(height=self.size(10))
 

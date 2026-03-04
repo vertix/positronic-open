@@ -11,6 +11,7 @@ Two composition operators:
 
 import itertools
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, final
 
@@ -430,8 +431,9 @@ class RecordingCodec(Codec):
 
     def _new_session(self) -> _RecordingSession:
         episode_num = next(self._counter)
+        ts = datetime.now().strftime('%y%m%d_%H%M%S')
         rec = rr.RecordingStream(application_id='positronic_inference')
-        rec.save(str(self._dir / f'episode_{episode_num:04d}.rrd'))
+        rec.save(str(self._dir / f'{ts}_{episode_num:04d}.rrd'))
         return _RecordingSession(self._inner, rec, action_fps=self._action_fps)
 
     def encode(self, data: dict) -> dict:

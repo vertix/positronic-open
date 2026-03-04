@@ -95,9 +95,9 @@ def test_recording_policy_reset_creates_rrd_files(tmp_path):
     policy = _make_codec(tmp_path).wrap(_TrackingPolicy())
     assert isinstance(policy, _RecordingPolicy)
 
-    for i in range(1, 4):
+    for _i in range(1, 4):
         policy.reset()
-        assert (tmp_path / f'episode_{i:04d}.rrd').exists()
+    assert len(list(tmp_path.glob('*.rrd'))) == 3
 
 
 def test_recording_policy_reset_calls_inner_reset(tmp_path):
@@ -224,7 +224,7 @@ def test_full_pipeline(tmp_path):
     result = policy.select_action({'camera': np.zeros((4, 4, 3), dtype=np.uint8), 'grip': 0.5})
     assert len(result) == 3
     assert all('decoded' in r for r in result)
-    assert (tmp_path / 'episode_0001.rrd').exists()
+    assert len(list(tmp_path.glob('*.rrd'))) == 1
 
 
 def test_recording_codec_none_inner_identity(tmp_path):
@@ -248,7 +248,7 @@ def test_recording_codec_none_inner_wrap(tmp_path):
     policy.reset()
     result = policy.select_action({'x': 1.0})
     assert result == actions
-    assert (tmp_path / 'episode_0001.rrd').exists()
+    assert len(list(tmp_path.glob('*.rrd'))) == 1
 
 
 def test_session_none_inner_identity(tmp_path):

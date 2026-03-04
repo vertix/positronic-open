@@ -117,7 +117,17 @@ def main(
     ).serve()
 
 
+phail = main.override(
+    checkpoints_dir='s3://checkpoints/phail_unified/lerobot/270226-ee/',
+    recording_dir='s3://inference/phail_unified/server_recordings/lerobot/270226-ee/',
+)
+sim_stack = main.override(
+    checkpoints_dir='s3://checkpoints/sim_stack/lerobot/230226-ee/',
+    recording_dir='s3://inference/sim_stack/server_recordings/lerobot/230226-ee/',
+)
+
+
 if __name__ == '__main__':
     init_logging()
     with pos3.mirror():
-        cfn.cli(main)
+        cfn.cli({'serve': main, 'phail': phail, 'sim_stack': sim_stack})
