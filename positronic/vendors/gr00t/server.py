@@ -408,7 +408,7 @@ sim_stack = ee_rot6d.override(
 if __name__ == '__main__':
     init_logging()
     cfn.cli({
-        'server': server,
+        'serve': server,
         'ee': ee,
         'ee_joints': ee_joints,
         'ee_rot6d': ee_rot6d,

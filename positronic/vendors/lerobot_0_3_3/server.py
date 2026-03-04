@@ -130,4 +130,4 @@ sim_stack = main.override(
 if __name__ == '__main__':
     init_logging()
     with pos3.mirror():
-        cfn.cli({'main': main, 'phail': phail, 'sim_stack': sim_stack})
+        cfn.cli({'serve': main, 'phail': phail, 'sim_stack': sim_stack})

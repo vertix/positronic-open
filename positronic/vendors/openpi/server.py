@@ -333,4 +333,4 @@ if __name__ == '__main__':
     init_logging()
     ensure_paligemma_tokenizer()
     with pos3.mirror():
-        cfn.cli({'server': server, 'phail': phail, 'sim_stack': sim_stack})
+        cfn.cli({'serve': server, 'phail': phail, 'sim_stack': sim_stack})
