@@ -276,7 +276,7 @@ CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always 
   --checkpoints_dir=s3://checkpoints/sim_stack/groot/ee_rot6d/230226/
 ```
 
-**Available variants:** `ee`, `ee_joints`, `ee_rot6d`, `ee_rot6d_joints`, `ee_rot6d_rel`, `ee_rot6d_joints_rel`
+**Available variants:** `serve`, `ee`, `ee_joints`, `ee_rot6d`, `ee_rot6d_joints`, `ee_rot6d_rel`, `ee_rot6d_joints_rel`, `phail`, `sim_stack`
 
 The server exposes a WebSocket API on port 8000 (same as lerobot-server for interchangeability).
 
@@ -284,13 +284,17 @@ The server exposes a WebSocket API on port 8000 (same as lerobot-server for inte
 
 ```bash
 docker --context vm-train compose run --rm --pull always --service-ports openpi-server \
+  serve \
   --checkpoints_dir=s3://checkpoints/sim_stack/openpi/ee/pi05_positronic_lowmem/230226/
 ```
+
+**Available commands:** `serve`, `phail`, `sim_stack`
 
 ### LeRobot Server (SmolVLA — 0.4.x, can run on desktop)
 
 ```bash
 CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always --service-ports lerobot-server \
+  serve \
   --checkpoints_dir=s3://checkpoints/sim_stack/lerobot/230226-ee/
 ```
 
@@ -298,8 +302,11 @@ CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always 
 
 ```bash
 CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always --service-ports lerobot-0_3_3-server \
+  serve \
   --checkpoints_dir=s3://checkpoints/sim_stack/lerobot/230226-ee/
 ```
+
+**Available commands:** `serve`, `phail`, `sim_stack`
 
 ## Inference Client
 
@@ -328,12 +335,14 @@ MUJOCO_GL=egl uv run positronic-inference sim \
 
 ### Server Types
 
-| Server Type | Codec Config | Notes |
-|-------------|--------------|-------|
-| GR00T | `ee_rot6d` (positional variant arg) | Matches `modality_config=ee_rot6d` |
-| LeRobot (0.4.x) | `--codec=@positronic.vendors.lerobot.codecs.ee` | Default codec |
-| LeRobot ACT (0.3.3) | `--codec=@positronic.vendors.lerobot_0_3_3.codecs.ee` | Default codec |
-| OpenPI | `--codec=@positronic.vendors.openpi.codecs.ee` | Default codec |
+| Server Type | Command | Notes |
+|-------------|---------|-------|
+| GR00T | `ee_rot6d` (or other variant) | Matches `modality_config=ee_rot6d` |
+| LeRobot (0.4.x) | `serve` | Default codec: `ee` |
+| LeRobot ACT (0.3.3) | `serve` | Default codec: `ee` |
+| OpenPI | `serve` | Default codec: `ee` |
+
+All servers also accept `phail` and `sim_stack` production presets (pre-configured checkpoints + recording dirs).
 
 ## Sim Eval End-to-End
 
@@ -344,6 +353,7 @@ Full workflow: start inference server → run sim episodes → view results.
 ```bash
 # Example with LeRobot (can run on desktop):
 CACHE_ROOT=/home/vertix docker --context <machine> compose run -d --rm --pull always --service-ports lerobot-server \
+  serve \
   --checkpoints_dir=s3://checkpoints/sim_stack/lerobot/230226-ee/
 
 # Example with GR00T (desktop or H100):
