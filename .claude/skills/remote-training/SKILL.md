@@ -71,7 +71,7 @@ Other codecs available in interim (discoverable via S3 listing): `ee_rot6d_joint
 
 | Context | GPU | Use Case |
 |---------|-----|----------|
-| `desktop` | RTX 3060 (12GB) | Dataset generation, GR00T inference, lerobot training |
+| `desktop` | RTX 3060 (12GB) | Dataset generation, GR00T inference, LeRobot training |
 | `notebook` | RTX 4060 Laptop (8GB) | Light tasks, testing, dataset generation |
 | `vm-train` | H100 (80GB) | GR00T/OpenPI training and inference |
 | `vm-train2` | H100 (80GB) | GR00T/OpenPI training and inference |
@@ -179,7 +179,7 @@ docker --context vm-train2 ps         # Check containers on vm-train2
 ```
 1. Data Collection (positronic-data-collection)
         ↓
-2. Dataset Conversion (positronic-to-lerobot) [desktop]
+2. Dataset Conversion (lerobot-convert) [desktop]
         ↓
 3. [OpenPI only] Generate Stats (openpi-stats) [desktop]
         ↓
@@ -197,7 +197,7 @@ docker --context vm-train2 ps         # Check containers on vm-train2
 From `docker/` directory (can run on `desktop`):
 
 ```bash
-CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always positronic-to-lerobot convert \
+CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always lerobot-convert convert \
   --dataset.dataset=@positronic.cfg.ds.phail.sim_stack_cubes \
   --dataset.codec=@positronic.vendors.gr00t.codecs.ee_rot6d \
   --output_dir=s3://interim/sim_stack/groot/ee_rot6d/
@@ -215,8 +215,10 @@ The output path follows: `s3://interim/{dataset}/{vendor}/{codec}/`
 | GR00T | `@positronic.vendors.gr00t.codecs.ee_quat_joints` | EE pose + joint positions + grip |
 | GR00T | `@positronic.vendors.gr00t.codecs.ee_rot6d` | EE pose (6D rotation) + grip |
 | GR00T | `@positronic.vendors.gr00t.codecs.ee_rot6d_joints` | 6D rotation + joint positions + grip |
-| LeRobot | `@positronic.vendors.lerobot_0_3_3.codecs.ee` | EE pose (quat) + grip, absolute actions |
-| LeRobot | `@positronic.vendors.lerobot_0_3_3.codecs.joints` | Joint positions + grip, absolute actions |
+| LeRobot (0.4.x) | `@positronic.vendors.lerobot.codecs.ee` | EE pose (quat) + grip, 512x512 images |
+| LeRobot (0.4.x) | `@positronic.vendors.lerobot.codecs.joints` | Joint positions + grip, 512x512 images |
+| LeRobot (0.3.3) | `@positronic.vendors.lerobot_0_3_3.codecs.ee` | EE pose (quat) + grip, absolute actions |
+| LeRobot (0.3.3) | `@positronic.vendors.lerobot_0_3_3.codecs.joints` | Joint positions + grip, absolute actions |
 | OpenPI | `@positronic.vendors.openpi.codecs.ee` | EE pose + grip, absolute actions |
 | OpenPI | `@positronic.vendors.openpi.codecs.ee_joints` | EE pose + joints + grip, absolute actions |
 
@@ -285,10 +287,17 @@ docker --context vm-train compose run --rm --pull always --service-ports openpi-
   --checkpoints_dir=s3://checkpoints/sim_stack/openpi/ee/pi05_positronic_lowmem/230226/
 ```
 
-### LeRobot/ACT Server (can run on desktop)
+### LeRobot Server (SmolVLA — 0.4.x, can run on desktop)
 
 ```bash
 CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always --service-ports lerobot-server \
+  --checkpoints_dir=s3://checkpoints/sim_stack/lerobot/230226-ee/
+```
+
+### LeRobot/ACT Server (0.3.3, can run on desktop)
+
+```bash
+CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always --service-ports lerobot-0_3_3-server \
   --checkpoints_dir=s3://checkpoints/sim_stack/lerobot/230226-ee/
 ```
 
@@ -322,7 +331,8 @@ MUJOCO_GL=egl uv run positronic-inference sim \
 | Server Type | Codec Config | Notes |
 |-------------|--------------|-------|
 | GR00T | `ee_rot6d` (positional variant arg) | Matches `modality_config=ee_rot6d` |
-| LeRobot ACT | `--codec=@positronic.vendors.lerobot_0_3_3.codecs.ee` | Default codec |
+| LeRobot (0.4.x) | `--codec=@positronic.vendors.lerobot.codecs.ee` | Default codec |
+| LeRobot ACT (0.3.3) | `--codec=@positronic.vendors.lerobot_0_3_3.codecs.ee` | Default codec |
 | OpenPI | `--codec=@positronic.vendors.openpi.codecs.ee` | Default codec |
 
 ## Sim Eval End-to-End

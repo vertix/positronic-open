@@ -2,7 +2,8 @@ from typing import Any
 
 import numpy as np
 import torch
-from lerobot.policies.pretrained import PreTrainedPolicy
+from lerobot.configs.policies import PreTrainedConfig
+from lerobot.policies.factory import get_policy_class, make_pre_post_processors
 
 from positronic.policy import Policy
 
@@ -27,9 +28,12 @@ def _detect_device() -> str:
 
 
 class LerobotPolicy(Policy):
-    def __init__(self, policy: PreTrainedPolicy, device: str | None = None, extra_meta: dict[str, Any] | None = None):
+    def __init__(self, checkpoint_path: str, device: str | None = None, extra_meta: dict[str, Any] | None = None):
         self._device = device or _detect_device()
-        self._policy = policy.to(self._device)
+        config = PreTrainedConfig.from_pretrained(checkpoint_path)
+        policy_cls = get_policy_class(config.type)
+        self._policy = policy_cls.from_pretrained(checkpoint_path).to(self._device)
+        self._preprocessor, self._postprocessor = make_pre_post_processors(config, pretrained_path=checkpoint_path)
         self.extra_meta = extra_meta or {}
 
     def select_action(self, obs: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
@@ -39,14 +43,24 @@ class LerobotPolicy(Policy):
                 obs_int[key] = val
             elif isinstance(val, np.ndarray):
                 if key.startswith('observation.images.'):
-                    val = np.transpose(val.astype(np.float32) / 255.0, (2, 0, 1))
-                val = val[np.newaxis, ...]
-                obs_int[key] = torch.from_numpy(val).to(self._device)
+                    val = torch.from_numpy(np.transpose(val, (2, 0, 1)).copy()).float() / 255.0
+                else:
+                    val = torch.from_numpy(val).float()
+                obs_int[key] = val
             else:
-                obs_int[key] = torch.as_tensor(val).to(self._device)
+                obs_int[key] = torch.as_tensor(val)
 
-        action = self._policy.predict_action_chunk(obs_int)
-        action = action.squeeze(0).cpu().numpy()
+        if self._preprocessor is not None:
+            obs_int = self._preprocessor(obs_int)
+
+        action = self._policy.select_action(obs_int)
+
+        if self._postprocessor is not None:
+            action = self._postprocessor(action)
+
+        action = action.cpu().numpy().squeeze(0)
+        if action.ndim == 1:
+            return [{'action': action}]
         return [{'action': a} for a in action]
 
     def reset(self):

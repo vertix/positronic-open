@@ -7,7 +7,7 @@ from positronic.utils.serialization import deserialise
 
 pytest.importorskip('torch')
 
-from positronic.vendors.lerobot_0_3_3 import server as lerobot_server  # noqa: E402
+from positronic.vendors.lerobot import server as lerobot_server  # noqa: E402
 
 
 class _PassthroughEncoder:
@@ -51,10 +51,7 @@ async def test_lerobot_server_uses_configured_checkpoint(monkeypatch):
     monkeypatch.setattr('positronic.offboard.vendor_server.list_checkpoints', lambda _path: ['42'])
 
     server = lerobot_server.InferenceServer(
-        policy_factory=lambda _checkpoint: MagicMock(),
-        codec=_PassthroughCodec(),
-        checkpoints_dir='s3://bucket/exp',
-        checkpoint='42',
+        codec=_PassthroughCodec(), checkpoints_dir='s3://bucket/exp', checkpoint='42'
     )
 
     requested = {}
@@ -80,10 +77,7 @@ async def test_lerobot_server_reports_missing_checkpoint(monkeypatch):
     monkeypatch.setattr('positronic.offboard.vendor_server.list_checkpoints', lambda _path: ['41'])
 
     server = lerobot_server.InferenceServer(
-        policy_factory=lambda _checkpoint: MagicMock(),
-        codec=_PassthroughCodec(),
-        checkpoints_dir='s3://bucket/exp',
-        checkpoint='42',
+        codec=_PassthroughCodec(), checkpoints_dir='s3://bucket/exp', checkpoint='42'
     )
     server.policy_manager.get_policy = AsyncMock()
     server.policy_manager.release_session = AsyncMock()
@@ -106,10 +100,7 @@ async def test_lerobot_server_reports_unknown_checkpoint_id(monkeypatch):
     monkeypatch.setattr('positronic.offboard.vendor_server.list_checkpoints', lambda _path: ['41'])
 
     server = lerobot_server.InferenceServer(
-        policy_factory=lambda _checkpoint: MagicMock(),
-        codec=_PassthroughCodec(),
-        checkpoints_dir='s3://bucket/exp',
-        checkpoint=None,
+        codec=_PassthroughCodec(), checkpoints_dir='s3://bucket/exp', checkpoint=None
     )
     server.policy_manager.get_policy = AsyncMock()
     server.policy_manager.release_session = AsyncMock()
