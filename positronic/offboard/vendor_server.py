@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any
 
-import pos3
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
@@ -115,7 +114,7 @@ class VendorServer(ABC):
         self.host = host
         self.port = port
         if recording_dir:
-            self.codec = RecordingCodec(self.codec, pos3.sync(recording_dir))
+            self.codec = RecordingCodec(self.codec, recording_dir)
 
         self.metadata: dict[str, Any] = {}
 

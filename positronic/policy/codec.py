@@ -11,10 +11,12 @@ Two composition operators:
 
 import itertools
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, final
 
 import numpy as np
+import pos3
 import rerun as rr
 import rerun.blueprint as rrb
 
@@ -423,15 +425,20 @@ class RecordingCodec(Codec):
 
     def __init__(self, inner: Codec | None, recording_dir: str | Path):
         self._inner = inner
-        self._dir = Path(recording_dir)
-        self._dir.mkdir(parents=True, exist_ok=True)
+        recording_dir = str(recording_dir)
+        if recording_dir.startswith('s3://'):
+            self._dir = Path(pos3.sync(recording_dir))
+        else:
+            self._dir = Path(recording_dir)
+            self._dir.mkdir(parents=True, exist_ok=True)
         self._action_fps: float = inner.meta.get('action_fps', 15.0) if inner else 15.0
         self._counter = itertools.count(1)
 
     def _new_session(self) -> _RecordingSession:
         episode_num = next(self._counter)
+        ts = datetime.now().strftime('%y%m%d_%H%M%S')
         rec = rr.RecordingStream(application_id='positronic_inference')
-        rec.save(str(self._dir / f'episode_{episode_num:04d}.rrd'))
+        rec.save(str(self._dir / f'{ts}_{episode_num:04d}.rrd'))
         return _RecordingSession(self._inner, rec, action_fps=self._action_fps)
 
     def encode(self, data: dict) -> dict:

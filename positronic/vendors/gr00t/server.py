@@ -395,6 +395,16 @@ ee_rot6d_rel = server.override(codec=codecs.ee_rot6d, modality_config='ee_rot6d_
 ee_rot6d_joints_rel = server.override(codec=codecs.ee_rot6d_joints, modality_config='ee_rot6d_q_rel')
 
 
+phail = ee_rot6d.override(
+    checkpoints_dir='s3://checkpoints/phail_unified/groot/270226-ee_rot6d/',
+    recording_dir='s3://inference/phail_unified/server_recordings/groot/270226-ee_rot6d/',
+)
+sim_stack = ee_rot6d.override(
+    checkpoints_dir='s3://checkpoints/sim_stack/groot/ee_rot6d/230226/',
+    recording_dir='s3://inference/sim_stack/server_recordings/groot/230226/',
+)
+
+
 if __name__ == '__main__':
     init_logging()
     cfn.cli({
@@ -405,4 +415,6 @@ if __name__ == '__main__':
         'ee_rot6d_joints': ee_rot6d_joints,
         'ee_rot6d_rel': ee_rot6d_rel,
         'ee_rot6d_joints_rel': ee_rot6d_joints_rel,
+        'phail': phail,
+        'sim_stack': sim_stack,
     })
