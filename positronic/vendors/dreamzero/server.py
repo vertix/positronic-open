@@ -69,6 +69,8 @@ def _download_base_weights():
     else:
         logger.info(f'Tokenizer already cached at {umt5_dir}')
 
+    return wan_dir, umt5_dir
+
 
 def _download_checkpoint(model_path: str) -> Path:
     if model_path.startswith('s3://'):
