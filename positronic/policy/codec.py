@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any, final
 
 import numpy as np
-import pos3
 import rerun as rr
 import rerun.blueprint as rrb
 
@@ -425,12 +424,8 @@ class RecordingCodec(Codec):
 
     def __init__(self, inner: Codec | None, recording_dir: str | Path):
         self._inner = inner
-        recording_dir = str(recording_dir)
-        if recording_dir.startswith('s3://'):
-            self._dir = Path(pos3.sync(recording_dir))
-        else:
-            self._dir = Path(recording_dir)
-            self._dir.mkdir(parents=True, exist_ok=True)
+        self._dir = Path(recording_dir)
+        self._dir.mkdir(parents=True, exist_ok=True)
         self._action_fps: float = inner.meta.get('action_fps', 15.0) if inner else 15.0
         self._counter = itertools.count(1)
 
