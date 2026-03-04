@@ -133,7 +133,7 @@ def train(
         output_dir=output_path,
         job_name=exp_name,
         eval_freq=0,
-        log_freq=50,
+        log_freq=10,
         steps=num_train_steps if num_train_steps is not None else 100_000,
     )
 
