@@ -90,12 +90,15 @@ class Robot(pimm.ControlSystem):
         home_joints: list[float] | None = None,
         home_joints_variation: list[float] | None = None,
         load: tuple | None = None,
+        collision_coeff: float = 2.0,
     ) -> None:
         """
         :param ip: IP address of the robot.
         :param relative_dynamics_factor: Relative dynamics factor in [0, 1]. Smaller values are more conservative.
         :param home_joints: Joints of "reset" position.
         :param home_joints_variation: Max random deviation per joint in radians. Set to [0]*7 to disable.
+        :param collision_coeff: Multiplier for collision thresholds. Higher = more tolerant.
+            Default 2.0 (data collection). Use 6.0 for inference.
         """
         self._ip = ip
         self._relative_dynamics_factor = relative_dynamics_factor
@@ -106,10 +109,10 @@ class Robot(pimm.ControlSystem):
         self.commands: pimm.SignalReceiver = pimm.ControlSystemReceiver(self, default=None)
         self.state: pimm.SignalEmitter = pimm.ControlSystemEmitter(self)
         self._load = load
+        self._collision_coeff = collision_coeff
 
-    @staticmethod
-    def _init_robot(robot, load: tuple | None = None):
-        coeff = 2.0
+    def _init_robot(self, robot):
+        coeff = self._collision_coeff
         torque_threshold_acceleration = np.array([20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0])
         torque_threshold_nominal = np.array([10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0])
         force_threshold_acceleration = np.array([10.0, 10.0, 10.0, 10.0, 10.0, 10.0])
@@ -126,9 +129,9 @@ class Robot(pimm.ControlSystem):
         )
         robot.set_joint_impedance([3000, 3000, 3000, 2500, 2500, 2000, 2000])
         robot.set_cartesian_impedance([3000, 3000, 3000, 300, 300, 300])
-        if load is not None:
-            logging.info(f'Setting load to {load}')
-            robot.set_load(*load)
+        if self._load is not None:
+            logging.info(f'Setting load to {self._load}')
+            robot.set_load(*self._load)
         else:
             robot.set_load(0.0, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
 
@@ -151,7 +154,7 @@ class Robot(pimm.ControlSystem):
         robot = pf.Robot(
             self._ip, realtime_config=pf.RealtimeConfig.Ignore, relative_dynamics_factor=self._relative_dynamics_factor
         )
-        Robot._init_robot(robot, self._load)
+        self._init_robot(robot)
         robot.recover_from_errors()
 
         robot_state = FrankaState()
