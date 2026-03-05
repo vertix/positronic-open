@@ -15,6 +15,12 @@ All vendors (LeRobot, GR00T, OpenPI) follow the same 4-step workflow in Positron
 
 Convert your Positronic dataset into the model's expected format using a codec.
 
+**Which conversion service to use:**
+- `lerobot-convert` — for LeRobot 0.4.x training (SmolVLA)
+- `lerobot-0_3_3-convert` — for LeRobot 0.3.3 (ACT), GR00T, and OpenPI training
+
+GR00T and OpenPI training scripts expect the 0.3.3 LeRobot dataset format, so they use `lerobot-0_3_3-convert` even though the resulting data feeds into non-LeRobot trainers.
+
 ### Basic Conversion
 
 ```bash
@@ -97,23 +103,14 @@ Run the training job using vendor-specific Docker services. All services are def
 
 ### LeRobot Training (SmolVLA — lerobot 0.4.x)
 
+Positronic ships two LeRobot versions — see [Two LeRobot Versions](#two-lerobot-versions) below for details. Use `lerobot-train` (0.4.x) by default, or `lerobot-0_3_3-train` for ACT on the older version.
+
 ```bash
 cd docker && docker compose run --rm lerobot-train \
   --input_path=~/datasets/lerobot/stack_cubes \
   --exp_name=experiment_v1 \
   --output_dir=~/checkpoints/lerobot/ \
-  --num_train_steps=50000
-```
-
-### LeRobot Training (ACT — lerobot 0.3.3)
-
-```bash
-cd docker && docker compose run --rm lerobot-0_3_3-train \
-  --input_path=~/datasets/lerobot/stack_cubes \
-  --exp_name=experiment_v1 \
-  --output_dir=~/checkpoints/lerobot/ \
-  --num_train_steps=50000 \
-  --save_freq=10000
+  --num_train_steps=150000
 ```
 
 ### GR00T Training
@@ -176,7 +173,7 @@ Start an inference server that exposes a unified WebSocket API. All vendors impl
 **LeRobot Server (SmolVLA — lerobot 0.4.x):**
 
 ```bash
-cd docker && docker compose run --rm --service-ports lerobot-server \
+cd docker && docker compose run --rm --service-ports lerobot-0_3_3-server \
   --checkpoints_dir=~/checkpoints/lerobot/experiment_v1/ \
   --codec=@positronic.vendors.lerobot.codecs.ee \
   --port=8000
@@ -260,7 +257,7 @@ cd docker && docker compose run --rm lerobot-train \
   --num_train_steps=50000
 
 # 5. Evaluate
-cd docker && docker compose run --rm --service-ports lerobot-server \
+cd docker && docker compose run --rm --service-ports lerobot-0_3_3-server \
   --checkpoints_dir=~/checkpoints/lerobot/baseline_v1/ \
   --codec=@positronic.vendors.lerobot.codecs.ee &
 
@@ -271,31 +268,47 @@ uv run positronic-inference sim \
 
 ### Multi-Model Comparison
 
+Convert once per model using `lerobot-0_3_3-convert` with the vendor-appropriate codec, then train:
+
 ```bash
-# Convert same dataset for all models
+# SmolVLA (0.4.x) — uses lerobot-convert
 cd docker && docker compose run --rm lerobot-convert convert \
   --dataset.dataset.path=~/datasets/my_task \
   --dataset.codec=@positronic.vendors.lerobot.codecs.ee \
   --output_dir=~/datasets/lerobot/my_task
 
-cd docker && docker compose run --rm lerobot-0_3_3-convert convert \
-  --dataset.dataset.path=~/datasets/my_task \
-  --dataset.codec=@positronic.vendors.gr00t.codecs.ee_rot6d_joints \
-  --output_dir=~/datasets/groot/my_task
-
-cd docker && docker compose run --rm lerobot-0_3_3-convert convert \
-  --dataset.dataset.path=~/datasets/my_task \
-  --dataset.codec=@positronic.vendors.openpi.codecs.ee \
-  --output_dir=~/datasets/openpi/my_task
+# ACT, GR00T, OpenPI — use lerobot-0_3_3-convert
+cd docker && for pair in \
+  "lerobot_0_3_3.codecs.ee ~/datasets/lerobot_act/my_task" \
+  "gr00t.codecs.ee_rot6d_joints ~/datasets/groot/my_task" \
+  "openpi.codecs.ee ~/datasets/openpi/my_task"; do
+  set -- $pair
+  docker compose run --rm lerobot-0_3_3-convert convert \
+    --dataset.dataset.path=~/datasets/my_task \
+    --dataset.codec=@positronic.vendors.$1 \
+    --output_dir=$2
+done
 
 # Train all models (can run in parallel)
 cd docker && docker compose run --rm lerobot-train --input_path=~/datasets/lerobot/my_task ...
 cd docker && docker compose run --rm groot-train --input_path=~/datasets/groot/my_task ...
 cd docker && docker compose run --rm openpi-train --input_path=~/datasets/openpi/my_task ...
 
-# Evaluate all models using same .remote policy
-# (Just swap server, client code unchanged!)
+# Evaluate — just swap server, client code unchanged
 ```
+
+## Two LeRobot Versions
+
+Positronic ships two LeRobot integrations because GR00T and OpenPI training scripts depend on the 0.3.3 dataset format:
+
+| | LeRobot 0.4.x | LeRobot 0.3.3 |
+|---|---|---|
+| **Convert** | `lerobot-convert` | `lerobot-0_3_3-convert` |
+| **Train** | `lerobot-train` | `lerobot-0_3_3-train` |
+| **Serve** | `lerobot-server` | `lerobot-0_3_3-server` |
+| **Codecs** | `@positronic.vendors.lerobot.codecs.*` | `@positronic.vendors.lerobot_0_3_3.codecs.*` |
+
+Use `lerobot-convert` for 0.4.x training, `lerobot-0_3_3-convert` for everything else (0.3.3 training, GR00T, OpenPI).
 
 ## See Also
 
