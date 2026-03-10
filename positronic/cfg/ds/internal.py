@@ -192,6 +192,6 @@ droid_debug = server_main.override(
 
 
 if __name__ == '__main__':
+    init_logging()
     with pos3.mirror():
-        init_logging()
         cfn.cli(droid_debug)

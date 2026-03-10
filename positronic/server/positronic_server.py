@@ -245,10 +245,12 @@ class ColumnConfig:
     """
 
     label: str
+    subtitle: str | None = None
     format: str | None = None
     default: Any = None
     renderer: RendererConfig | None = None
     filter: bool = False
+    align: str | None = None
 
 
 @dataclass
@@ -294,6 +296,12 @@ def parse_table_cfg(table_cfg: TableConfig) -> tuple:
         column: dict[str, Any] = {'key': key, 'label': cfg.label}
         formatters[key] = cfg.format
         defaults[key] = cfg.default
+
+        if cfg.subtitle:
+            column['subtitle'] = cfg.subtitle
+
+        if cfg.align:
+            column['align'] = cfg.align
 
         if cfg.renderer:
             column['renderer'] = asdict(cfg.renderer)
@@ -359,12 +367,13 @@ async def api_groups(request: Request, suffix: str):
     groups = defaultdict(list)
     group_filters = {key: {'label': label or key, 'values': set()} for key, label in cfg.group_filter_keys.items()}
     for episode in ds:
-        # Apply filters
+        # Always collect all filter values regardless of active filters
+        for filter_key in cfg.group_filter_keys:
+            group_filters[filter_key]['values'].add(episode.static.get(filter_key))
+        # Apply filters for grouping
         match = all(episode.static[key] == value for key, value in active_filters.items())
         if match:
             groups[_group_id(episode, group_keys)].append(episode)
-            for filter_key in cfg.group_filter_keys:
-                group_filters[filter_key]['values'].add(episode.static.get(filter_key))
 
     rows = []
     for group_id, episodes in groups.items():
@@ -570,6 +579,7 @@ def main(
     ssl_kwargs = _generate_self_signed_cert(primary_host) if https else {}
     scheme = 'https' if https else 'http'
     logging.info(f'Starting server on {scheme}://{primary_host}:{port}')
+
     uvicorn.run(app, host=host, port=port, log_level='debug' if debug else 'info', **ssl_kwargs)
 
 
