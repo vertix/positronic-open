@@ -522,6 +522,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function initializeSidebar(staticData) {
   const sidebarContent = document.querySelector('.sidebar-content-wrapper tbody');
+  sidebarContent.innerHTML = '';
 
   function isNestable(value) {
     return typeof value === 'object' && value !== null;

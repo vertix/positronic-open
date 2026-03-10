@@ -99,10 +99,12 @@ Episode {{ episode_id }} / {{ num_episodes }} - Positronic Dataset Viewer
             const idx = filteredIds.indexOf(currentEpisodeId);
             input.value = idx + 1;
             input.dataset.original = idx + 1;
+            input.maxLength = String(filteredIds.length).length;
             document.getElementById('episode-count').textContent = ` / ${filteredIds.length}`;
         } else {
             input.value = currentEpisodeId;
             input.dataset.original = currentEpisodeId;
+            input.maxLength = String(maxEpisodes - 1).length;
             document.getElementById('episode-count').textContent = ` / ${maxEpisodes}`;
         }
     }
