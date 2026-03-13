@@ -17,7 +17,7 @@ Episode {{ episode_id }} / {{ num_episodes }} - Positronic Dataset Viewer
 
     // SPA navigation: swap RRD data in the running rerun viewer via its JS API.
     // This keeps the WASM alive — no 35MB re-download/recompile on each episode.
-    async function navigateToEpisode(episodeId) {
+    async function navigateToEpisode(episodeId, {replace = false} = {}) {
         const resp = await fetch(`/api/episode/${episodeId}`);
         if (!resp.ok) return;
         const data = await resp.json();
@@ -46,6 +46,7 @@ Episode {{ episode_id }} / {{ num_episodes }} - Positronic Dataset Viewer
 
         if (!swapped) {
             // Fallback: reload the iframe (first load or if handle unavailable)
+            viewerReady = false;
             const viewerUrl = new URL(`/static/rerun/${RERUN_VERSION}/index.html`, window.location.origin);
             viewerUrl.searchParams.set('url', newRrdUrl);
             viewerUrl.searchParams.set('hide_welcome_screen', '');
@@ -54,7 +55,10 @@ Episode {{ episode_id }} / {{ num_episodes }} - Positronic Dataset Viewer
         }
 
         // Update browser URL
-        history.pushState({episodeId: currentEpisodeId}, '', `/episode/${currentEpisodeId}`);
+        const historyState = {episodeId: currentEpisodeId};
+        const url = `/episode/${currentEpisodeId}`;
+        if (replace) history.replaceState(historyState, '', url);
+        else history.pushState(historyState, '', url);
         document.title = `Episode ${currentEpisodeId} / ${maxEpisodes}`;
 
         // Update nav controls
@@ -95,10 +99,12 @@ Episode {{ episode_id }} / {{ num_episodes }} - Positronic Dataset Viewer
             const idx = filteredIds.indexOf(currentEpisodeId);
             input.value = idx + 1;
             input.dataset.original = idx + 1;
+            input.maxLength = String(filteredIds.length).length;
             document.getElementById('episode-count').textContent = ` / ${filteredIds.length}`;
         } else {
             input.value = currentEpisodeId;
             input.dataset.original = currentEpisodeId;
+            input.maxLength = String(maxEpisodes - 1).length;
             document.getElementById('episode-count').textContent = ` / ${maxEpisodes}`;
         }
     }
@@ -127,7 +133,7 @@ Episode {{ episode_id }} / {{ num_episodes }} - Positronic Dataset Viewer
     // Handle browser back/forward
     window.addEventListener('popstate', (e) => {
         if (e.state && e.state.episodeId !== undefined) {
-            navigateToEpisode(e.state.episodeId);
+            navigateToEpisode(e.state.episodeId, {replace: true});
         }
     });
 </script>
