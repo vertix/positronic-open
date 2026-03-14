@@ -1,10 +1,19 @@
 """
 LeRobot 0.4.x training script (SmolVLA default).
 
+Two training modes:
+  train          — expert-only (frozen vision encoder, default)
+  full_finetune  — all parameters trainable (unfrozen vision encoder)
+
 Example:
-    cd docker && docker compose run --rm lerobot-train \\
-      --input_path=s3://interim/sim_stack/lerobot/ee/ \\
+    cd docker && docker compose run --rm lerobot-train train \\
+      --input_path=s3://interim/sim_stack/lerobot_04/ee/ \\
       --exp_name=my_experiment \\
+      --output_dir=s3://checkpoints/lerobot/
+
+    cd docker && docker compose run --rm lerobot-train full_finetune \\
+      --input_path=s3://interim/sim_stack/lerobot_04/ee/ \\
+      --exp_name=my_experiment_ft \\
       --output_dir=s3://checkpoints/lerobot/
 """
 
@@ -21,7 +30,7 @@ from lerobot.configs.default import DatasetConfig
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.envs.configs import EnvConfig, FeatureType, PolicyFeature
-from lerobot.policies.xvla.configuration_xvla import XVLAConfig  # noqa: F401 — registers policy choices
+from lerobot.policies.smolvla.configuration_smolvla import SmolVLAConfig  # noqa: F401 — registers policy
 from lerobot.utils.constants import ACTION, OBS_IMAGES, OBS_STATE
 
 from positronic import utils
@@ -93,8 +102,14 @@ def _update_config(cfg: TrainPipelineConfig, **cfg_kwargs):
             raise AttributeError(f'Could not update config for {k}') from e
 
 
-@cfn.config(codec=lerobot_codecs.ee, base_model='lerobot/smolvla_base', num_train_steps=None)
-@pos3.with_mirror()
+@cfn.config(
+    codec=lerobot_codecs.ee,
+    base_model='lerobot/smolvla_base',
+    num_train_steps=None,
+    batch_size=64,
+    freeze_vision_encoder=True,
+    train_expert_only=True,
+)
 def train(
     input_path: str,
     exp_name: str,
@@ -102,6 +117,9 @@ def train(
     codec: Codec,
     base_model: str,
     num_train_steps: int | None,
+    batch_size: int,
+    freeze_vision_encoder: bool,
+    train_expert_only: bool,
     **cfg_kwargs,
 ):
     if isinstance(codec, str):
@@ -134,6 +152,7 @@ def train(
         job_name=exp_name,
         eval_freq=0,
         log_freq=10,
+        batch_size=batch_size,
         steps=num_train_steps if num_train_steps is not None else 100_000,
     )
 
@@ -141,6 +160,9 @@ def train(
         cfg.wandb.enable = True
         cfg.wandb.project = 'lerobot-train'
         cfg.wandb.disable_artifact = True
+
+    cfg.policy.freeze_vision_encoder = freeze_vision_encoder
+    cfg.policy.train_expert_only = train_expert_only
 
     _update_config(cfg, **cfg_kwargs)
 
@@ -182,9 +204,10 @@ def train(
     logging.info('Training finished.')
 
 
+@pos3.with_mirror()
 def _internal_main():
     init_logging()
-    cfn.cli(train)
+    cfn.cli({'train': train, 'full_finetune': train.override(freeze_vision_encoder=False, train_expert_only=False)})
 
 
 if __name__ == '__main__':
