@@ -1,6 +1,7 @@
 import logging
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -17,6 +18,7 @@ except ImportError as e:
 
 import pimm
 from positronic import geom
+from positronic.utils import package_assets_path
 
 from . import RobotStatus, State, command
 
@@ -82,6 +84,11 @@ class FrankaState(State, pimm.shared_memory.NumpySMAdapter):
 
 
 class Robot(pimm.ControlSystem):
+    @property
+    def urdf_xml(self) -> str:
+        # TODO: use per-unit calibrated model from self._robot.get_robot_model() (JSON → MuJoCo XML)
+        return Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text()
+
     def __init__(
         self,
         ip: str,

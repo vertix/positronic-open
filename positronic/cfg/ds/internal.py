@@ -9,6 +9,8 @@ These datasets remain on the private s3://raw/ bucket and include:
 - Full combined datasets for multi-task training
 """
 
+from pathlib import Path
+
 import configuronic as cfn
 import pos3
 
@@ -19,9 +21,17 @@ from positronic.dataset.transforms.episode import Concat, Derive, FromValue, Gro
 from positronic.dataset.transforms.quality import cmd_lag, cmd_velocity, idle_mask, jerk
 from positronic.server.positronic_server import ColumnConfig as C
 from positronic.server.positronic_server import main as server_main
+from positronic.utils import package_assets_path
 from positronic.utils.logging import init_logging
 
 from . import concat_ds, local, transform
+
+# MuJoCo XML for sim datasets
+SIM_URDF = Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text()
+
+# For real robot datasets: use sim model for now.
+# To get the real robot's URDF: call Robot.urdf_xml on the connected robot.
+REAL_URDF = SIM_URDF
 
 # Task constants
 TOWELS_TASK = 'Pick all the towels one by one from transparent tote and place them into the large grey tote.'
@@ -75,7 +85,7 @@ def droid(path, recovery_all, recovery_towels, duplicate_recovery):
                 datasets.append(TransformedDataset(recovery_ds, _recovery_transforms(task)))
         else:
             datasets.append(TransformedDataset(recovery_ds, _recovery_transforms(RECOVERY_TASK)))
-    return ConcatDataset(*datasets)
+    return TransformedDataset(ConcatDataset(*datasets), Derive(urdf=FromValue(REAL_URDF)))
 
 
 # Signal transformations for sim datasets
@@ -85,6 +95,7 @@ old_to_new = Group(
         'robot_commands.pose': Concat('target_robot_position_translation', 'target_robot_position_quaternion'),
         'robot_state.ee_pose': Concat('robot_position_translation', 'robot_position_quaternion'),
         'task': FromValue('Pick up the green cube and place it on the red cube.'),
+        'urdf': FromValue(SIM_URDF),
     }),
     Rename(**{
         'robot_state.q': 'robot_joints',
@@ -101,7 +112,10 @@ sim_pnp = transform.override(
     base=local.override(path='s3://raw/sim_pnp/'),
     transforms=[
         Group(
-            Derive(task=FromValue('Pick up objects from the red tote and place them in the green tote.')),
+            Derive(
+                task=FromValue('Pick up objects from the red tote and place them in the green tote.'),
+                urdf=FromValue(SIM_URDF),
+            ),
             Rename(**{'image.exterior': 'image.back_view'}),
             Identity(),
         )
