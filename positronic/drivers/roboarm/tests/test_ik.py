@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import mujoco as mj
 import numpy as np
 import pytest
@@ -7,15 +5,15 @@ import pytest
 from positronic.dataset.episode import EpisodeContainer
 from positronic.dataset.tests.utils import DummySignal
 from positronic.drivers.roboarm.ik import (
+    FRANKA_DEFAULT_URDF_XML,
     FRANKA_JOINT_NAMES,
     DLSIKSolver,
     DLSIKSolverWithLimits,
     DmControlIKSolver,
     ik_joints_from_episode,
 )
-from positronic.utils import package_assets_path
 
-URDF = Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text()
+URDF = FRANKA_DEFAULT_URDF_XML
 
 # Reachable joint configs: home, stretched, and two arbitrary
 TEST_CONFIGS = [

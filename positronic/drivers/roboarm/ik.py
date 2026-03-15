@@ -7,12 +7,15 @@ Three solvers for reconstructing joint-space targets from recorded EE targets:
   (ports inverse_kinematics_with_limits, using scipy instead of OSQP)
 """
 
+from pathlib import Path
+
 import mujoco as mj
 import numpy as np
 from scipy.optimize import lsq_linear
 from scipy.spatial.transform import Rotation as ScipyRotation
 
 from positronic.dataset import transforms
+from positronic.utils import package_assets_path
 
 try:
     from dm_control import mujoco as dm_mujoco
@@ -22,6 +25,7 @@ except ImportError:
     dm_ik = None
 
 FRANKA_JOINT_NAMES = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'joint7']
+FRANKA_DEFAULT_URDF_XML = Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text()
 
 
 def _parse_target(target_ee_pose_vec):

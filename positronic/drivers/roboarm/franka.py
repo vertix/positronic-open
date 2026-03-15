@@ -1,7 +1,6 @@
 import logging
 import time
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -15,6 +14,8 @@ except ImportError as e:
         'or install the Franka core directly:\n'
         '  pip install positronic-franka\n'
     ) from e
+
+from pathlib import Path
 
 import pimm
 from positronic import geom

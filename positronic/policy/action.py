@@ -101,13 +101,11 @@ class IKJointsAction(Codec):
         tgt_ee_pose_key='robot_commands.pose',
         current_q_key='robot_state.q',
         tgt_joints_key='robot_commands.joints',
-        num_joints=7,
     ):
         self.solver_cls = solver_cls
         self.tgt_ee_pose_key = tgt_ee_pose_key
         self.current_q_key = current_q_key
         self.tgt_joints_key = tgt_joints_key
-        self.num_joints = num_joints
 
     def encode(self, data):
         return data

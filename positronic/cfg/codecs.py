@@ -105,6 +105,5 @@ def ik_joints_action(solver, tgt_ee_pose_key, tgt_grip_key, current_q_key, num_j
         tgt_ee_pose_key=tgt_ee_pose_key,
         current_q_key=current_q_key,
         tgt_joints_key=tgt_joints_key,
-        num_joints=num_joints,
     )
     return ik | AbsoluteJointsAction(tgt_joints_key=tgt_joints_key, tgt_grip_key=tgt_grip_key, num_joints=num_joints)

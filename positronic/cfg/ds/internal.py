@@ -9,8 +9,6 @@ These datasets remain on the private s3://raw/ bucket and include:
 - Full combined datasets for multi-task training
 """
 
-from pathlib import Path
-
 import configuronic as cfn
 import pos3
 
@@ -19,15 +17,15 @@ from positronic.dataset.local_dataset import load_all_datasets
 from positronic.dataset.transforms import TransformedDataset, agg_fraction_true, agg_max, agg_percentile
 from positronic.dataset.transforms.episode import Concat, Derive, FromValue, Group, Identity, Rename
 from positronic.dataset.transforms.quality import cmd_lag, cmd_velocity, idle_mask, jerk
+from positronic.drivers.roboarm.ik import FRANKA_DEFAULT_URDF_XML
 from positronic.server.positronic_server import ColumnConfig as C
 from positronic.server.positronic_server import main as server_main
-from positronic.utils import package_assets_path
 from positronic.utils.logging import init_logging
 
 from . import concat_ds, local, transform
 
 # MuJoCo XML for sim datasets
-SIM_URDF = Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text()
+SIM_URDF = FRANKA_DEFAULT_URDF_XML
 
 # For real robot datasets: use sim model for now.
 # To get the real robot's URDF: call Robot.urdf_xml on the connected robot.

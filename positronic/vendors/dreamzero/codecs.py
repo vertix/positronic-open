@@ -186,3 +186,7 @@ joints = codecs.compose.override(obs=dreamzero_obs, action=_action, fps=15.0)
 _traj_obs = dreamzero_obs.override(action_joints_key='robot_state.q', action_grip_key='grip')
 _traj_action = _action.override(tgt_joints_key='robot_state.q', tgt_grip_key='grip')
 joints_traj = codecs.compose.override(obs=_traj_obs, action=_traj_action, fps=15.0)
+
+# IK variants: reconstruct joint targets from recorded EE targets via IK
+joints_ik = codecs.compose.override(obs=dreamzero_obs, action=codecs.ik_joints_action, fps=15.0)
+joints_ik_sim = joints_ik.override(**{'action.solver': 'dm_control'})
