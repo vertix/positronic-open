@@ -41,7 +41,7 @@ from positronic.server.positronic_server import main as server_main
 from positronic.utils.logging import init_logging
 
 from . import PUBLIC, group, local, local_all, transform
-from .internal import ALL_TASKS, RECOVERY_TASK
+from .internal import ALL_TASKS, RECOVERY_TASK, SIM_URDF
 
 # DROID teleoperation data for PhAIL tasks (towels, spoons, scissors)
 # Migrated from: @positronic.cfg.ds.internal.droid
@@ -51,12 +51,18 @@ phail = local_all.override(path='s3://positronic-public/datasets/phail/', profil
 # Simulated cube stacking dataset
 # Migrated from: @positronic.cfg.ds.internal.sim_stack
 # Size: 499MB, 317 episodes with transforms baked in (ee_pose, robot_joints, task)
-sim_stack_cubes = local.override(path='s3://positronic-public/datasets/sim-stack-cubes/', profile=PUBLIC)
+sim_stack_cubes = transform.override(
+    base=local.override(path='s3://positronic-public/datasets/sim-stack-cubes/', profile=PUBLIC),
+    transforms=[Group(Derive(urdf=FromValue(SIM_URDF)), Identity())],
+)
 
 # Simulated pick-and-place dataset
 # Migrated from: @positronic.cfg.ds.internal.sim_pnp
 # Size: 1.3GB, 214 episodes with transforms baked in
-sim_pick_place = local.override(path='s3://positronic-public/datasets/sim-pick-place/', profile=PUBLIC)
+sim_pick_place = transform.override(
+    base=local.override(path='s3://positronic-public/datasets/sim-pick-place/', profile=PUBLIC),
+    transforms=[Group(Derive(urdf=FromValue(SIM_URDF)), Identity())],
+)
 
 
 @cfn.config()

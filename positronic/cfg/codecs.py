@@ -98,14 +98,13 @@ def ik_joints_action(solver, tgt_ee_pose_key, tgt_grip_key, current_q_key, num_j
     """Joint-space action codec that reconstructs target joints from EE targets via IK."""
     from positronic.policy.action import AbsoluteJointsAction, IKJointsAction
 
+    tgt_joints_key = 'robot_commands.joints'
     solver_map = {'dm_control': DmControlIKSolver, 'dls': DLSIKSolver, 'dls_limits': DLSIKSolverWithLimits}
     ik = IKJointsAction(
         solver_cls=solver_map[solver],
         tgt_ee_pose_key=tgt_ee_pose_key,
         current_q_key=current_q_key,
-        tgt_grip_key=tgt_grip_key,
+        tgt_joints_key=tgt_joints_key,
         num_joints=num_joints,
     )
-    return ik | AbsoluteJointsAction(
-        tgt_joints_key='robot_commands.joints', tgt_grip_key=tgt_grip_key, num_joints=num_joints
-    )
+    return ik | AbsoluteJointsAction(tgt_joints_key=tgt_joints_key, tgt_grip_key=tgt_grip_key, num_joints=num_joints)

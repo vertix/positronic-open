@@ -203,22 +203,26 @@ class _BinaryStreamDrainer:
 
 
 def _log_video_signals(ep: Episode, signals: EpisodeSignals, drainer: _BinaryStreamDrainer) -> Iterator[bytes]:
-    """Log video signals as AssetVideo + VideoFrameReference (columnar)."""
+    """Log video signals as AssetVideo + VideoFrameReference (columnar), or as individual images."""
     for name in signals.videos:
         sig = ep.signals[name]
-        if not isinstance(sig, VideoSignal):
-            continue
-        video_bytes = sig.video_path.read_bytes()
-        asset = rr.AssetVideo(contents=video_bytes, media_type='video/mp4')
-        rr.log(name, asset, static=True)
+        if isinstance(sig, VideoSignal):
+            video_bytes = sig.video_path.read_bytes()
+            asset = rr.AssetVideo(contents=video_bytes, media_type='video/mp4')
+            rr.log(name, asset, static=True)
 
-        our_ts = np.asarray(sig.keys(), dtype='datetime64[ns]')
-        frame_pts_ns = asset.read_frame_timestamps_nanos()
-        rr.send_columns(
-            name,
-            indexes=[rr.TimeColumn('time', timestamp=our_ts)],
-            columns=rr.VideoFrameReference.columns_nanos(frame_pts_ns),
-        )
+            our_ts = np.asarray(sig.keys(), dtype='datetime64[ns]')
+            frame_pts_ns = asset.read_frame_timestamps_nanos()
+            rr.send_columns(
+                name,
+                indexes=[rr.TimeColumn('time', timestamp=our_ts)],
+                columns=rr.VideoFrameReference.columns_nanos(frame_pts_ns),
+            )
+        else:
+            for val, ts in sig:
+                frame = np.asarray(val)
+                set_timeline_time('time', ts)
+                rr.log(name, rr.Image(frame))
         yield from drainer.drain()
 
 

@@ -5,7 +5,7 @@ import numpy as np
 from positronic import geom
 from positronic.dataset import transforms
 from positronic.dataset.episode import Episode
-from positronic.dataset.transforms.episode import Derive
+from positronic.dataset.transforms.episode import Derive, Group, Identity
 from positronic.drivers.roboarm import command
 from positronic.drivers.roboarm.ik import ik_joints_from_episode
 from positronic.policy.codec import Codec, lerobot_action
@@ -87,9 +87,10 @@ class AbsoluteJointsAction(Codec):
 
 
 class IKJointsAction(Codec):
-    """Training-only codec that reconstructs target joints from EE targets via IK.
+    """Signal-level codec that replaces EE pose targets with joint targets via IK.
 
-    Produces the 'action' signal (joints + grip) during training.
+    Training: replaces ``tgt_ee_pose_key`` with ``tgt_joints_key`` in the episode.
+    Inference: pass-through (robot driver handles IK at runtime).
     Compose with AbsoluteJointsAction for inference decoding.
     """
 
@@ -99,27 +100,27 @@ class IKJointsAction(Codec):
         *,
         tgt_ee_pose_key='robot_commands.pose',
         current_q_key='robot_state.q',
-        tgt_grip_key='target_grip',
+        tgt_joints_key='robot_commands.joints',
         num_joints=7,
     ):
         self.solver_cls = solver_cls
         self.tgt_ee_pose_key = tgt_ee_pose_key
         self.current_q_key = current_q_key
-        self.tgt_grip_key = tgt_grip_key
+        self.tgt_joints_key = tgt_joints_key
         self.num_joints = num_joints
-
-        self._training_meta = {'lerobot_features': {'action': lerobot_action(num_joints + 1)}}
 
     def encode(self, data):
         return data
 
-    def _encode_episode(self, episode: Episode):
-        joints = ik_joints_from_episode(episode, self.solver_cls, self.tgt_ee_pose_key, self.current_q_key)
-        return transforms.concat(joints, episode[self.tgt_grip_key], dtype=np.float32)
+    def _decode_single(self, data: dict, context: dict | None) -> dict:
+        return data
+
+    def _derive_joints(self, episode: Episode):
+        return ik_joints_from_episode(episode, self.solver_cls, self.tgt_ee_pose_key, self.current_q_key)
 
     @property
     def training_encoder(self):
-        return Derive(meta=self._training_meta, action=self._encode_episode)
+        return Group(Derive(**{self.tgt_joints_key: self._derive_joints}), Identity(remove=[self.tgt_ee_pose_key]))
 
 
 class RelativePositionAction(Codec):
