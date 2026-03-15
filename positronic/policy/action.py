@@ -5,9 +5,9 @@ import numpy as np
 from positronic import geom
 from positronic.dataset import transforms
 from positronic.dataset.episode import Episode
-from positronic.dataset.signal import Signal
 from positronic.dataset.transforms.episode import Derive
 from positronic.drivers.roboarm import command
+from positronic.drivers.roboarm.ik import ik_joints_from_episode
 from positronic.policy.codec import Codec, lerobot_action
 
 RotRep = geom.Rotation.Representation
@@ -45,7 +45,7 @@ class AbsolutePositionAction(Codec):
             'target_grip': target_grip,
         }
 
-    def _encode_episode(self, episode: Episode) -> Signal[np.ndarray]:
+    def _encode_episode(self, episode: Episode):
         pose = episode[self.tgt_ee_pose_key]
         pose = transforms.recode_transform(RotRep.QUAT, self.rot_rep, pose)
         return transforms.concat(pose, episode[self.tgt_grip_key], dtype=np.float32)
@@ -78,8 +78,43 @@ class AbsoluteJointsAction(Codec):
             'target_grip': target_grip,
         }
 
-    def _encode_episode(self, episode: Episode) -> Signal[np.ndarray]:
-        joints = episode[self.tgt_joints_key]
+    def _encode_episode(self, episode: Episode):
+        return transforms.concat(episode[self.tgt_joints_key], episode[self.tgt_grip_key], dtype=np.float32)
+
+    @property
+    def training_encoder(self):
+        return Derive(meta=self._training_meta, action=self._encode_episode)
+
+
+class IKJointsAction(Codec):
+    """Training-only codec that reconstructs target joints from EE targets via IK.
+
+    Produces the 'action' signal (joints + grip) during training.
+    Compose with AbsoluteJointsAction for inference decoding.
+    """
+
+    def __init__(
+        self,
+        solver_cls,
+        *,
+        tgt_ee_pose_key='robot_commands.pose',
+        current_q_key='robot_state.q',
+        tgt_grip_key='target_grip',
+        num_joints=7,
+    ):
+        self.solver_cls = solver_cls
+        self.tgt_ee_pose_key = tgt_ee_pose_key
+        self.current_q_key = current_q_key
+        self.tgt_grip_key = tgt_grip_key
+        self.num_joints = num_joints
+
+        self._training_meta = {'lerobot_features': {'action': lerobot_action(num_joints + 1)}}
+
+    def encode(self, data):
+        return data
+
+    def _encode_episode(self, episode: Episode):
+        joints = ik_joints_from_episode(episode, self.solver_cls, self.tgt_ee_pose_key, self.current_q_key)
         return transforms.concat(joints, episode[self.tgt_grip_key], dtype=np.float32)
 
     @property
@@ -124,7 +159,7 @@ class RelativePositionAction(Codec):
             'target_grip': target_grip,
         }
 
-    def _encode_episode(self, episode: Episode) -> Signal[np.ndarray]:
+    def _encode_episode(self, episode: Episode):
         robot_pose = episode[self.robot_pose_key]
         target_pose = episode[self.target_pose_key]
 

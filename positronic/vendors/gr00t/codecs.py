@@ -240,3 +240,11 @@ joints_traj = codecs.compose.override(
     binarize_grip=('grip',),
     horizon=None,
 )
+
+# IK variants: GR00T obs (with joints) + IK joint-space action via groot_action wrapper
+ee_joints_ik = codecs.compose.override(
+    obs=groot_obs.override(include_joints=True),
+    action=groot_action.override(base=codecs.ik_joints_action, action_key='joint_position'),
+    horizon=None,
+)
+ee_joints_ik_sim = ee_joints_ik.override(**{'action.base.solver': 'dm_control'})

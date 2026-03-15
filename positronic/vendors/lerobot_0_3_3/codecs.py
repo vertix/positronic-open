@@ -14,3 +14,7 @@ joints_traj = codecs.compose.override(
     action=codecs.absolute_joints_action.override(tgt_joints_key='robot_state.q', tgt_grip_key='grip'),
     binarize_grip=('grip',),
 )
+
+# IK variants: reconstruct joint targets from recorded EE targets via IK
+joints_ik = ee.override(obs=codecs.joints_obs, action=codecs.ik_joints_action)
+joints_ik_sim = joints_ik.override(**{'action.solver': 'dm_control'})
