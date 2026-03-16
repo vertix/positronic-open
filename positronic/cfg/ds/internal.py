@@ -83,7 +83,7 @@ def droid(path, recovery_all, recovery_towels, duplicate_recovery):
                 datasets.append(TransformedDataset(recovery_ds, _recovery_transforms(task)))
         else:
             datasets.append(TransformedDataset(recovery_ds, _recovery_transforms(RECOVERY_TASK)))
-    return TransformedDataset(ConcatDataset(*datasets), Derive(urdf=FromValue(REAL_URDF)))
+    return TransformedDataset(ConcatDataset(*datasets), Group(Derive(urdf=FromValue(REAL_URDF)), Identity()))
 
 
 # Signal transformations for sim datasets
