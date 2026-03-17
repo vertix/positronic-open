@@ -3,7 +3,6 @@
 import configuronic as cfn
 
 from positronic import geom
-from positronic.drivers.roboarm.ik import DLSIKSolver, DLSIKSolverWithLimits, DmControlIKSolver
 from positronic.policy.observation import ObservationCodec
 
 RotRep = geom.Rotation.Representation
@@ -96,6 +95,7 @@ traj_ee_action = absolute_pos_action.override(tgt_ee_pose_key='robot_state.ee_po
 )
 def ik_joints_action(solver, tgt_ee_pose_key, tgt_grip_key, current_q_key, num_joints):
     """Joint-space action codec that reconstructs target joints from EE targets via IK."""
+    from positronic.drivers.roboarm.ik import DLSIKSolver, DLSIKSolverWithLimits, DmControlIKSolver
     from positronic.policy.action import AbsoluteJointsAction, IKJointsAction
 
     tgt_joints_key = 'robot_commands.joints'

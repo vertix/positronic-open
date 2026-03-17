@@ -46,6 +46,7 @@ from .internal import _REAL_ROBOT_META, _SIM_ROBOT_META, ALL_TASKS, RECOVERY_TAS
 # DROID teleoperation data for PhAIL tasks (towels, spoons, scissors)
 # Migrated from: @positronic.cfg.ds.internal.droid
 # Size: 12GB, 352 episodes with task labels baked in static.json
+# TODO: Re-migrate dataset with robot_meta baked in so runtime transforms aren't needed
 phail = transform.override(
     base=local_all.override(path='s3://positronic-public/datasets/phail/', profile=PUBLIC),
     transforms=[Group(Derive(**{k: FromValue(v) for k, v in _REAL_ROBOT_META.items()}), Identity())],

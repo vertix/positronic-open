@@ -219,10 +219,17 @@ def _log_video_signals(ep: Episode, signals: EpisodeSignals, drainer: _BinaryStr
                 columns=rr.VideoFrameReference.columns_nanos(frame_pts_ns),
             )
         else:
-            for val, ts in sig:
-                frame = np.asarray(val)
-                set_timeline_time('time', ts)
-                rr.log(name, rr.Image(frame))
+            timestamps = np.asarray(sig.keys(), dtype='datetime64[ns]')
+            frames = [np.asarray(val) for val, _ts in sig]
+            h, w = frames[0].shape[:2]
+            fmt = rr.components.ImageFormat(
+                width=w, height=h, color_model=rr.ColorModel.RGB, channel_datatype=rr.ChannelDatatype.U8
+            )
+            rr.send_columns(
+                name,
+                indexes=[rr.TimeColumn('time', timestamp=timestamps)],
+                columns=rr.Image.columns(buffer=[f.tobytes() for f in frames], format=[fmt] * len(frames)),
+            )
         yield from drainer.drain()
 
 
