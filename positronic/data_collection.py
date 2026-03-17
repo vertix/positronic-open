@@ -233,7 +233,7 @@ def main(
     if task is not None:
         static['task'] = task
     if robot_arm is not None:
-        static['urdf'] = robot_arm.urdf_xml
+        static.update(robot_arm.robot_meta)
     static_getter = (lambda: static) if static else None
     data_collection = DataCollectionController(operator_position.value, metadata_getter=static_getter)
 
@@ -297,7 +297,7 @@ def main_sim(
 
     def metadata_getter():
         result = {k: v.tolist() for k, v in sim.save_state().items()}
-        result['urdf'] = robot_arm.urdf_xml
+        result.update(robot_arm.robot_meta)
         if task is not None:
             result['task'] = task
         return result

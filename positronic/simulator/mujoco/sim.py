@@ -271,8 +271,12 @@ class MujocoFranka(pimm.ControlSystem):
         return None
 
     @property
-    def urdf_xml(self) -> str:
-        return Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text()
+    def robot_meta(self) -> dict:
+        return {
+            'urdf': Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text(),
+            'joint_names': self.joint_names,
+            'control_frame': 'end_effector',
+        }
 
     @property
     def q(self) -> np.ndarray:

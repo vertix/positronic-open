@@ -1,19 +1,17 @@
+from pathlib import Path
+
 import mujoco as mj
 import numpy as np
 import pytest
 
 from positronic.dataset.episode import EpisodeContainer
 from positronic.dataset.tests.utils import DummySignal
-from positronic.drivers.roboarm.ik import (
-    FRANKA_DEFAULT_URDF_XML,
-    FRANKA_JOINT_NAMES,
-    DLSIKSolver,
-    DLSIKSolverWithLimits,
-    DmControlIKSolver,
-    ik_joints_from_episode,
-)
+from positronic.drivers.roboarm.ik import DLSIKSolver, DLSIKSolverWithLimits, DmControlIKSolver, ik_joints_from_episode
+from positronic.utils import package_assets_path
 
-URDF = FRANKA_DEFAULT_URDF_XML
+URDF = Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text()
+JOINT_NAMES = [f'joint{i}' for i in range(1, 8)]
+CONTROL_FRAME = 'end_effector'
 
 # Reachable joint configs: home, stretched, and two arbitrary
 TEST_CONFIGS = [
@@ -27,7 +25,7 @@ def _fk(urdf_xml, q):
     """Compute EE pose [tx,ty,tz,w,x,y,z] via MuJoCo FK."""
     model = mj.MjModel.from_xml_string(urdf_xml)
     data = mj.MjData(model)
-    qpos_ids = [model.joint(n).qposadr.item() for n in FRANKA_JOINT_NAMES]
+    qpos_ids = [model.joint(n).qposadr.item() for n in JOINT_NAMES]
     data.qpos[qpos_ids] = q
     mj.mj_forward(model, data)
     site_id = mj.mj_name2id(model, mj.mjtObj.mjOBJ_SITE, 'end_effector')
@@ -52,7 +50,7 @@ def _assert_fk_matches(solver, q_start, target_pose, pos_tol=1e-3, rot_tol=1e-2)
 def test_dls_solver(q_target):
     target_pose = _fk(URDF, q_target)
     q_start = np.zeros(7)
-    solver = DLSIKSolver(URDF)
+    solver = DLSIKSolver(URDF, JOINT_NAMES, CONTROL_FRAME)
     _assert_fk_matches(solver, q_start, target_pose)
 
 
@@ -63,7 +61,7 @@ def test_dls_solver_with_limits():
     well from nearby starting points but can get stuck from far away (q=zeros).
     In practice, ik_joints_from_episode always passes the current joint state.
     """
-    solver = DLSIKSolverWithLimits(URDF)
+    solver = DLSIKSolverWithLimits(URDF, JOINT_NAMES, CONTROL_FRAME)
     for q_target in TEST_CONFIGS:
         target_pose = _fk(URDF, q_target)
         # Start from a perturbed target (±0.3 rad), clamped to limits
@@ -79,7 +77,7 @@ def test_dls_solver_with_limits():
 def test_dm_control_solver(q_target):
     target_pose = _fk(URDF, q_target)
     q_start = np.zeros(7)
-    solver = DmControlIKSolver(URDF)
+    solver = DmControlIKSolver(URDF, JOINT_NAMES, CONTROL_FRAME)
     _assert_fk_matches(solver, q_start, target_pose)
 
 
@@ -92,7 +90,13 @@ def test_ik_joints_from_episode():
     ee_poses = np.array([_fk(URDF, q) for q in q_traj])
 
     episode = EpisodeContainer(
-        data={'robot_state.q': DummySignal(ts, q_traj), 'robot_commands.pose': DummySignal(ts, ee_poses), 'urdf': URDF}
+        data={
+            'robot_state.q': DummySignal(ts, q_traj),
+            'robot_commands.pose': DummySignal(ts, ee_poses),
+            'urdf': URDF,
+            'joint_names': JOINT_NAMES,
+            'control_frame': CONTROL_FRAME,
+        }
     )
     result = ik_joints_from_episode(episode, DLSIKSolverWithLimits, 'robot_commands.pose', 'robot_state.q')
 

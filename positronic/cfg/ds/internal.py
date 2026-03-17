@@ -9,6 +9,8 @@ These datasets remain on the private s3://raw/ bucket and include:
 - Full combined datasets for multi-task training
 """
 
+from pathlib import Path
+
 import configuronic as cfn
 import pos3
 
@@ -17,19 +19,22 @@ from positronic.dataset.local_dataset import load_all_datasets
 from positronic.dataset.transforms import TransformedDataset, agg_fraction_true, agg_max, agg_percentile
 from positronic.dataset.transforms.episode import Concat, Derive, FromValue, Group, Identity, Rename
 from positronic.dataset.transforms.quality import cmd_lag, cmd_velocity, idle_mask, jerk
-from positronic.drivers.roboarm.ik import FRANKA_DEFAULT_URDF_XML
 from positronic.server.positronic_server import ColumnConfig as C
 from positronic.server.positronic_server import main as server_main
+from positronic.utils import package_assets_path
 from positronic.utils.logging import init_logging
 
 from . import concat_ds, local, transform
 
-# MuJoCo XML for sim datasets
-SIM_URDF = FRANKA_DEFAULT_URDF_XML
+# Robot meta for existing datasets that don't have it stored natively.
+# Future datasets will have per-unit calibrated URDF from Robot.robot_meta.
+SIM_URDF = Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text()
+REAL_URDF = (Path(__file__).resolve().parents[2] / 'drivers' / 'roboarm' / 'fr3.urdf').read_text()
 
-# For real robot datasets: use sim model for now.
-# To get the real robot's URDF: call Robot.urdf_xml on the connected robot.
-REAL_URDF = SIM_URDF
+_JOINT_NAMES = [f'joint{i}' for i in range(1, 8)]
+
+_SIM_ROBOT_META = {'urdf': SIM_URDF, 'joint_names': _JOINT_NAMES, 'control_frame': 'end_effector'}
+_REAL_ROBOT_META = {'urdf': REAL_URDF, 'joint_names': _JOINT_NAMES, 'control_frame': 'end_effector'}
 
 # Task constants
 TOWELS_TASK = 'Pick all the towels one by one from transparent tote and place them into the large grey tote.'
@@ -83,7 +88,9 @@ def droid(path, recovery_all, recovery_towels, duplicate_recovery):
                 datasets.append(TransformedDataset(recovery_ds, _recovery_transforms(task)))
         else:
             datasets.append(TransformedDataset(recovery_ds, _recovery_transforms(RECOVERY_TASK)))
-    return TransformedDataset(ConcatDataset(*datasets), Group(Derive(urdf=FromValue(REAL_URDF)), Identity()))
+    return TransformedDataset(
+        ConcatDataset(*datasets), Group(Derive(**{k: FromValue(v) for k, v in _REAL_ROBOT_META.items()}), Identity())
+    )
 
 
 # Signal transformations for sim datasets
@@ -93,7 +100,7 @@ old_to_new = Group(
         'robot_commands.pose': Concat('target_robot_position_translation', 'target_robot_position_quaternion'),
         'robot_state.ee_pose': Concat('robot_position_translation', 'robot_position_quaternion'),
         'task': FromValue('Pick up the green cube and place it on the red cube.'),
-        'urdf': FromValue(SIM_URDF),
+        **{k: FromValue(v) for k, v in _SIM_ROBOT_META.items()},
     }),
     Rename(**{
         'robot_state.q': 'robot_joints',
@@ -112,7 +119,7 @@ sim_pnp = transform.override(
         Group(
             Derive(
                 task=FromValue('Pick up objects from the red tote and place them in the green tote.'),
-                urdf=FromValue(SIM_URDF),
+                **{k: FromValue(v) for k, v in _SIM_ROBOT_META.items()},
             ),
             Rename(**{'image.exterior': 'image.back_view'}),
             Identity(),

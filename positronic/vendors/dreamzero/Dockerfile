@@ -25,7 +25,7 @@ ENV VIRTUAL_ENV=/.venv
 ENV PATH="/.venv/bin:$PATH"
 
 # Clone DreamZero at pinned commit
-ARG DREAMZERO_SHA=1d70bdcf67c098d8d4e84a09cfb689418c5408cb
+ARG DREAMZERO_SHA=a0490c701f4e4424dd198fa8df71ba63e6ae383d
 RUN git clone https://github.com/dreamzero0/dreamzero.git /dreamzero && \
     cd /dreamzero && git checkout ${DREAMZERO_SHA}
 

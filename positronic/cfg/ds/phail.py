@@ -41,19 +41,22 @@ from positronic.server.positronic_server import main as server_main
 from positronic.utils.logging import init_logging
 
 from . import PUBLIC, group, local, local_all, transform
-from .internal import ALL_TASKS, RECOVERY_TASK, SIM_URDF
+from .internal import _REAL_ROBOT_META, _SIM_ROBOT_META, ALL_TASKS, RECOVERY_TASK
 
 # DROID teleoperation data for PhAIL tasks (towels, spoons, scissors)
 # Migrated from: @positronic.cfg.ds.internal.droid
 # Size: 12GB, 352 episodes with task labels baked in static.json
-phail = local_all.override(path='s3://positronic-public/datasets/phail/', profile=PUBLIC)
+phail = transform.override(
+    base=local_all.override(path='s3://positronic-public/datasets/phail/', profile=PUBLIC),
+    transforms=[Group(Derive(**{k: FromValue(v) for k, v in _REAL_ROBOT_META.items()}), Identity())],
+)
 
 # Simulated cube stacking dataset
 # Migrated from: @positronic.cfg.ds.internal.sim_stack
 # Size: 499MB, 317 episodes with transforms baked in (ee_pose, robot_joints, task)
 sim_stack_cubes = transform.override(
     base=local.override(path='s3://positronic-public/datasets/sim-stack-cubes/', profile=PUBLIC),
-    transforms=[Group(Derive(urdf=FromValue(SIM_URDF)), Identity())],
+    transforms=[Group(Derive(**{k: FromValue(v) for k, v in _SIM_ROBOT_META.items()}), Identity())],
 )
 
 # Simulated pick-and-place dataset
@@ -61,7 +64,7 @@ sim_stack_cubes = transform.override(
 # Size: 1.3GB, 214 episodes with transforms baked in
 sim_pick_place = transform.override(
     base=local.override(path='s3://positronic-public/datasets/sim-pick-place/', profile=PUBLIC),
-    transforms=[Group(Derive(urdf=FromValue(SIM_URDF)), Identity())],
+    transforms=[Group(Derive(**{k: FromValue(v) for k, v in _SIM_ROBOT_META.items()}), Identity())],
 )
 
 

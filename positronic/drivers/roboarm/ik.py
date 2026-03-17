@@ -7,7 +7,7 @@ Three solvers for reconstructing joint-space targets from recorded EE targets:
   (ports inverse_kinematics_with_limits, using scipy instead of OSQP)
 """
 
-from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import mujoco as mj
 import numpy as np
@@ -15,7 +15,6 @@ from scipy.optimize import lsq_linear
 from scipy.spatial.transform import Rotation as ScipyRotation
 
 from positronic.dataset import transforms
-from positronic.utils import package_assets_path
 
 try:
     from dm_control import mujoco as dm_mujoco
@@ -24,8 +23,32 @@ except ImportError:
     dm_mujoco = None
     dm_ik = None
 
-FRANKA_JOINT_NAMES = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'joint7']
-FRANKA_DEFAULT_URDF_XML = Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text()
+
+def _prepare_spec(urdf_xml, control_frame):
+    """Parse URDF or MJCF into an MjSpec, stripping meshes and resolving the control frame site.
+
+    The control frame must exist in the model as a site or body. For bodies (e.g. real URDF
+    with ``end_effector`` link baked in by positronic-franka), a site is added at its origin.
+    """
+    root = ET.fromstring(urdf_xml)
+    if root.tag == 'robot':
+        for link in root.findall('.//link'):
+            for elem in link.findall('visual') + link.findall('collision'):
+                link.remove(elem)
+        urdf_xml = ET.tostring(root, encoding='unicode')
+    spec = mj.MjSpec.from_string(urdf_xml)
+
+    all_sites = {s.name for b in spec.bodies for s in b.sites}
+    if control_frame in all_sites:
+        return spec
+
+    body_names = {b.name for b in spec.bodies}
+    if control_frame in body_names:
+        site = spec.body(control_frame).add_site()
+        site.name = control_frame
+        return spec
+
+    raise ValueError(f'Control frame {control_frame!r} not found as site or body in model')
 
 
 def _parse_target(target_ee_pose_vec):
@@ -45,17 +68,20 @@ def _cartesian_error(pos_cur, R_cur, t_tgt, R_tgt):
 class _SolverBase:
     """Base for MuJoCo-based IK solvers. Handles model loading, FK, and Jacobian."""
 
-    def __init__(self, urdf_xml):
+    def __init__(self, urdf_xml, joint_names, control_frame):
         self.urdf_xml = urdf_xml
+        self.joint_names = tuple(joint_names)
+        self.control_frame = control_frame
         self._load_model()
 
     def _load_model(self):
-        self._model = mj.MjModel.from_xml_string(self.urdf_xml)
+        self._spec = _prepare_spec(self.urdf_xml, self.control_frame)
+        self._model = self._spec.compile()
         self._data = mj.MjData(self._model)
-        self._site_id = mj.mj_name2id(self._model, mj.mjtObj.mjOBJ_SITE, 'end_effector')
-        self._joint_qpos_ids = np.array([self._model.joint(n).qposadr.item() for n in FRANKA_JOINT_NAMES])
-        self._joint_dof_ids = np.array([self._model.joint(n).dofadr.item() for n in FRANKA_JOINT_NAMES])
-        jnt_ids = [mj.mj_name2id(self._model, mj.mjtObj.mjOBJ_JOINT, n) for n in FRANKA_JOINT_NAMES]
+        self._site_id = mj.mj_name2id(self._model, mj.mjtObj.mjOBJ_SITE, self.control_frame)
+        self._joint_qpos_ids = np.array([self._model.joint(n).qposadr.item() for n in self.joint_names])
+        self._joint_dof_ids = np.array([self._model.joint(n).dofadr.item() for n in self.joint_names])
+        jnt_ids = [mj.mj_name2id(self._model, mj.mjtObj.mjOBJ_JOINT, n) for n in self.joint_names]
         self._joint_lower = self._model.jnt_range[jnt_ids, 0].copy()
         self._joint_upper = self._model.jnt_range[jnt_ids, 1].copy()
 
@@ -73,7 +99,16 @@ class _SolverBase:
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        for k in ('_model', '_data', '_site_id', '_joint_qpos_ids', '_joint_dof_ids', '_joint_lower', '_joint_upper'):
+        for k in (
+            '_spec',
+            '_model',
+            '_data',
+            '_site_id',
+            '_joint_qpos_ids',
+            '_joint_dof_ids',
+            '_joint_lower',
+            '_joint_upper',
+        ):
             state.pop(k, None)
         return state
 
@@ -85,23 +120,23 @@ class _SolverBase:
 class DmControlIKSolver(_SolverBase):
     """IK via dm_control qpos_from_site_pose. For sim data."""
 
-    def __init__(self, urdf_xml):
+    def __init__(self, urdf_xml, joint_names, control_frame):
         if dm_mujoco is None:
             raise ImportError('dm_control is required for DmControlIKSolver')
-        super().__init__(urdf_xml)
+        super().__init__(urdf_xml, joint_names, control_frame)
 
     def _load_model(self):
         super()._load_model()
-        self._physics = dm_mujoco.Physics.from_xml_string(self.urdf_xml)
+        self._physics = dm_mujoco.Physics.from_xml_string(self._spec.to_xml())
 
     def solve(self, current_q, target_ee_pose_vec):
         self._physics.data.qpos[self._joint_qpos_ids] = current_q
         result = dm_ik.qpos_from_site_pose(
             physics=self._physics,
-            site_name='end_effector',
+            site_name=self.control_frame,
             target_pos=target_ee_pose_vec[:3],
             target_quat=target_ee_pose_vec[3:7],
-            joint_names=FRANKA_JOINT_NAMES,
+            joint_names=list(self.joint_names),
             rot_weight=0.5,
         )
         return result.qpos[self._joint_qpos_ids]
@@ -121,6 +156,8 @@ class DLSIKSolver(_SolverBase):
     def __init__(
         self,
         urdf_xml,
+        joint_names,
+        control_frame,
         *,
         tol=1e-4,
         max_iters=150,
@@ -131,7 +168,7 @@ class DLSIKSolver(_SolverBase):
         line_search_beta=0.5,
         line_search_max_steps=20,
     ):
-        super().__init__(urdf_xml)
+        super().__init__(urdf_xml, joint_names, control_frame)
         self.tol = tol
         self.max_iters = max_iters
         self.min_step = min_step
@@ -185,8 +222,19 @@ class DLSIKSolverWithLimits(_SolverBase):
     replacing OSQP with scipy.optimize.lsq_linear.
     """
 
-    def __init__(self, urdf_xml, *, tol=1e-4, max_iters=150, min_step=1e-8, pinv_reg=0.03, line_search_alpha=1.0):
-        super().__init__(urdf_xml)
+    def __init__(
+        self,
+        urdf_xml,
+        joint_names,
+        control_frame,
+        *,
+        tol=1e-4,
+        max_iters=150,
+        min_step=1e-8,
+        pinv_reg=0.03,
+        line_search_alpha=1.0,
+    ):
+        super().__init__(urdf_xml, joint_names, control_frame)
         self.tol = tol
         self.max_iters = max_iters
         self.min_step = min_step
@@ -226,7 +274,7 @@ class DLSIKSolverWithLimits(_SolverBase):
 def ik_joints_from_episode(episode, solver_cls, tgt_ee_pose_key, current_q_key):
     """Episode -> Signal. Computes target joints from EE targets via IK.
 
-    Picklable via functools.partial for use as tgt_joints_key in AbsoluteJointsAction.
+    Reads 'urdf', 'joint_names', and 'control_frame' from episode statics.
     """
-    solver = solver_cls(episode['urdf'])
+    solver = solver_cls(episode['urdf'], episode['joint_names'], episode['control_frame'])
     return transforms.pairwise(episode[current_q_key], episode[tgt_ee_pose_key], solver.solve)
