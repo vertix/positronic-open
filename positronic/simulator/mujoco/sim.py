@@ -274,7 +274,7 @@ class MujocoFranka(pimm.ControlSystem):
     def robot_meta(self) -> dict:
         return {
             'urdf': Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text(),
-            'joint_names': self.joint_names,
+            'joint_names': [f'joint{i}' for i in range(1, 8)],
             'control_frame': 'end_effector',
         }
 

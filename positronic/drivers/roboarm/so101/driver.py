@@ -54,7 +54,7 @@ class Robot(pimm.ControlSystem):
         return {
             'urdf': Path(_SO101_URDF_PATH).read_text(),
             'joint_names': _SO101_JOINT_NAMES,
-            'control_frame': 'gripper_frame_joint',
+            'control_frame': 'gripper_frame_link',
         }
 
     def __init__(self, motor_bus: MotorBus, home_joints: list[float] | None = None):
