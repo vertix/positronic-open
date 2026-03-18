@@ -1,3 +1,4 @@
+import pickle
 from pathlib import Path
 
 import mujoco as mj
@@ -104,3 +105,25 @@ def test_ik_joints_from_episode():
     for i in range(n_steps):
         reconstructed_pose = _fk(URDF, result[i][0])
         np.testing.assert_allclose(reconstructed_pose[:3], ee_poses[i, :3], atol=1e-3)
+
+
+@pytest.mark.parametrize('solver_cls', [DLSIKSolver, DLSIKSolverWithLimits])
+def test_pickle_roundtrip(solver_cls):
+    solver = solver_cls(URDF, JOINT_NAMES, CONTROL_FRAME)
+    # Force model build before pickling
+    target_pose = _fk(URDF, TEST_CONFIGS[0])
+    solver.solve(np.zeros(7), target_pose)
+    assert solver._mj is not None
+
+    restored = pickle.loads(pickle.dumps(solver))
+    assert restored._mj is None  # cache cleared
+
+    # Solver params preserved
+    assert restored.tol == solver.tol
+    assert restored.max_iters == solver.max_iters
+
+    # Still works after unpickling (start near target for limit-aware solver)
+    q_start = TEST_CONFIGS[0] + 0.05
+    q_result = restored.solve(q_start, target_pose)
+    result_pose = _fk(URDF, q_result)
+    np.testing.assert_allclose(result_pose[:3], target_pose[:3], atol=1e-3)

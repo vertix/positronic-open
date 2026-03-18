@@ -77,43 +77,63 @@ class _SolverBase:
         self.urdf_xml = urdf_xml
         self.joint_names = tuple(joint_names)
         self.control_frame = control_frame
-        self._model = None
+        self._mj = None  # backing for _model property
 
-    def _ensure_model(self):
-        if self._model is not None:
-            return
+    @property
+    def _model(self):
+        if self._mj is not None:
+            return self._mj
         spec = _prepare_spec(self.urdf_xml, self.control_frame)
-        self._model = spec.compile()
-        self._data = mj.MjData(self._model)
-        self._site_id = mj.mj_name2id(self._model, mj.mjtObj.mjOBJ_SITE, self.control_frame)
-        self._joint_qpos_ids = np.array([self._model.joint(n).qposadr.item() for n in self.joint_names])
-        self._joint_dof_ids = np.array([self._model.joint(n).dofadr.item() for n in self.joint_names])
-        jnt_ids = [mj.mj_name2id(self._model, mj.mjtObj.mjOBJ_JOINT, n) for n in self.joint_names]
-        self._joint_lower = self._model.jnt_range[jnt_ids, 0].copy()
-        self._joint_upper = self._model.jnt_range[jnt_ids, 1].copy()
+        self._mj = spec.compile()
+        self._data = mj.MjData(self._mj)
+        self._site_id = mj.mj_name2id(self._mj, mj.mjtObj.mjOBJ_SITE, self.control_frame)
+        self._jqpos = np.array([self._mj.joint(n).qposadr.item() for n in self.joint_names])
+        self._joint_dof_ids = np.array([self._mj.joint(n).dofadr.item() for n in self.joint_names])
+        jnt_ids = [mj.mj_name2id(self._mj, mj.mjtObj.mjOBJ_JOINT, n) for n in self.joint_names]
+        self._jlower = self._mj.jnt_range[jnt_ids, 0].copy()
+        self._jupper = self._mj.jnt_range[jnt_ids, 1].copy()
         self._init_extra(spec)
+        return self._mj
+
+    @property
+    def _joint_qpos_ids(self):
+        _ = self._model
+        return self._jqpos
+
+    @property
+    def _joint_lower(self):
+        _ = self._model
+        return self._jlower
+
+    @property
+    def _joint_upper(self):
+        _ = self._model
+        return self._jupper
 
     def _init_extra(self, spec):
         """Override in subclasses that need additional setup after model loading."""
 
     def _fk_jac(self, q):
         """Forward kinematics + Jacobian at joint positions q."""
-        self._data.qpos[self._joint_qpos_ids] = q
-        mj.mj_forward(self._model, self._data)
+        model = self._model
+        self._data.qpos[self._jqpos] = q
+        mj.mj_forward(model, self._data)
         pos = self._data.site_xpos[self._site_id].copy()
         R = self._data.site_xmat[self._site_id].reshape(3, 3).copy()
-        jacp = np.zeros((3, self._model.nv))
-        jacr = np.zeros((3, self._model.nv))
-        mj.mj_jacSite(self._model, self._data, jacp, jacr, self._site_id)
+        jacp = np.zeros((3, model.nv))
+        jacr = np.zeros((3, model.nv))
+        mj.mj_jacSite(model, self._data, jacp, jacr, self._site_id)
         J = np.vstack([jacp[:, self._joint_dof_ids], jacr[:, self._joint_dof_ids]])
         return pos, R, J
 
     def __getstate__(self):
+        # MuJoCo objects (_mj, _data, etc.) are not picklable; exclude all
+        # _-prefixed attrs so properties rebuild lazily after unpickling.
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self._model = None
+        self._mj = None
 
 
 class DmControlIKSolver(_SolverBase):
@@ -125,10 +145,14 @@ class DmControlIKSolver(_SolverBase):
         super().__init__(urdf_xml, joint_names, control_frame)
 
     def _init_extra(self, spec):
-        self._physics = dm_mujoco.Physics.from_xml_string(spec.to_xml())
+        self._phys = dm_mujoco.Physics.from_xml_string(spec.to_xml())
+
+    @property
+    def _physics(self):
+        _ = self._model
+        return self._phys
 
     def solve(self, current_q, target_ee_pose_vec):
-        self._ensure_model()
         self._physics.data.qpos[self._joint_qpos_ids] = current_q
         result = dm_ik.qpos_from_site_pose(
             physics=self._physics,
@@ -173,7 +197,6 @@ class DLSIKSolver(_SolverBase):
         self.line_search_max_steps = line_search_max_steps
 
     def solve(self, current_q, target_ee_pose_vec):  # noqa: C901
-        self._ensure_model()
         t_tgt, R_tgt = _parse_target(target_ee_pose_vec)
         q = current_q.astype(np.float64).copy()
         n = len(q)
@@ -237,7 +260,6 @@ class DLSIKSolverWithLimits(_SolverBase):
         self.line_search_alpha = line_search_alpha
 
     def solve(self, current_q, target_ee_pose_vec):
-        self._ensure_model()
         t_tgt, R_tgt = _parse_target(target_ee_pose_vec)
         q = current_q.astype(np.float64).copy()
         n = len(q)
