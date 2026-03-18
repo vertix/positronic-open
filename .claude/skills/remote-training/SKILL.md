@@ -32,6 +32,7 @@ Every run writes `run_metadata_*.yaml` with the full CLI command — read it to 
 
 | Vendor | Codec | Interim | Latest Checkpoint |
 |--------|-------|---------|-------------------|
+| smolvla (0.4.x) | `ee` | `s3://interim/phail_unified/smolvla/ee/` | `s3://checkpoints/phail_unified/smolvla/150315_ft_150k/` |
 | groot | `ee_rot6d` | `s3://interim/phail_unified/groot/ee_rot6d/` | — |
 | lerobot (0.4.x) / SmolVLA | `ee` | — | `s3://checkpoints/phail_unified/smolvla/170316_ee/` |
 | lerobot (0.3.3) | `ee` | `s3://interim/phail_unified/lerobot/ee/` | — |
@@ -151,20 +152,19 @@ CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always 
 
 # LeRobot 0.4.x SmolVLA — custom checkpoint (desktop)
 CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always --service-ports lerobot-server \
-  serve \
   --checkpoints_dir=s3://checkpoints/sim_stack/lerobot_04/smolvla_150k/
 
-# LeRobot 0.3.3 ACT (desktop)
+# LeRobot 0.3.3 ACT (desktop) — requires subcommand
 CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always --service-ports lerobot-0_3_3-server \
   serve \
   --checkpoints_dir=s3://checkpoints/sim_stack/lerobot/230226-ee/
 
-# GR00T (desktop or H100)
+# GR00T (desktop or H100) — codec subcommand required
 CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always --service-ports groot-server \
   ee_rot6d \
   --checkpoints_dir=s3://checkpoints/sim_stack/groot/ee_rot6d/230226/
 
-# OpenPI (H100)
+# OpenPI (H100) — requires subcommand
 docker --context vm-train compose run --rm --pull always --service-ports openpi-server \
   serve \
   --checkpoints_dir=s3://checkpoints/sim_stack/openpi/ee/pi05_positronic_lowmem/230226/
@@ -197,8 +197,9 @@ MUJOCO_GL=egl uv run positronic-inference sim \
 
 ```bash
 # 1. Start server in background (-d flag)
+# Check the server script's cfn.cli() to determine if a subcommand is needed (see table above)
 CACHE_ROOT=/home/vertix docker --context <machine> compose run -d --rm --pull always --service-ports <server-service> \
-  <variant> --checkpoints_dir=<checkpoint_path>
+  [subcommand] --checkpoints_dir=<checkpoint_path>
 
 # Wait for ready
 docker --context <machine> logs --tail 5 <container_id>

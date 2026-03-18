@@ -171,6 +171,9 @@ def train(
 
     _update_config(cfg, **cfg_kwargs)
 
+    if 'policy.scheduler_decay_steps' not in cfg_kwargs:
+        cfg.policy.scheduler_decay_steps = cfg.steps - cfg.policy.scheduler_warmup_steps
+
     if cfg.resume:
         checkpoints_dir = Path(cfg.output_dir) / 'checkpoints'
         if not checkpoints_dir.exists():
@@ -199,13 +202,13 @@ def train(
     if not cfg.resume and Path(cfg.output_dir).exists():
         shutil.rmtree(cfg.output_dir)
 
+    utils.save_run_metadata_deferred(Path(cfg.output_dir), patterns=['*.py', '*.toml'])
+
     logging.info('Starting training...')
     # Deferred: lerobot_train triggers heavy CUDA/model registry init on import.
     from lerobot.scripts.lerobot_train import train as lerobot_train  # noqa: E402
 
     lerobot_train(cfg)
-
-    utils.save_run_metadata(Path(cfg.output_dir), patterns=['*.py', '*.toml'])
     logging.info('Training finished.')
 
 
