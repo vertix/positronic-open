@@ -66,17 +66,24 @@ def _cartesian_error(pos_cur, R_cur, t_tgt, R_tgt):
 
 
 class _SolverBase:
-    """Base for MuJoCo-based IK solvers. Handles model loading, FK, and Jacobian."""
+    """Base for MuJoCo-based IK solvers. Handles model loading, FK, and Jacobian.
+
+    MuJoCo objects are built lazily on first use so that the solver stays
+    naturally picklable (only urdf_xml, joint_names, control_frame, and
+    solver params are stored as instance state).
+    """
 
     def __init__(self, urdf_xml, joint_names, control_frame):
         self.urdf_xml = urdf_xml
         self.joint_names = tuple(joint_names)
         self.control_frame = control_frame
-        self._load_model()
+        self._model = None
 
-    def _load_model(self):
-        self._spec = _prepare_spec(self.urdf_xml, self.control_frame)
-        self._model = self._spec.compile()
+    def _ensure_model(self):
+        if self._model is not None:
+            return
+        spec = _prepare_spec(self.urdf_xml, self.control_frame)
+        self._model = spec.compile()
         self._data = mj.MjData(self._model)
         self._site_id = mj.mj_name2id(self._model, mj.mjtObj.mjOBJ_SITE, self.control_frame)
         self._joint_qpos_ids = np.array([self._model.joint(n).qposadr.item() for n in self.joint_names])
@@ -84,6 +91,10 @@ class _SolverBase:
         jnt_ids = [mj.mj_name2id(self._model, mj.mjtObj.mjOBJ_JOINT, n) for n in self.joint_names]
         self._joint_lower = self._model.jnt_range[jnt_ids, 0].copy()
         self._joint_upper = self._model.jnt_range[jnt_ids, 1].copy()
+        self._init_extra(spec)
+
+    def _init_extra(self, spec):
+        """Override in subclasses that need additional setup after model loading."""
 
     def _fk_jac(self, q):
         """Forward kinematics + Jacobian at joint positions q."""
@@ -98,23 +109,11 @@ class _SolverBase:
         return pos, R, J
 
     def __getstate__(self):
-        state = self.__dict__.copy()
-        for k in (
-            '_spec',
-            '_model',
-            '_data',
-            '_site_id',
-            '_joint_qpos_ids',
-            '_joint_dof_ids',
-            '_joint_lower',
-            '_joint_upper',
-        ):
-            state.pop(k, None)
-        return state
+        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self._load_model()
+        self._model = None
 
 
 class DmControlIKSolver(_SolverBase):
@@ -125,11 +124,11 @@ class DmControlIKSolver(_SolverBase):
             raise ImportError('dm_control is required for DmControlIKSolver')
         super().__init__(urdf_xml, joint_names, control_frame)
 
-    def _load_model(self):
-        super()._load_model()
-        self._physics = dm_mujoco.Physics.from_xml_string(self._spec.to_xml())
+    def _init_extra(self, spec):
+        self._physics = dm_mujoco.Physics.from_xml_string(spec.to_xml())
 
     def solve(self, current_q, target_ee_pose_vec):
+        self._ensure_model()
         self._physics.data.qpos[self._joint_qpos_ids] = current_q
         result = dm_ik.qpos_from_site_pose(
             physics=self._physics,
@@ -140,11 +139,6 @@ class DmControlIKSolver(_SolverBase):
             rot_weight=0.5,
         )
         return result.qpos[self._joint_qpos_ids]
-
-    def __getstate__(self):
-        state = super().__getstate__()
-        state.pop('_physics', None)
-        return state
 
 
 class DLSIKSolver(_SolverBase):
@@ -179,6 +173,7 @@ class DLSIKSolver(_SolverBase):
         self.line_search_max_steps = line_search_max_steps
 
     def solve(self, current_q, target_ee_pose_vec):  # noqa: C901
+        self._ensure_model()
         t_tgt, R_tgt = _parse_target(target_ee_pose_vec)
         q = current_q.astype(np.float64).copy()
         n = len(q)
@@ -242,6 +237,7 @@ class DLSIKSolverWithLimits(_SolverBase):
         self.line_search_alpha = line_search_alpha
 
     def solve(self, current_q, target_ee_pose_vec):
+        self._ensure_model()
         t_tgt, R_tgt = _parse_target(target_ee_pose_vec)
         q = current_q.astype(np.float64).copy()
         n = len(q)
