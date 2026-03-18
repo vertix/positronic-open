@@ -117,3 +117,14 @@ def phail_single(hostname, w_openpi=1.0, w_groot=1.0, w_act=1.0):
     act = RemotePolicy(hostname, 8002, resize=640)
 
     return SampledPolicy(openpi, groot, act, weights=[w_openpi, w_groot, w_act])
+
+
+phail_multiple = production.override(**{
+    'groot.host': 'desktop',
+    'groot.port': 8001,
+    'openpi.host': 'vm-openpi',
+    'openpi.port': 8000,
+    'openpi.weight': 0.3,
+    'act.host': 'localhost',
+    'act.port': 8002,
+})
