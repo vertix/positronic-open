@@ -229,7 +229,12 @@ def main(
     # Convert camera instances to emitters for wire()
     camera_instances = cameras or {}
     camera_emitters = {name: cam.frame for name, cam in camera_instances.items()}
-    static_getter = None if task is None else lambda: {'task': task}
+    static = {}
+    if task is not None:
+        static['task'] = task
+    if robot_arm is not None:
+        static.update(robot_arm.robot_meta)
+    static_getter = (lambda: static) if static else None
     data_collection = DataCollectionController(operator_position.value, metadata_getter=static_getter)
 
     writer_cm = (
@@ -292,6 +297,7 @@ def main_sim(
 
     def metadata_getter():
         result = {k: v.tolist() for k, v in sim.save_state().items()}
+        result.update(robot_arm.robot_meta)
         if task is not None:
             result['task'] = task
         return result

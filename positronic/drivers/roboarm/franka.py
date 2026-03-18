@@ -1,5 +1,6 @@
 import logging
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from typing import Any
 
@@ -81,7 +82,22 @@ class FrankaState(State, pimm.shared_memory.NumpySMAdapter):
         )
 
 
+def _revolute_joint_names(urdf_xml):
+    root = ET.fromstring(urdf_xml)
+    return [j.get('name') for j in root.findall('joint') if j.get('type') == 'revolute']
+
+
 class Robot(pimm.ControlSystem):
+    @property
+    def robot_meta(self) -> dict:
+        """Robot model metadata for IK and dataset storage.
+
+        Returns URDF with F_T_EE baked in (appended by positronic-franka),
+        joint names, and control frame — everything needed to run IK offline.
+        """
+        urdf = self._robot.get_robot_model()
+        return {'urdf': urdf, 'joint_names': _revolute_joint_names(urdf), 'control_frame': 'end_effector'}
+
     def __init__(
         self,
         ip: str,
@@ -110,6 +126,9 @@ class Robot(pimm.ControlSystem):
         self.state: pimm.SignalEmitter = pimm.ControlSystemEmitter(self)
         self._load = load
         self._collision_coeff = collision_coeff
+        self._robot = pf.Robot(
+            ip, realtime_config=pf.RealtimeConfig.Ignore, relative_dynamics_factor=relative_dynamics_factor
+        )
 
     def _init_robot(self, robot):
         coeff = self._collision_coeff
@@ -151,9 +170,7 @@ class Robot(pimm.ControlSystem):
         self.state.emit(robot_state)
 
     def run(self, should_stop: pimm.SignalReceiver, clock: pimm.Clock) -> Iterator[pimm.Sleep]:
-        robot = pf.Robot(
-            self._ip, realtime_config=pf.RealtimeConfig.Ignore, relative_dynamics_factor=self._relative_dynamics_factor
-        )
+        robot = self._robot
         self._init_robot(robot)
         robot.recover_from_errors()
 

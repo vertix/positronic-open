@@ -1,4 +1,4 @@
-"""DreamZero codecs: observation encoder for roboarena inference format."""
+"""DreamZero codecs: observation encoder + action decoder for roboarena format."""
 
 from functools import partial
 from typing import Any
@@ -12,7 +12,8 @@ from positronic.dataset import Signal, transforms
 from positronic.dataset.episode import Episode
 from positronic.dataset.transforms import image
 from positronic.dataset.transforms.episode import Derive, Get
-from positronic.policy.codec import Codec, lerobot_image, lerobot_state
+from positronic.drivers.roboarm import command
+from positronic.policy.codec import Codec, lerobot_action, lerobot_image, lerobot_state
 
 IMAGE_WIDTH = 320
 IMAGE_HEIGHT = 176
@@ -26,7 +27,7 @@ class DreamZeroObservationCodec(Codec):
     """Observation encoder for DreamZero's roboarena inference format.
 
     For training (training_encoder): outputs flat LeRobot keys (state.joint_position,
-    state.gripper_position, action.joint_position, action.gripper_position, video columns).
+    state.gripper_position, video columns).
     For inference (encode): outputs roboarena keys (observation/joint_position, etc.)
     with images resized to 320x176 and session_id for stateful frame tracking.
     """
@@ -37,8 +38,6 @@ class DreamZeroObservationCodec(Codec):
         exterior_camera_1: str = 'image.exterior',
         exterior_camera_2: str | None = None,
         image_size: tuple[int, int] = (IMAGE_WIDTH, IMAGE_HEIGHT),
-        action_joints_key: str | None = None,
-        action_grip_key: str | None = None,
     ):
         self._wrist_camera = wrist_camera
         self._exterior_camera_1 = exterior_camera_1
@@ -55,54 +54,37 @@ class DreamZeroObservationCodec(Codec):
             'task': Get('task', ''),
         }
 
-        lerobot_features = {
-            'state.joint_position': lerobot_state(7),
-            'state.gripper_position': lerobot_state(1),
-            'video.wrist_image_left': lerobot_image(w, h),
-            'video.exterior_image_1_left': lerobot_image(w, h),
-            'video.exterior_image_2_left': lerobot_image(w, h),
+        self._training_meta = {
+            'lerobot_features': {
+                'state.joint_position': lerobot_state(7),
+                'state.gripper_position': lerobot_state(1),
+                'video.wrist_image_left': lerobot_image(w, h),
+                'video.exterior_image_1_left': lerobot_image(w, h),
+                'video.exterior_image_2_left': lerobot_image(w, h),
+            },
+            'gr00t_modality': {
+                'state': {
+                    'joint_position': {'start': 0, 'end': 7, 'original_key': 'state.joint_position'},
+                    'gripper_position': {'start': 0, 'end': 1, 'original_key': 'state.gripper_position'},
+                },
+                'video': {
+                    'wrist_image_left': {'original_key': 'video.wrist_image_left'},
+                    'exterior_image_1_left': {'original_key': 'video.exterior_image_1_left'},
+                    'exterior_image_2_left': {'original_key': 'video.exterior_image_2_left'},
+                },
+                'annotation': {
+                    'language.language_instruction': {'original_key': 'task_index'},
+                    'language.language_instruction_2': {'original_key': 'task_index'},
+                    'language.language_instruction_3': {'original_key': 'task_index'},
+                },
+            },
         }
-
-        gr00t_modality = {
-            'state': {
-                'joint_position': {'start': 0, 'end': 7, 'original_key': 'state.joint_position'},
-                'gripper_position': {'start': 0, 'end': 1, 'original_key': 'state.gripper_position'},
-            },
-            'video': {
-                'wrist_image_left': {'original_key': 'video.wrist_image_left'},
-                'exterior_image_1_left': {'original_key': 'video.exterior_image_1_left'},
-                'exterior_image_2_left': {'original_key': 'video.exterior_image_2_left'},
-            },
-            'annotation': {
-                'language.language_instruction': {'original_key': 'task_index'},
-                'language.language_instruction_2': {'original_key': 'task_index'},
-                'language.language_instruction_3': {'original_key': 'task_index'},
-            },
-        }
-
-        if action_joints_key is not None and action_grip_key is not None:
-            self._derive_transforms['action.joint_position'] = partial(self._derive_action_joints, action_joints_key)
-            self._derive_transforms['action.gripper_position'] = partial(self._derive_action_grip, action_grip_key)
-            lerobot_features['action.joint_position'] = lerobot_state(7)
-            lerobot_features['action.gripper_position'] = lerobot_state(1)
-            gr00t_modality['action'] = {
-                'joint_position': {'start': 0, 'end': 7, 'original_key': 'action.joint_position'},
-                'gripper_position': {'start': 0, 'end': 1, 'original_key': 'action.gripper_position'},
-            }
-
-        self._training_meta = {'lerobot_features': lerobot_features, 'gr00t_modality': gr00t_modality}
 
     def _derive_joint_position(self, episode: Episode) -> Signal[Any]:
         return transforms.astype(episode['robot_state.q'], np.float32)
 
     def _derive_gripper_position(self, episode: Episode) -> Signal[Any]:
         return transforms.Elementwise(episode['grip'], _reshape_grip)
-
-    def _derive_action_joints(self, key: str, episode: Episode) -> Signal[Any]:
-        return transforms.astype(episode[key], np.float32)
-
-    def _derive_action_grip(self, key: str, episode: Episode) -> Signal[Any]:
-        return transforms.Elementwise(episode[key], _reshape_grip)
 
     def _derive_image(self, input_key: str, episode: Episode) -> Signal[Any]:
         w, h = self._image_size
@@ -152,21 +134,70 @@ class DreamZeroObservationCodec(Codec):
         return Derive(meta=self._training_meta, **self._derive_transforms)
 
 
+class DreamZeroActionCodec(Codec):
+    """Action codec for DreamZero: GR00T-style split signals for training,
+    flat action vector decoding for inference.
+
+    Training: derives ``action.joint_position`` and ``action.gripper_position``
+    as separate dataset columns with ``gr00t_modality.action`` metadata.
+    Inference: decodes flat ``(num_joints+1,)`` action vector into
+    ``JointPosition`` command + ``target_grip``.
+    """
+
+    def __init__(self, tgt_joints_key: str, tgt_grip_key: str, num_joints: int = 7):
+        self._tgt_joints_key = tgt_joints_key
+        self._tgt_grip_key = tgt_grip_key
+        self._num_joints = num_joints
+
+        self._training_meta = {
+            'lerobot_features': {
+                'action': lerobot_action(num_joints + 1),
+                'action.joint_position': lerobot_state(num_joints),
+                'action.gripper_position': lerobot_state(1),
+            },
+            'gr00t_modality': {
+                'action': {
+                    'joint_position': {'start': 0, 'end': num_joints, 'original_key': 'action.joint_position'},
+                    'gripper_position': {'start': 0, 'end': 1, 'original_key': 'action.gripper_position'},
+                }
+            },
+        }
+
+    def _derive_action_joints(self, episode: Episode) -> Signal[Any]:
+        return transforms.astype(episode[self._tgt_joints_key], np.float32)
+
+    def _derive_action_grip(self, episode: Episode) -> Signal[Any]:
+        return transforms.Elementwise(episode[self._tgt_grip_key], _reshape_grip)
+
+    def _encode_action(self, episode: Episode):
+        return transforms.concat(episode[self._tgt_joints_key], episode[self._tgt_grip_key], dtype=np.float32)
+
+    def _decode_single(self, data: dict, context: dict | None) -> dict:
+        action = data['action']
+        joints = action[: self._num_joints]
+        grip = action[self._num_joints].item()
+        return {'robot_command': command.to_wire(command.JointPosition(positions=joints)), 'target_grip': grip}
+
+    @property
+    def training_encoder(self):
+        return Derive(
+            meta=self._training_meta,
+            action=self._encode_action,
+            **{
+                'action.joint_position': self._derive_action_joints,
+                'action.gripper_position': self._derive_action_grip,
+            },
+        )
+
+
 @cfn.config(
     wrist_camera='image.wrist',
     exterior_camera_1='image.exterior',
     exterior_camera_2=None,
     image_size=(IMAGE_WIDTH, IMAGE_HEIGHT),
-    action_joints_key=None,
-    action_grip_key=None,
 )
 def dreamzero_obs(
-    wrist_camera: str,
-    exterior_camera_1: str,
-    exterior_camera_2: str | None,
-    image_size: tuple[int, int],
-    action_joints_key: str | None,
-    action_grip_key: str | None,
+    wrist_camera: str, exterior_camera_1: str, exterior_camera_2: str | None, image_size: tuple[int, int]
 ):
     """DreamZero observation codec (3 cameras + joint state)."""
     return DreamZeroObservationCodec(
@@ -174,15 +205,36 @@ def dreamzero_obs(
         exterior_camera_1=exterior_camera_1,
         exterior_camera_2=exterior_camera_2,
         image_size=tuple(image_size),
-        action_joints_key=action_joints_key,
-        action_grip_key=action_grip_key,
     )
 
 
-# Composed codec: DreamZero observation + absolute joints action + timing
-_action = codecs.absolute_joints_action.override(tgt_joints_key='robot_commands.joints', tgt_grip_key='target_grip')
+@cfn.config(num_joints=7)
+def dreamzero_action(tgt_joints_key: str, tgt_grip_key: str, num_joints: int):
+    """DreamZero action codec (GR00T split signals + flat inference decode)."""
+    return DreamZeroActionCodec(tgt_joints_key=tgt_joints_key, tgt_grip_key=tgt_grip_key, num_joints=num_joints)
+
+
+# Composed codec: DreamZero observation + action + timing
+_action = dreamzero_action.override(tgt_joints_key='robot_commands.joints', tgt_grip_key='target_grip')
 joints = codecs.compose.override(obs=dreamzero_obs, action=_action, fps=15.0)
 
-_traj_obs = dreamzero_obs.override(action_joints_key='robot_state.q', action_grip_key='grip')
-_traj_action = _action.override(tgt_joints_key='robot_state.q', tgt_grip_key='grip')
-joints_traj = codecs.compose.override(obs=_traj_obs, action=_traj_action, fps=15.0)
+_traj_action = dreamzero_action.override(tgt_joints_key='robot_state.q', tgt_grip_key='grip')
+joints_traj = codecs.compose.override(obs=dreamzero_obs, action=_traj_action, fps=15.0)
+
+# IK variants: reconstruct joint targets from recorded EE targets via IK
+_ik_action = codecs.ik_joints_action.override(tgt_joints_key='robot_commands.joints', tgt_grip_key='target_grip')
+
+
+@cfn.config(solver='dls_limits')
+def _ik_dreamzero_action(solver: str):
+    """IK signal derivation composed with DreamZero action codec."""
+    from positronic.drivers.roboarm.ik import DLSIKSolver, DLSIKSolverWithLimits, DmControlIKSolver
+    from positronic.policy.action import IKJointsAction
+
+    solver_map = {'dm_control': DmControlIKSolver, 'dls': DLSIKSolver, 'dls_limits': DLSIKSolverWithLimits}
+    ik = IKJointsAction(solver_cls=solver_map[solver])
+    return ik | DreamZeroActionCodec(tgt_joints_key='robot_commands.joints', tgt_grip_key='target_grip')
+
+
+joints_ik = codecs.compose.override(obs=dreamzero_obs, action=_ik_dreamzero_action, fps=15.0)
+joints_ik_sim = joints_ik.override(**{'action.solver': 'dm_control'})

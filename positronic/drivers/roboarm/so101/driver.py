@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import numpy as np
 
@@ -43,11 +44,23 @@ class SO101State(State, pimm.shared_memory.NumpySMAdapter):
         self.array[17] = RobotStatus.AVAILABLE.value
 
 
+_SO101_URDF_PATH = 'positronic/drivers/roboarm/so101/so101.urdf'
+_SO101_JOINT_NAMES = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll']
+
+
 class Robot(pimm.ControlSystem):
+    @property
+    def robot_meta(self) -> dict:
+        return {
+            'urdf': Path(_SO101_URDF_PATH).read_text(),
+            'joint_names': _SO101_JOINT_NAMES,
+            'control_frame': 'gripper_frame_link',
+        }
+
     def __init__(self, motor_bus: MotorBus, home_joints: list[float] | None = None):
         self.motor_bus = motor_bus
         self.mujoco_model_path = 'positronic/drivers/roboarm/so101/so101.xml'
-        self.kinematic = Kinematics('positronic/drivers/roboarm/so101/so101.urdf', 'gripper_frame_joint')
+        self.kinematic = Kinematics(_SO101_URDF_PATH, 'gripper_frame_joint')
         self.joint_limits = self.kinematic.joint_limits
         self.home_joints = home_joints if home_joints is not None else [0.0, 0.0, 0.0, 0.0, 0.0]
         self.commands: pimm.SignalReceiver[roboarm_command.CommandType] = pimm.ControlSystemReceiver(self, default=None)

@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Iterator, Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 import mujoco as mj
@@ -13,6 +14,7 @@ from positronic.drivers.roboarm import RobotStatus, State
 from positronic.drivers.roboarm import command as roboarm_command
 from positronic.simulator.mujoco.observers import MujocoSimObserver
 from positronic.simulator.mujoco.transforms import MujocoSceneTransform, load_model_from_spec_file
+from positronic.utils import package_assets_path
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +269,14 @@ class MujocoFranka(pimm.ControlSystem):
             return result.qpos[self.joint_qpos_ids]
 
         return None
+
+    @property
+    def robot_meta(self) -> dict:
+        return {
+            'urdf': Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text(),
+            'joint_names': [f'joint{i}' for i in range(1, 8)],
+            'control_frame': 'end_effector',
+        }
 
     @property
     def q(self) -> np.ndarray:

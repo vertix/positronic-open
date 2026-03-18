@@ -6,8 +6,9 @@ from positronic import geom
 from positronic.dataset import transforms
 from positronic.dataset.episode import Episode
 from positronic.dataset.signal import Signal
-from positronic.dataset.transforms.episode import Derive
+from positronic.dataset.transforms.episode import Derive, Group, Identity
 from positronic.drivers.roboarm import command
+from positronic.drivers.roboarm.ik import ik_joints_from_episode
 from positronic.policy.codec import Codec, lerobot_action
 
 RotRep = geom.Rotation.Representation
@@ -79,12 +80,46 @@ class AbsoluteJointsAction(Codec):
         }
 
     def _encode_episode(self, episode: Episode) -> Signal[np.ndarray]:
-        joints = episode[self.tgt_joints_key]
-        return transforms.concat(joints, episode[self.tgt_grip_key], dtype=np.float32)
+        return transforms.concat(episode[self.tgt_joints_key], episode[self.tgt_grip_key], dtype=np.float32)
 
     @property
     def training_encoder(self):
         return Derive(meta=self._training_meta, action=self._encode_episode)
+
+
+class IKJointsAction(Codec):
+    """Signal-level codec that replaces EE pose targets with joint targets via IK.
+
+    Training: replaces ``tgt_ee_pose_key`` with ``tgt_joints_key`` in the episode.
+    Inference: pass-through (robot driver handles IK at runtime).
+    Compose with AbsoluteJointsAction for inference decoding.
+    """
+
+    def __init__(
+        self,
+        solver_cls,
+        *,
+        tgt_ee_pose_key='robot_commands.pose',
+        current_q_key='robot_state.q',
+        tgt_joints_key='robot_commands.joints',
+    ):
+        self.solver_cls = solver_cls
+        self.tgt_ee_pose_key = tgt_ee_pose_key
+        self.current_q_key = current_q_key
+        self.tgt_joints_key = tgt_joints_key
+
+    def encode(self, data):
+        return data
+
+    def _decode_single(self, data: dict, context: dict | None) -> dict:
+        return data
+
+    def _derive_joints(self, episode: Episode):
+        return ik_joints_from_episode(episode, self.solver_cls, self.tgt_ee_pose_key, self.current_q_key)
+
+    @property
+    def training_encoder(self):
+        return Group(Derive(**{self.tgt_joints_key: self._derive_joints}), Identity(remove=[self.tgt_ee_pose_key]))
 
 
 class RelativePositionAction(Codec):
