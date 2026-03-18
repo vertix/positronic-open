@@ -202,6 +202,36 @@ class _BinaryStreamDrainer:
             self._buffer.clear()
 
 
+def _encode_frames_as_video(entity_path: str, sig) -> None:
+    """Encode raw image frames into an H.265 video stream via pyav."""
+    import av
+
+    codec = rr.VideoCodec.H265
+    container = av.open('/dev/null', 'w', format='hevc')
+
+    first_frame = np.asarray(sig[0][0])
+    h, w = first_frame.shape[:2]
+    stream = container.add_stream('libx265', rate=30)
+    assert isinstance(stream, av.video.stream.VideoStream)
+    stream.width = w
+    stream.height = h
+    stream.max_b_frames = 0
+
+    rr.log(entity_path, rr.VideoStream(codec=codec), static=True)
+
+    for val, ts in sig:
+        frame = av.VideoFrame.from_ndarray(np.asarray(val), format='rgb24')
+        for packet in stream.encode(frame):
+            if packet.pts is None:
+                continue
+            set_timeline_time('time', ts)
+            rr.log(entity_path, rr.VideoStream.from_fields(sample=bytes(packet)))
+
+    for packet in stream.encode():
+        if packet.pts is not None:
+            rr.log(entity_path, rr.VideoStream.from_fields(sample=bytes(packet)))
+
+
 def _log_video_signals(ep: Episode, signals: EpisodeSignals, drainer: _BinaryStreamDrainer) -> Iterator[bytes]:
     """Log video signals as AssetVideo + VideoFrameReference (columnar), or as individual images."""
     for name in signals.videos:
@@ -219,17 +249,7 @@ def _log_video_signals(ep: Episode, signals: EpisodeSignals, drainer: _BinaryStr
                 columns=rr.VideoFrameReference.columns_nanos(frame_pts_ns),
             )
         else:
-            timestamps = np.asarray(sig.keys(), dtype='datetime64[ns]')
-            frames = [np.asarray(val) for val, _ts in sig]
-            h, w = frames[0].shape[:2]
-            fmt = rr.components.ImageFormat(
-                width=w, height=h, color_model=rr.ColorModel.RGB, channel_datatype=rr.ChannelDatatype.U8
-            )
-            rr.send_columns(
-                name,
-                indexes=[rr.TimeColumn('time', timestamp=timestamps)],
-                columns=rr.Image.columns(buffer=[f.tobytes() for f in frames], format=[fmt] * len(frames)),
-            )
+            _encode_frames_as_video(name, sig)
         yield from drainer.drain()
 
 
