@@ -94,7 +94,11 @@ class InferenceClient:
                         Model loading timeout is controlled by per-message timeout in handshake.
         """
         uri = self.base_uri if model_id is None else f'{self.base_uri}/{model_id}'
-        return InferenceSession(connect(uri, open_timeout=open_timeout))
+        try:
+            ws = connect(uri, open_timeout=open_timeout)
+        except OSError as e:
+            raise type(e)(f'{e} (connecting to {self.host}:{self.port})') from e
+        return InferenceSession(ws)
 
     def list_models(self) -> list[str]:
         """List available models from the server."""
