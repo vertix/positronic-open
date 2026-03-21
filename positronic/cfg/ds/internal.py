@@ -32,9 +32,27 @@ SIM_URDF = Path(package_assets_path('assets/mujoco/panda_ik.xml')).read_text()
 REAL_URDF = (Path(__file__).resolve().parents[2] / 'drivers' / 'roboarm' / 'fr3.urdf').read_text()
 
 _JOINT_NAMES = [f'joint{i}' for i in range(1, 8)]
+_MESH_DIR = Path(package_assets_path('assets/fr3_collision'))
 
-_SIM_ROBOT_META = {'urdf': SIM_URDF, 'joint_names': _JOINT_NAMES, 'control_frame': 'end_effector'}
-_REAL_ROBOT_META = {'urdf': REAL_URDF, 'joint_names': _JOINT_NAMES, 'control_frame': 'end_effector'}
+_REMOVE_SIGNALS = ['controller_positions.right']
+_REAL_ROBOT_DERIVES = {
+    'urdf': FromValue(REAL_URDF),
+    'joint_names': FromValue(_JOINT_NAMES),
+    'meshes': FromValue({f.name: f.read_bytes() for f in _MESH_DIR.iterdir() if f.suffix == '.stl'}),
+    'control_frame': FromValue('end_effector'),
+    'joint_signal': FromValue('robot_state.q'),
+    'pose_signals': FromValue(['robot_state.ee_pose', 'robot_commands.pose']),
+}
+_SIM_ROBOT_DERIVES = {
+    'urdf': FromValue(SIM_URDF),
+    'joint_names': FromValue(_JOINT_NAMES),
+    'control_frame': FromValue('end_effector'),
+    'joint_signal': FromValue('robot_state.q'),
+    'pose_signals': FromValue(['robot_state.ee_pose', 'robot_commands.pose']),
+}
+
+REAL_ROBOT_TRANSFORM = Group(Derive(**_REAL_ROBOT_DERIVES), Identity(remove=_REMOVE_SIGNALS))
+SIM_ROBOT_TRANSFORM = Group(Derive(**_SIM_ROBOT_DERIVES), Identity(remove=_REMOVE_SIGNALS))
 
 # Task constants
 TOWELS_TASK = 'Pick all the towels one by one from transparent tote and place them into the large grey tote.'
@@ -88,19 +106,15 @@ def droid(path, recovery_all, recovery_towels, duplicate_recovery):
                 datasets.append(TransformedDataset(recovery_ds, _recovery_transforms(task)))
         else:
             datasets.append(TransformedDataset(recovery_ds, _recovery_transforms(RECOVERY_TASK)))
-    return TransformedDataset(
-        ConcatDataset(*datasets), Group(Derive(**{k: FromValue(v) for k, v in _REAL_ROBOT_META.items()}), Identity())
-    )
+    return TransformedDataset(ConcatDataset(*datasets), REAL_ROBOT_TRANSFORM)
 
 
 # Signal transformations for sim datasets
 old_to_new = Group(
     Derive(**{
-        'controller_positions.right': Concat('right_controller_translation', 'right_controller_quaternion'),
         'robot_commands.pose': Concat('target_robot_position_translation', 'target_robot_position_quaternion'),
         'robot_state.ee_pose': Concat('robot_position_translation', 'robot_position_quaternion'),
         'task': FromValue('Pick up the green cube and place it on the red cube.'),
-        **{k: FromValue(v) for k, v in _SIM_ROBOT_META.items()},
     }),
     Rename(**{
         'robot_state.q': 'robot_joints',
@@ -111,19 +125,19 @@ old_to_new = Group(
     Identity(select=['grip', 'target_grip', 'mjSTATE_FULLPHYSICS', 'mjSTATE_INTEGRATION', 'mjSTATE_WARMSTART']),
 )
 
-sim_stack = transform.override(base=local.override(path='s3://raw/sim-cubes/luzan/'), transforms=[old_to_new])
+sim_stack = transform.override(
+    base=local.override(path='s3://raw/sim-cubes/luzan/'), transforms=[old_to_new, SIM_ROBOT_TRANSFORM]
+)
 
 sim_pnp = transform.override(
     base=local.override(path='s3://raw/sim_pnp/'),
     transforms=[
         Group(
-            Derive(
-                task=FromValue('Pick up objects from the red tote and place them in the green tote.'),
-                **{k: FromValue(v) for k, v in _SIM_ROBOT_META.items()},
-            ),
+            Derive(task=FromValue('Pick up objects from the red tote and place them in the green tote.')),
             Rename(**{'image.exterior': 'image.back_view'}),
             Identity(),
-        )
+        ),
+        SIM_ROBOT_TRANSFORM,
     ],
 )
 

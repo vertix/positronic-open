@@ -2,6 +2,7 @@ import logging
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -87,16 +88,32 @@ def _revolute_joint_names(urdf_xml):
     return [j.get('name') for j in root.findall('joint') if j.get('type') == 'revolute']
 
 
+_MESH_DIR = Path(__file__).resolve().parent.parent.parent / 'assets/fr3_collision'
+
+
 class Robot(pimm.ControlSystem):
     @property
     def robot_meta(self) -> dict:
-        """Robot model metadata for IK and dataset storage.
+        """Robot model metadata for IK, dataset storage, and 3D visualization.
 
-        Returns URDF with F_T_EE baked in (appended by positronic-franka),
-        joint names, and control frame — everything needed to run IK offline.
+        Returns URDF with visual meshes baked in, joint names, control frame,
+        and mesh bytes — everything needed to run IK and render the robot
+        offline without any package dependencies.
         """
-        urdf = self._ensure_robot().get_robot_model()
-        return {'urdf': urdf, 'joint_names': _revolute_joint_names(urdf), 'control_frame': 'end_effector'}
+        urdf_xml = self._ensure_robot().get_robot_model()
+        meshes = {f.name: f.read_bytes() for f in _MESH_DIR.iterdir() if f.suffix == '.stl'}
+        # Inject <visual> elements for links that have matching mesh files
+        root = ET.fromstring(urdf_xml)
+        for link in root.findall('link'):
+            stl = link.get('name', '') + '.stl'
+            if stl in meshes and link.find('visual') is None:
+                ET.SubElement(ET.SubElement(link, 'visual'), 'geometry').append(ET.Element('mesh', filename=stl))
+        return {
+            'urdf': ET.tostring(root, encoding='unicode'),
+            'joint_names': _revolute_joint_names(urdf_xml),
+            'meshes': meshes,
+            'control_frame': 'end_effector',
+        }
 
     def __init__(
         self,
