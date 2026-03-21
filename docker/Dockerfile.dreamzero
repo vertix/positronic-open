@@ -7,6 +7,39 @@ WORKDIR /positronic
 # Copy the positronic repository
 COPY . /positronic
 
+# Patch DreamZero training to log encoder/decoder weight norms to wandb.
+# We override BaseTrainer.log() to inject norms into the logs dict before
+# it reaches WandbCallback. This is the same place where grad_norm is reported.
+RUN <<'PATCH_EOF' python3
+target = '/dreamzero/groot/vla/experiment/base.py'
+code = open(target).read()
+
+# Add a log() override to BaseTrainer that injects encoder/decoder norms.
+# Insert it right after the training_step method.
+log_override = '''
+    def log(self, logs, *args, **kwargs):
+        """Override to inject encoder/decoder weight norms alongside grad_norm."""
+        import torch as _torch
+        model = self.model
+        for name, param in model.named_parameters():
+            for key in ["state_encoder", "action_encoder", "action_decoder"]:
+                if key in name and name.endswith(".W"):
+                    short = name.split("model.")[-1].replace(".", "/")
+                    logs[f"norms/{short}"] = param.float().norm().item()
+        return super().log(logs, *args, **kwargs)
+
+'''
+
+# Insert before compute_loss
+code = code.replace(
+    '    def compute_loss(self, model, inputs',
+    log_override + '    def compute_loss(self, model, inputs',
+    1
+)
+open(target, 'w').write(code)
+print('Patched BaseTrainer.log() with encoder/decoder norm monitoring')
+PATCH_EOF
+
 # Set Python path to include source root and dreamzero
 ENV PYTHONPATH=/positronic:/dreamzero
 

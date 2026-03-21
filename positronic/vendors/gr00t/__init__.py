@@ -7,4 +7,6 @@ MODALITY_CONFIGS = {
     'ee_rot6d_rel': 'gr00t/configs/data/positronic_ee_rot6d_rel.py',
     'ee_rot6d_q': 'gr00t/configs/data/positronic_ee_rot6d_joints.py',
     'ee_rot6d_q_rel': 'gr00t/configs/data/positronic_ee_rot6d_joints_rel.py',
+    # Joint-space action config (for IK-derived targets)
+    'joints': 'gr00t/configs/data/positronic_joints.py',
 }
