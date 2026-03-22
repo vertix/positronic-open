@@ -1,4 +1,4 @@
-# Base image for DreamZero inference.
+# Base image for DreamZero inference and training.
 # Produces: positro/dreamzero-base:latest
 #
 # Build (from repo root):
@@ -24,11 +24,7 @@ RUN uv python install 3.11 && uv venv /.venv --python 3.11
 ENV VIRTUAL_ENV=/.venv
 ENV PATH="/.venv/bin:$PATH"
 
-# Clone DreamZero at pinned commit
-ARG DREAMZERO_SHA=a0490c701f4e4424dd198fa8df71ba63e6ae383d
-RUN git clone https://github.com/dreamzero0/dreamzero.git /dreamzero && \
-    cd /dreamzero && git checkout ${DREAMZERO_SHA}
-
+# Heavy compilation layers — placed before git clone so they stay cached across SHA updates.
 # Install PyTorch 2.8 with CUDA 12.9 first (dreamzero depends on it)
 RUN uv pip install \
     torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 \
@@ -38,6 +34,11 @@ RUN uv pip install \
 RUN uv pip install packaging wheel
 RUN uv pip install flash-attn --no-build-isolation
 RUN uv pip install "transformer-engine[pytorch]" --no-build-isolation
+
+# Clone DreamZero at pinned commit
+ARG DREAMZERO_SHA=d70a8025ac77f7486f38032c718a1ca814a4d8c7
+RUN git clone https://github.com/dreamzero0/dreamzero.git /dreamzero && \
+    cd /dreamzero && git checkout ${DREAMZERO_SHA}
 
 # Install DreamZero and all its dependencies
 RUN cd /dreamzero && uv pip install -e .
@@ -53,26 +54,6 @@ RUN cd /dreamzero && uv pip install -e .
 # fused_attn_bwd. It controls causal mask alignment and sits between the `window_size` and
 # `cu_seqlens_q` args (fwd) / between `window_size` and `deterministic` (bwd). Without this
 # arg the C++ binding raises TypeError because tensors land in a bool slot.
-#
-# The error looked like:
-#   TypeError: fused_attn_fwd(): incompatible function arguments.
-#   Expected arg11: bool, got tensor([0, 880]).
-#
-# We confirmed the fix by:
-#   1. Printing `tex.fused_attn_fwd.__doc__` inside the container to see the 30-arg signature
-#   2. Comparing with DreamZero's 29-arg tuple (missing the new bool at position 11)
-#   3. Checking TE's Python wrapper (`fused_attn.py`) which names it `bottom_right_diagonal`
-#      and defaults it to False for non-causal masks (DreamZero uses `no_mask`)
-#
-# Other options considered:
-#   - Pinning TE to 2.10: would work but means missing future fixes/performance improvements,
-#     and TE compilation from source is slow (~10 min). The version guard approach is what
-#     DreamZero already uses for TE 2.8/2.9/2.10, so adding 2.12 follows the existing pattern.
-#   - Forking DreamZero: unnecessary — this is the only patch, and it's a 2-line version guard
-#     addition that follows the existing pattern in the file. Applied via string replace at
-#     Docker build time, no fork to maintain.
-#   - Disabling fused attention: DreamZero's code calls tex.fused_attn_fwd directly with no
-#     fallback path, so there's no env var or config to bypass it.
 #
 # The patch inserts `if _TE_VER >= (2, 12): args += (False,)` in both the fwd and bwd
 # functions, matching the existing version guard style (see _TE_VER >= (2, 9) etc.).
