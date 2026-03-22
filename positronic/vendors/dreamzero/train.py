@@ -237,19 +237,7 @@ _ALL_PRESETS = {
     # Legacy
     'h100x1': h100x1,
     'h100x8': h100x8,
-    'h200x1': h200x1,
 }
-
-# h200x1: Same constraints as h100x1 (ZeRO-2 on 1 GPU can't shard optimizer state), but
-# 141GB HBM3e allows batch_size=2. We halve gradient_accumulation_steps to keep the same
-# effective batch size of 8.
-h200x1 = main.override(
-    num_gpus=1,
-    batch_size=2,
-    gradient_accumulation_steps=4,
-    deepspeed='groot/vla/configs/deepspeed/zero2.json',
-    extra_args=['+training_args.save_only_model=true'],
-)
 
 
 if __name__ == '__main__':
