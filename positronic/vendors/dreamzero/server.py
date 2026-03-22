@@ -99,16 +99,22 @@ class RoboarenaClient:
 
 
 class DreamZeroSubprocess:
+    # wan2.1 (14B): socket_test_optimized_AR.py — uses --enable-dit-cache
+    # wan2.2 (5B):  eval_utils/serve_dreamzero_wan22.py — causal chunked inference
+    _BACKBONE_SCRIPTS = {'wan2.1': 'socket_test_optimized_AR.py', 'wan2.2': 'eval_utils/serve_dreamzero_wan22.py'}
+
     def __init__(
         self,
         model_path: str,
         dreamzero_venv: Path,
+        backbone: str = 'wan2.1',
         num_gpus: int = 1,
         roboarena_port: int = 9000,
         enable_dit_cache: bool = True,
     ):
         self.model_path = model_path
         self.dreamzero_venv = dreamzero_venv
+        self.backbone = backbone
         self.num_gpus = num_gpus
         self.roboarena_port = roboarena_port
         self.enable_dit_cache = enable_dit_cache
@@ -117,16 +123,17 @@ class DreamZeroSubprocess:
     def _build_command(self) -> list[str]:
         root = _dreamzero_root()
         torchrun = str(self.dreamzero_venv / 'bin' / 'torchrun')
+        script = self._BACKBONE_SCRIPTS.get(self.backbone, self._BACKBONE_SCRIPTS['wan2.1'])
         command = [
             torchrun,
             f'--nproc_per_node={self.num_gpus}',
-            str(root / 'socket_test_optimized_AR.py'),
+            str(root / script),
             '--port',
             str(self.roboarena_port),
             '--model-path',
             self.model_path,
         ]
-        if self.enable_dit_cache:
+        if self.backbone == 'wan2.1' and self.enable_dit_cache:
             command.append('--enable-dit-cache')
         return command
 
@@ -191,6 +198,7 @@ class InferenceServer(VendorServer):
         codec: Codec | None,
         model_path: str,
         dreamzero_venv: str = '/.venv/',
+        backbone: str = 'wan2.1',
         num_gpus: int = 1,
         host: str = '0.0.0.0',
         port: int = 8000,
@@ -201,6 +209,7 @@ class InferenceServer(VendorServer):
         super().__init__(codec=codec, host=host, port=port, recording_dir=recording_dir)
         self.model_path = model_path
         self.dreamzero_venv = Path(dreamzero_venv)
+        self.backbone = backbone
         self.num_gpus = num_gpus
         self.roboarena_port = roboarena_port
         self.enable_dit_cache = enable_dit_cache
@@ -211,6 +220,7 @@ class InferenceServer(VendorServer):
             'host': host,
             'port': port,
             'type': 'dreamzero',
+            'backbone': backbone,
             'model_path': model_path,
             'num_gpus': num_gpus,
         }
@@ -234,6 +244,7 @@ class InferenceServer(VendorServer):
             sp = DreamZeroSubprocess(
                 model_path=str(download_task.result()),
                 dreamzero_venv=self.dreamzero_venv,
+                backbone=self.backbone,
                 num_gpus=self.num_gpus,
                 roboarena_port=self.roboarena_port,
                 enable_dit_cache=self.enable_dit_cache,
@@ -259,6 +270,7 @@ class InferenceServer(VendorServer):
     codec=codecs.joints,
     model_path=DEFAULT_HF_REPO,
     dreamzero_venv='/.venv/',
+    backbone='wan2.1',
     num_gpus=1,
     port=8000,
     enable_dit_cache=True,
@@ -268,6 +280,7 @@ def server(
     codec: Codec | None,
     model_path: str,
     dreamzero_venv: str,
+    backbone: str,
     num_gpus: int,
     port: int,
     enable_dit_cache: bool,
@@ -279,6 +292,7 @@ def server(
             codec=codec,
             model_path=model_path,
             dreamzero_venv=dreamzero_venv,
+            backbone=backbone,
             num_gpus=num_gpus,
             port=port,
             enable_dit_cache=enable_dit_cache,
