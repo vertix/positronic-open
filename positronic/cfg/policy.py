@@ -85,7 +85,7 @@ def weighted_remote(
     horizon_sec: float | None,
     codec: Codec | None = None,
 ):
-    if host is None:
+    if not host:
         return None
 
     from positronic.policy.remote import RemotePolicy
@@ -95,8 +95,22 @@ def weighted_remote(
     return (codec.wrap(policy) if codec else policy), weight
 
 
-@cfn.config(groot=weighted_remote, openpi=weighted_remote, act=weighted_remote, smolvla=weighted_remote, extra=None)
-def production(groot, openpi, act, smolvla, extra):
+@cfn.config(balance=5, group_fields=None)
+def balanced(balance: int, group_fields: list[str] | None):
+    from positronic.policy.sampler import BalancedSampler
+
+    return BalancedSampler(balance=balance, group_fields=group_fields)
+
+
+@cfn.config(
+    groot=weighted_remote,
+    openpi=weighted_remote,
+    act=weighted_remote,
+    smolvla=weighted_remote,
+    extra=None,
+    sampler=None,
+)
+def production(groot, openpi, act, smolvla, extra, sampler):
     from positronic.policy import SampledPolicy
 
     entries = [e for e in [groot, openpi, act, smolvla] if e is not None]
@@ -105,7 +119,7 @@ def production(groot, openpi, act, smolvla, extra):
     if not entries:
         raise ValueError('At least one vendor policy must be enabled')
     policies, weights = zip(*entries, strict=False)
-    return SampledPolicy(*policies, weights=weights)
+    return SampledPolicy(*policies, weights=weights, sampler=sampler)
 
 
 @cfn.config()
@@ -128,4 +142,6 @@ phail_multiple = production.override(**{
     'groot.port': 8000,
     'openpi.host': 'vm-openpi',
     'openpi.port': 8000,
+    'sampler': balanced,
+    'sampler.group_fields': ['eval.object'],
 })

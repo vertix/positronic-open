@@ -1,3 +1,4 @@
+import logging
 import time
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
@@ -14,17 +15,21 @@ import positronic.cfg.hardware.roboarm
 import positronic.cfg.policy as policy_cfg
 import positronic.cfg.simulator
 from positronic import utils, wire
-from positronic.dataset.ds_writer_agent import TimeMode
-from positronic.dataset.local_dataset import LocalDatasetWriter
+from positronic.dataset.ds_writer_agent import DsWriterCommandType, TimeMode
+from positronic.dataset.local_dataset import LocalDatasetWriter, load_all_datasets
 from positronic.gui.dpg import DearpyguiUi
 from positronic.gui.eval import EvalUI
 from positronic.gui.keyboard import KeyboardControl
+from positronic.policy.base import SampledPolicy
 from positronic.policy.harness import Directive, Harness
+from positronic.policy.sampler import BalancedSampler
 from positronic.simulator.mujoco.observers import BodyDistance, StackingSuccess
 from positronic.simulator.mujoco.sim import MujocoCameras, MujocoFranka, MujocoGripper, MujocoSim
 from positronic.simulator.mujoco.transforms import MujocoSceneTransform
 from positronic.utils import package_assets_path
 from positronic.utils.logging import init_logging
+
+logger = logging.getLogger(__name__)
 
 
 class KeyboardHandler:
@@ -87,6 +92,37 @@ def timed(num_iterations, simulation_time, show_gui, task):
     return gui, (driver.directives, pimm.utils.identity), [driver]
 
 
+def _seed_sampler(policy, output_dir: Path):
+    """If policy has a BalancedSampler, seed it from existing episodes in output_dir."""
+    if not isinstance(policy, SampledPolicy) or not isinstance(policy.sampler, BalancedSampler):
+        return
+    dataset = load_all_datasets(output_dir)
+    if len(dataset) == 0:
+        return
+    meta_key = f'inference.policy.{policy._key_field}'
+    group_fields = policy.sampler.group_fields or ()
+    for i in range(len(dataset)):
+        static = dataset[i].static
+        key = static.get(meta_key)
+        if key is not None:
+            policy.sampler.count(key, {f: static.get(f) for f in group_fields})
+    logger.info(f'Seeded sampler from {len(dataset)} existing episodes')
+
+
+def _connect_ds_command(world, harness, ds_agent, policy):
+    """Connect harness.ds_command to ds_agent, with optional sampler tap."""
+    if ds_agent is None:
+        return
+
+    def _tap(cmd):
+        if cmd.type is DsWriterCommandType.STOP_EPISODE:
+            policy.count_current()
+        return cmd
+
+    wrapper = pimm.map(_tap) if isinstance(policy, SampledPolicy) else pimm.utils.identity
+    world.connect(harness.ds_command, ds_agent.command, emitter_wrapper=wrapper)
+
+
 def main(
     robot_arm: pimm.ControlSystem,
     gripper: pimm.ControlSystem,
@@ -105,13 +141,13 @@ def main(
     if output_dir is not None:
         output_dir = pos3.sync(output_dir, sync_on_error=True)
         utils.save_run_metadata(output_dir, patterns=['*.py', '*.toml'])
+        _seed_sampler(policy, output_dir)
 
     writer_cm = LocalDatasetWriter(output_dir) if output_dir is not None else nullcontext(None)
     with writer_cm as dataset_writer, pimm.World() as world:
         ds_agent = wire.wire(world, harness, dataset_writer, camera_emitters, robot_arm, gripper, gui, TimeMode.CLOCK)
         world.connect(harness_emitter[0], harness.directive, emitter_wrapper=harness_emitter[1])
-        if ds_agent is not None:
-            world.connect(harness.ds_command, ds_agent.command)
+        _connect_ds_command(world, harness, ds_agent, policy)
 
         bg_cs = [*camera_instances.values(), robot_arm, gripper, ds_agent, gui]
         main_cs = [harness, *foreground_cs]
@@ -146,6 +182,7 @@ def main_sim(
     if output_dir is not None:
         output_dir = pos3.sync(output_dir, sync_on_error=True)
         utils.save_run_metadata(output_dir, patterns=['*.py', '*.toml'])
+        _seed_sampler(policy, output_dir)
 
     writer_cm = LocalDatasetWriter(output_dir) if output_dir is not None else nullcontext(None)
     with writer_cm as dataset_writer, pimm.World(clock=sim) as world:
@@ -154,7 +191,7 @@ def main_sim(
             for observer_name in observers.keys():
                 ds_agent.add_signal(observer_name)
                 world.connect(sim.observations[observer_name], ds_agent.inputs[observer_name])
-            world.connect(harness.ds_command, ds_agent.command)
+        _connect_ds_command(world, harness, ds_agent, policy)
         world.connect(harness_emitter[0], harness.directive, emitter_wrapper=harness_emitter[1])
 
         for _ in world.start([*foreground_cs, *control_systems, ds_agent], gui):
