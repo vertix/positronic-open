@@ -143,5 +143,5 @@ phail_multiple = production.override(**{
     'openpi.host': 'vm-openpi',
     'openpi.port': 8000,
     'sampler': balanced,
-    'sampler.group_fields': ['eval.object'],
+    'sampler.group_fields': ['task', 'eval.object', 'eval.tote_placement', 'eval.external_camera'],
 })

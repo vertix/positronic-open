@@ -96,7 +96,10 @@ def _seed_sampler(policy, output_dir: Path):
     """If policy has a BalancedSampler, seed it from existing episodes in output_dir."""
     if not isinstance(policy, SampledPolicy) or not isinstance(policy.sampler, BalancedSampler):
         return
-    dataset = load_all_datasets(output_dir)
+    try:
+        dataset = load_all_datasets(output_dir)
+    except ValueError:
+        return
     if len(dataset) == 0:
         return
     meta_key = f'inference.policy.{policy._key_field}'
