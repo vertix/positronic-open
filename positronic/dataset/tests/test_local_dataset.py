@@ -204,21 +204,21 @@ def test_load_all_datasets_from_root_itself(tmp_path):
     assert episode_ids(result[:]) == [0, 1, 2]
 
 
-def test_load_all_datasets_root_is_dataset_stops_exploration(tmp_path):
-    """Test that if root is a valid dataset, subdirectories are not explored."""
+def test_load_all_datasets_root_is_dataset_with_subdatasets(tmp_path):
+    """Test that if root is a valid dataset, subdirectories are still explored."""
     root = tmp_path / 'datasets'
 
     # Root itself is a dataset
     build_dataset_with_signal(root, [0, 1])
-    # Root also has subdirectories with datasets (but they should be ignored)
+    # Root also has subdirectories with datasets
     build_dataset_with_signal(root / 'ds1', [2, 3])
     build_dataset_with_signal(root / 'ds2', [4, 5])
 
     result = load_all_datasets(root)
 
-    # Should only load the root dataset, not the subdirectories
-    assert len(result) == 2
-    assert episode_ids(result[:]) == [0, 1]
+    # Should load all datasets: root + ds1 + ds2
+    assert len(result) == 6
+    assert episode_ids(result[:]) == [0, 1, 2, 3, 4, 5]
 
 
 def test_load_all_datasets_single_dataset(tmp_path):
@@ -317,9 +317,9 @@ def test_load_all_datasets_deep_nesting(tmp_path):
     (root / 'a').mkdir()
     build_dataset_with_signal(root / 'a' / 'dataset1', [0, 1])
 
-    # Level 1: is a dataset (should not explore its children)
+    # Level 1: is a dataset and also has a subdataset
     build_dataset_with_signal(root / 'b', [2, 3])
-    build_dataset_with_signal(root / 'b' / 'ignored', [99])  # Should be ignored
+    build_dataset_with_signal(root / 'b' / 'nested', [99])
 
     # Level 1: not a dataset, has deeper nesting
     (root / 'c').mkdir()
@@ -328,14 +328,10 @@ def test_load_all_datasets_deep_nesting(tmp_path):
 
     result = load_all_datasets(root)
 
-    # Should find datasets in BFS order: b (stops), a/dataset1, c/level2/dataset2
-    # b's children should be ignored because b is a valid dataset
-    assert len(result) == 6
+    # Should find all datasets: a/dataset1, b, b/nested, c/level2/dataset2
+    assert len(result) == 7
     ids = episode_ids(result[:])
-    # b should be first (alphabetically at same level), then a/dataset1, then c/level2/dataset2
-    assert ids == [2, 3, 0, 1, 4, 5]
-    # Verify that b/ignored (with ID 99) was NOT loaded
-    assert 99 not in ids
+    assert sorted(ids) == [0, 1, 2, 3, 4, 5, 99]
 
 
 def test_load_all_datasets_alphabetical_order(tmp_path):
