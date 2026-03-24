@@ -1,5 +1,6 @@
 import logging
 import time
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from pathlib import Path
@@ -250,7 +251,21 @@ def _internal_main():
             observers={},
             **{'driver.task': 'Pick up objects from the red tote and place them in the green tote.'},
         ),
+        'stats': stats,
     })
+
+
+@cfn.config(fields=['eval.object', 'eval.external_camera', 'eval.tote_placement'])
+def stats(output_dir: str, fields: list[str]):
+    dataset = load_all_datasets(pos3.sync(output_dir))
+    counts = Counter()
+    for i in range(len(dataset)):
+        static = dataset[i].static
+        counts[tuple(static.get(f, 'N/A') for f in fields)] += 1
+
+    print('\t'.join(fields + ['count']))
+    for key, count in counts.most_common():
+        print('\t'.join([*key, str(count)]))
 
 
 if __name__ == '__main__':
