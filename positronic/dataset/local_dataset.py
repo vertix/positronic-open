@@ -579,11 +579,11 @@ def load_all_datasets(root: Path) -> Dataset:
             dataset = LocalDataset(current_path)
             if len(dataset) > 0:
                 datasets.append(dataset)
-                continue
         except (FileNotFoundError, ValueError):
             pass
 
-        subdirs = sorted([p for p in current_path.iterdir() if p.is_dir()])
+        # Always explore non-numeric subdirs (numeric ones are dataset block internals)
+        subdirs = sorted(p for p in current_path.iterdir() if p.is_dir() and not _is_numeric_dir(p))
         to_explore.extend(subdirs)
 
     if len(datasets) == 0:

@@ -250,7 +250,7 @@ class EvalUI(pimm.ControlSystem):
                 dpg.add_radio_button(
                     items=['left', 'right', 'NA'], default_value='NA', horizontal=True, tag='tote_radio'
                 ),
-                [State.WAITING, State.RUNNING, State.REVIEWING],
+                [State.WAITING],
             )
             dpg.add_spacer(width=self.size(20))
             dpg.add_text('External Camera')
@@ -258,7 +258,7 @@ class EvalUI(pimm.ControlSystem):
                 dpg.add_radio_button(
                     items=['left', 'right', 'NA'], default_value='NA', horizontal=True, tag='camera_radio'
                 ),
-                [State.WAITING, State.RUNNING, State.REVIEWING],
+                [State.WAITING],
             )
 
         dpg.add_spacer(height=self.size(30))
@@ -365,6 +365,13 @@ class EvalUI(pimm.ControlSystem):
                 obj_value = dpg.get_value('object_custom_input')
             context['eval.object'] = obj_value
 
+        tote_val = dpg.get_value('tote_radio')
+        if tote_val != 'NA':
+            context['eval.tote_placement'] = tote_val
+        camera_val = dpg.get_value('camera_radio')
+        if camera_val != 'NA':
+            context['eval.external_camera'] = camera_val
+
         self.run_start_time = self.clock.now()
         self.directive.emit(Directive.RUN(**context))
 
@@ -412,15 +419,6 @@ class EvalUI(pimm.ControlSystem):
             'eval.duration': self.run_duration,
             'eval.cap_per_item': self.cap_per_item,
         }
-
-        # Add conditional fields
-        tote_val = dpg.get_value('tote_radio')
-        if tote_val != 'NA':
-            data['eval.tote_placement'] = tote_val
-
-        camera_val = dpg.get_value('camera_radio')
-        if camera_val != 'NA':
-            data['eval.external_camera'] = camera_val
 
         print(json.dumps(data, indent=2))
 

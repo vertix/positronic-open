@@ -1,6 +1,7 @@
-import random
 from abc import ABC, abstractmethod
 from typing import Any
+
+from positronic.policy.sampler import Sampler, UniformSampler
 
 
 class Policy(ABC):
@@ -42,26 +43,49 @@ class Policy(ABC):
 
 
 class SampledPolicy(Policy):
-    """Randomly selects a policy from a list on each reset."""
+    """Selects a sub-policy on each reset using a pluggable sampling strategy."""
 
-    def __init__(self, *policies: Policy, weights: list[float] | None = None):
+    def __init__(
+        self,
+        *policies: Policy,
+        sampler: Sampler | None = None,
+        weights: list[float] | None = None,
+        key_field: str = 'server.checkpoint_path',
+    ):
         self._policies = policies
+        self._sampler = sampler
         self._weights = weights
-        self._current_policy = self._select_policy()
+        self._key_field = key_field
+        self._keys: tuple[str, ...] | None = None
+        self._current_key: str | None = None
+        self._current_policy = policies[0]
 
-    def _select_policy(self) -> Policy:
-        index = random.choices(range(len(self._policies)), self._weights)[0]
-        return self._policies[index]
+    @property
+    def sampler(self) -> Sampler | None:
+        if self._sampler is None and self._keys is not None:
+            weight_map = dict(zip(self._keys, self._weights, strict=True)) if self._weights else None
+            self._sampler = UniformSampler(weight_map)
+        return self._sampler
+
+    def _get_keys(self) -> tuple[str, ...]:
+        if self._keys is None:
+            self._keys = tuple(p.meta.get(self._key_field, str(i)) for i, p in enumerate(self._policies))
+        return self._keys
 
     def select_action(self, obs: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
         return self._current_policy.select_action(obs)
 
     def reset(self, context=None):
-        """Resets the policy and selects a new active sub-policy."""
-        self._current_policy = self._select_policy()
+        keys = self._get_keys()
+        self._current_context = context or {}
+        self._current_key = self.sampler.sample(keys, self._current_context)
+        self._current_policy = self._policies[keys.index(self._current_key)]
         self._current_policy.reset(context)
+
+    def count_current(self):
+        if self._current_key and self._sampler:
+            self._sampler.count(self._current_key, self._current_context)
 
     @property
     def meta(self) -> dict[str, Any]:
-        """Returns the metadata of the currently active sub-policy."""
         return self._current_policy.meta
