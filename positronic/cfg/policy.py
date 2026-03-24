@@ -95,7 +95,7 @@ def weighted_remote(
     return (codec.wrap(policy) if codec else policy), weight
 
 
-@cfn.config(balance=5, group_fields=None)
+@cfn.config(balance=2, group_fields=None)
 def balanced(balance: int, group_fields: list[str] | None):
     from positronic.policy.sampler import BalancedSampler
 
