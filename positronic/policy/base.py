@@ -63,7 +63,7 @@ class SampledPolicy(Policy):
     @property
     def sampler(self) -> Sampler | None:
         if self._sampler is None and self._keys is not None:
-            weight_map = dict(zip(self._keys, self._weights, strict=False)) if self._weights else None
+            weight_map = dict(zip(self._keys, self._weights, strict=True)) if self._weights else None
             self._sampler = UniformSampler(weight_map)
         return self._sampler
 
