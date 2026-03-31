@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime
 from functools import partial
 
@@ -594,7 +595,7 @@ def phail_uph(ep: Episode) -> float | None:
     items = ep.get('eval.successful_items', 0)
     if not items:
         return None
-    duration = ep.get('eval.duration', 0)
+    duration = ep.get('eval.duration') or ep.duration_ns / 1e9
     if not duration:
         return None
     return items / (duration / 3600)
@@ -716,6 +717,83 @@ phail_teleop = base_cfg.transform.override(
 phail_episodes = base_cfg.concat_ds.override(datasets=[phail_inference, phail_human, phail_teleop])
 
 
+# =========================================================================================
+# Release configs: source-of-truth fields + robot metadata only.
+# Display fields (model display name, UPH, completion, started) are server-side transforms.
+# =========================================================================================
+
+
+def _raw_model(ep: Episode) -> str:
+    return ep.get('inference.policy.server.type', '')
+
+
+phail_inference_release = base_cfg.transform.override(
+    base=base_cfg.local_all.override(path='s3://inference/phail_final/'),
+    transforms=[
+        Group(
+            Identity(
+                remove=[
+                    'robot_commands.reset',
+                    'inference.policy.port',
+                    'inference.policy.host',
+                    'inference.policy.type',
+                ]
+            ),
+            Derive(model=_raw_model, variant=phail_variant),
+        ),
+        internal.REAL_ROBOT_TRANSFORM,
+    ],
+)
+
+PROD_VARIANTS = {'groot': '270226-ee_rot6d_rel:150000'}
+
+
+def _prod_predicate(ep):
+    model = ep.get('model', '')
+    if model not in PROD_VARIANTS:
+        return True
+    return ep.get('variant', '') == PROD_VARIANTS[model]
+
+
+phail_inference_prod = base_cfg.filter_ds.override(dataset=phail_inference_release, predicate=_prod_predicate)
+
+phail_teleop_release = base_cfg.transform.override(
+    base=_teleop_with_items,
+    transforms=[
+        Group(
+            Identity(),
+            Derive(**{
+                'model': FromValue('teleop'),
+                'variant': FromValue(''),
+                'eval.object': task_code,
+                'eval.outcome': FromValue('Success'),
+                'eval.successful_items': lambda ep: ep['item_count'],
+                'eval.total_items': lambda ep: ep['item_count'],
+            }),
+        ),
+        internal.REAL_ROBOT_TRANSFORM,
+    ],
+)
+
+phail_human_release = base_cfg.transform.override(
+    base=base_cfg.local_all.override(path='s3://raw/human'),
+    transforms=[
+        Group(
+            Identity(),
+            Derive(**{
+                'model': FromValue('human'),
+                'variant': FromValue(''),
+                'eval.object': task_code,
+                'eval.outcome': FromValue('Success'),
+                'eval.successful_items': FromValue(8),
+                'eval.total_items': FromValue(8),
+            }),
+        ),
+        internal.REAL_ROBOT_TRANSFORM,
+    ],
+)
+
+
 @cfn.config()
 def phail_episodes_table():
     return {
@@ -736,17 +814,30 @@ def phail_leaderboard():
     def group_fn(episodes: list[Episode]):
         count = len(episodes)
         total_duration = sum(_effective_duration('eval.duration', ep) for ep in episodes)
-        total_items = sum(ep.get('eval.successful_items', 0) for ep in episodes)
         failed_count = sum(1 for ep in episodes if ep['status'] != 'Pass')
-        total_possible = sum(ep.get('eval.total_items', 0) for ep in episodes)
-        completion = 100 * total_items / total_possible if total_possible > 0 else 0
+
+        # Per-object aggregation: compute UPH and completion per object type, then average equally.
+        by_object: dict[str, list[Episode]] = defaultdict(list)
+        for ep in episodes:
+            by_object[ep['eval.object']].append(ep)
+
+        object_uphs = []
+        object_completions = []
+        for obj_eps in by_object.values():
+            obj_duration = sum(_effective_duration('eval.duration', ep) for ep in obj_eps)
+            obj_items = sum(ep['eval.successful_items'] for ep in obj_eps)
+            obj_possible = sum(ep['eval.total_items'] for ep in obj_eps)
+            if obj_duration > 0:
+                object_uphs.append(obj_items / (obj_duration / 3600))
+            if obj_possible > 0:
+                object_completions.append(100 * obj_items / obj_possible)
 
         return {
             'model': episodes[0]['model'],
             'variant': episodes[0].get('variant', ''),
             'count': count,
-            'UPH': total_items / (total_duration / 3600) if total_duration > 0 else None,
-            'completion': completion,
+            'UPH': sum(object_uphs) / len(object_uphs) if object_uphs else None,
+            'completion': sum(object_completions) / len(object_completions) if object_completions else None,
             'MTBF': total_duration / failed_count / 60 if failed_count > 0 else None,
         }
 
