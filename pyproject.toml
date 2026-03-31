@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "positronic"
-version = "0.2.0"
+version = "0.2.1"
 description = "Positronic robotics project"
 requires-python = ">=3.11, <3.12"
 readme = { file = "README.md", content-type = "text/markdown" }
@@ -30,7 +30,7 @@ dependencies = [
     "mujoco",
     "numpy",
     "opencv-python-headless",
-    "openpi-client",  # TODO: move to openpi vendor optional dep
+    # openpi-client: optional, see [project.optional-dependencies] openpi
     "plotly>=6.5.0",
     "pos3>=0.2.0",
     "pyarrow",
@@ -53,6 +53,9 @@ positronic-data-collection="positronic.data_collection:_internal_main"
 
 
 [project.optional-dependencies]
+openpi = [
+    "openpi-client",  # TODO: replace with positronic-native WebSocket client using positronic.utils.serialization
+]
 hardware = [
     "feetech-servo-sdk", # for feetech motors
     "positronic-franka>=0.3.0; sys_platform == 'linux'",

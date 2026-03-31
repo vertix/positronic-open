@@ -18,6 +18,7 @@ from positronic.offboard.server_utils import monitor_async_task, wait_for_subpro
 from positronic.offboard.vendor_server import VendorServer
 from positronic.policy import Codec, Policy
 from positronic.utils.logging import init_logging
+from positronic.utils.serialization import deserialize, serialize
 from positronic.vendors.dreamzero import codecs
 
 logger = logging.getLogger(__name__)
@@ -38,27 +39,23 @@ class RoboarenaClient:
     - On connect: server sends PolicyServerConfig as first msgpack message
     - Client sends obs dict with obs["endpoint"] = "infer" or "reset"
     - Server responds with action as raw numpy array (N, 8) via msgpack
-    - Uses openpi_client.msgpack_numpy for serialization
+    - Uses positronic.utils.serialization for msgpack+numpy wire format
     """
 
     def __init__(self, host: str = '127.0.0.1', port: int = 9000):
         self._host = host
         self._port = port
         self._ws = None
-        self._packer = None
         self._server_metadata: dict | None = None
 
     def connect(self):
         import websockets.sync.client
-        from openpi_client import msgpack_numpy
 
-        self._packer = msgpack_numpy.Packer()
-        self._unpackb = msgpack_numpy.unpackb
         self._ws = websockets.sync.client.connect(
             f'ws://{self._host}:{self._port}', compression=None, max_size=None, ping_interval=60, ping_timeout=600
         )
         # First message from server is PolicyServerConfig metadata
-        self._server_metadata = self._unpackb(self._ws.recv())
+        self._server_metadata = deserialize(self._ws.recv())
         logger.info(f'Connected to roboarena server, metadata: {self._server_metadata}')
 
     def ping(self) -> bool:
@@ -77,11 +74,11 @@ class RoboarenaClient:
         if self._ws is None:
             self.connect()
         observation['endpoint'] = 'infer'
-        self._ws.send(self._packer.pack(observation))
+        self._ws.send(serialize(observation))
         response = self._ws.recv()
         if isinstance(response, str):
             raise RuntimeError(f'Server error: {response}')
-        return self._unpackb(response)
+        return deserialize(response)
 
     def reset(self, session_id: str | None = None):
         if self._ws is None:
@@ -89,7 +86,7 @@ class RoboarenaClient:
         msg: dict[str, Any] = {'endpoint': 'reset'}
         if session_id is not None:
             msg['session_id'] = session_id
-        self._ws.send(self._packer.pack(msg))
+        self._ws.send(serialize(msg))
         self._ws.recv()  # Consume "reset successful" response
 
     def close(self):
