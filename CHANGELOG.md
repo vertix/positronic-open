@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1] - 2026-04-01
+
+### Fixes
+- Fix PyPI installability: `openpi-client` moved from core dependency to optional `[openpi]` extra — resolves numpy version conflict with `rerun-sdk==0.30.0` that made `pip install positronic` fall back to 0.1.1
+- DreamZero vendor now uses `positronic.utils.serialization` instead of `openpi_client.msgpack_numpy` (wire-compatible, same format)
+- Default server port changed from 5000 to 8400
+
 ## [0.2.0] - 2026-03-31
 
 Full pipeline and infrastructure for the [PhAIL](https://phail.ai) launch: real-robot evaluation of VLA models on commercial picking tasks with production metrics (UPH, completion rate, availability).

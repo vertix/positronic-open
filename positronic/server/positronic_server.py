@@ -560,7 +560,7 @@ def main(
     max_resolution: int,
     cache_dir: str = os.path.expanduser('~/.cache/positronic/server/'),
     host: str = '0.0.0.0',
-    port: int = 5000,
+    port: int = 8400,
     debug: bool = False,
     https: bool = True,
     reset_cache: bool = False,
