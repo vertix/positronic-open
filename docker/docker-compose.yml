@@ -63,7 +63,7 @@ services:
 
     working_dir: /positronic
     ports:
-      - "5000:5000"
+      - "8400:8400"
 
   openpi-train:
     <<: *openpi-common
@@ -131,7 +131,7 @@ services:
     container_name: positronic-server
     entrypoint: ["uv", "run", "--python", "3.11", "positronic-server"]
     ports:
-      - "5000:5000"
+      - "8400:8400"
 
   openpi-server: &openpi-server-common
     <<: *openpi-common
