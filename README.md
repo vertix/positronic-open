@@ -6,6 +6,12 @@
 [![PyPI](https://img.shields.io/pypi/v/positronic)](https://pypi.org/project/positronic/)
 [![Discord](https://img.shields.io/badge/Discord-Positronic%20Robotics-5865F2?logo=discord&logoColor=white)](https://discord.gg/PXvBy4NBgv)
 
+<p align="center">
+  <img src="docs/phail-demo.gif" alt="Robot bin-to-bin picking evaluation on PhAIL" width="640">
+  <br>
+  <em>GR00T model evaluated on bin-to-bin order picking — <a href="https://phail.ai">PhAIL benchmark</a></em>
+</p>
+
 ## The Problem
 
 AI promises to transform robotics: teach robots through demonstrations instead of code. ML-driven approaches can unlock capabilities traditional analytical control can't reach.
