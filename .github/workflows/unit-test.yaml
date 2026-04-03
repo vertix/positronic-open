@@ -52,7 +52,7 @@ jobs:
         run: |
           uv venv --python 3.11 /tmp/pkg-test
           uv pip install --python /tmp/pkg-test . jinja2
-          /tmp/pkg-test/bin/python scripts/check_packaging.py
+          /tmp/pkg-test/bin/python utilities/check_packaging.py
 
   lerobot:
     runs-on: ubuntu-latest
