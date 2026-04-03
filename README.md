@@ -323,7 +323,7 @@ Use `uv add` / `uv remove` to modify dependencies and `uv lock` to refresh the l
 
 We welcome contributions from the community! Before submitting a pull request, please:
 
-1. Read our [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines
+1. Read our [Contributing guide](docs/CONTRIBUTING.md) for detailed guidelines
 2. Sign your commits cryptographically (SSH or GPG signing)
 3. Install and use pre-commit hooks for automated checks
 4. Follow our code style guidelines (enforced by Ruff)
