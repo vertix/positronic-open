@@ -6,6 +6,12 @@
 [![PyPI](https://img.shields.io/pypi/v/positronic)](https://pypi.org/project/positronic/)
 [![Discord](https://img.shields.io/badge/Discord-Positronic%20Robotics-5865F2?logo=discord&logoColor=white)](https://discord.gg/PXvBy4NBgv)
 
+<p align="center">
+  <img src="docs/phail-demo.gif" alt="Robot bin-to-bin picking evaluation on PhAIL" width="640">
+  <br>
+  <em>GR00T model evaluated on bin-to-bin order picking — <a href="https://phail.ai">PhAIL benchmark</a></em>
+</p>
+
 ## The Problem
 
 AI promises to transform robotics: teach robots through demonstrations instead of code. ML-driven approaches can unlock capabilities traditional analytical control can't reach.
@@ -317,7 +323,7 @@ Use `uv add` / `uv remove` to modify dependencies and `uv lock` to refresh the l
 
 We welcome contributions from the community! Before submitting a pull request, please:
 
-1. Read our [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines
+1. Read our [Contributing guide](docs/CONTRIBUTING.md) for detailed guidelines
 2. Sign your commits cryptographically (SSH or GPG signing)
 3. Install and use pre-commit hooks for automated checks
 4. Follow our code style guidelines (enforced by Ruff)
