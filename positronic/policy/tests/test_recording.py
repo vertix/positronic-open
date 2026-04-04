@@ -1,9 +1,8 @@
 import numpy as np
-import pytest
 import rerun as rr
 
 from positronic.dataset.transforms.episode import Derive
-from positronic.policy.base import Policy
+from positronic.policy.base import Policy, Session
 from positronic.policy.codec import (
     Codec,
     RecordingCodec,
@@ -34,18 +33,29 @@ class _TrackingCodec(Codec):
         return {'dummy': True}
 
 
+class _TrackingSession(Session):
+    def __init__(self, actions, meta):
+        self._actions = actions
+        self._meta = meta
+
+    def __call__(self, obs):
+        return list(self._actions)
+
+    @property
+    def meta(self):
+        return self._meta
+
+
 class _TrackingPolicy(Policy):
-    """Policy that returns a fixed action chunk and tracks reset calls."""
+    """Policy that returns a fixed action chunk and tracks session creation."""
 
     def __init__(self, actions: list[dict] | None = None):
         self._actions = actions or [{'action': np.array([1.0, 2.0], dtype=np.float32)}]
-        self.reset_count = 0
+        self.session_count = 0
 
-    def select_action(self, obs):
-        return list(self._actions)
-
-    def reset(self, context=None):
-        self.reset_count += 1
+    def new_session(self, context=None):
+        self.session_count += 1
+        return _TrackingSession(self._actions, {'policy_key': 'policy_value'})
 
     @property
     def meta(self):
@@ -85,36 +95,30 @@ def test_recording_codec_delegates(tmp_path):
     assert codec.dummy_encoded() == {'dummy': True}
 
 
-def test_recording_policy_select_action_before_reset(tmp_path):
-    policy = _make_codec(tmp_path).wrap(_TrackingPolicy())
-    with pytest.raises(RuntimeError, match='reset'):
-        policy.select_action({'x': 1.0})
-
-
-def test_recording_policy_reset_creates_rrd_files(tmp_path):
+def test_recording_policy_new_session_creates_rrd_files(tmp_path):
     policy = _make_codec(tmp_path).wrap(_TrackingPolicy())
     assert isinstance(policy, _RecordingPolicy)
 
     for _i in range(1, 4):
-        policy.reset()
+        policy.new_session()
     assert len(list(tmp_path.glob('*.rrd'))) == 3
 
 
-def test_recording_policy_reset_calls_inner_reset(tmp_path):
+def test_recording_policy_new_session_calls_inner(tmp_path):
     tracking = _TrackingPolicy()
     policy = _make_codec(tmp_path).wrap(tracking)
 
-    policy.reset()
-    assert tracking.reset_count == 1
-    policy.reset()
-    assert tracking.reset_count == 2
+    policy.new_session()
+    assert tracking.session_count == 1
+    policy.new_session()
+    assert tracking.session_count == 2
 
 
-def test_recording_policy_select_action_pipeline(tmp_path):
+def test_recording_policy_session_pipeline(tmp_path):
     policy = _make_codec(tmp_path).wrap(_TrackingPolicy([{'v': 1}, {'v': 2}]))
-    policy.reset()
+    session = policy.new_session()
 
-    result = policy.select_action({'x': 1.0})
+    result = session({'x': 1.0})
     assert len(result) == 2
     assert all('decoded' in r for r in result)
 
@@ -122,11 +126,8 @@ def test_recording_policy_select_action_pipeline(tmp_path):
 def test_recording_policy_meta(tmp_path):
     policy = _make_codec(tmp_path, meta={'action_fps': 10.0}).wrap(_TrackingPolicy())
     assert 'action_fps' in policy.meta
-
-    policy.reset()
-    meta = policy.meta
-    assert meta['policy_key'] == 'policy_value'
-    assert meta['action_fps'] == 10.0
+    assert policy.meta['policy_key'] == 'policy_value'
+    assert policy.meta['action_fps'] == 10.0
 
 
 def test_session_encode_extracts_wall_time(tmp_path):
@@ -219,9 +220,9 @@ def test_concurrent_sessions_independent_state(tmp_path):
 
 def test_full_pipeline(tmp_path):
     policy = _make_codec(tmp_path, meta={'action_fps': 10.0}).wrap(_TrackingPolicy([{'v': i} for i in range(3)]))
-    policy.reset()
+    session = policy.new_session()
 
-    result = policy.select_action({'camera': np.zeros((4, 4, 3), dtype=np.uint8), 'grip': 0.5})
+    result = session({'camera': np.zeros((4, 4, 3), dtype=np.uint8), 'grip': 0.5})
     assert len(result) == 3
     assert all('decoded' in r for r in result)
     assert len(list(tmp_path.glob('*.rrd'))) == 1
@@ -245,8 +246,8 @@ def test_recording_codec_none_inner_wrap(tmp_path):
     policy = codec.wrap(_TrackingPolicy(actions))
     assert isinstance(policy, _RecordingPolicy)
 
-    policy.reset()
-    result = policy.select_action({'x': 1.0})
+    session = policy.new_session()
+    result = session({'x': 1.0})
     assert result == actions
     assert len(list(tmp_path.glob('*.rrd'))) == 1
 

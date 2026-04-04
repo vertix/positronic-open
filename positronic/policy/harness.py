@@ -79,7 +79,8 @@ class Harness(pimm.ControlSystem):
         meta = dict(self._static_meta)
         meta.update(self.robot_meta_in.value)
         meta['inference.simulate_timeout'] = self.simulate_timeout
-        for k, v in flatten_dict(self.policy.meta).items():
+        session_meta = self._session.meta if self._session else self.policy.meta
+        for k, v in flatten_dict(session_meta).items():
             meta[f'inference.policy.{k}'] = v
         meta.update(context)
         return meta
@@ -96,11 +97,15 @@ class Harness(pimm.ControlSystem):
         match directive.type:
             case DirectiveType.RUN:
                 if recording:
+                    if self._session:
+                        self._session.on_episode_complete()
                     self.ds_command.emit(DsWriterCommand.STOP())
                     self._home(clock)
                     yield pimm.Pass()
                 self.context = directive.payload or {}
-                self.policy.reset(self.context)
+                if self._session:
+                    self._session.close()
+                self._session = self.policy.new_session(self.context)
                 self.ds_command.emit(DsWriterCommand.START(self._build_episode_meta(self.context)))
                 self._trajectory_end = None
                 return True, True
@@ -110,6 +115,8 @@ class Harness(pimm.ControlSystem):
                 return False, recording
             case DirectiveType.FINISH:
                 if recording:
+                    if self._session:
+                        self._session.on_episode_complete()
                     self.ds_command.emit(DsWriterCommand.STOP(directive.payload or {}))
                     recording = False
                 self._home(clock)
@@ -142,7 +149,7 @@ class Harness(pimm.ControlSystem):
         inputs['wall_time_ns'] = time.time_ns()
         inputs['inference_time_ns'] = clock.now_ns()
         inputs.update(self.context)
-        commands = self.policy.select_action(frozen_view(inputs))
+        commands = self._session(frozen_view(inputs))
         return commands if isinstance(commands, list) else [commands]
 
     def _step(self, clock: pimm.Clock, in_error: bool) -> bool:
@@ -177,6 +184,7 @@ class Harness(pimm.ControlSystem):
         running = False
         recording = False
         in_error = False
+        self._session = None
         self._trajectory_end = None
 
         while not should_stop.value:
@@ -195,5 +203,9 @@ class Harness(pimm.ControlSystem):
                 yield pimm.Sleep(0.01)
 
         if recording:
+            if self._session:
+                self._session.on_episode_complete()
             self.ds_command.emit(DsWriterCommand.STOP())
+        if self._session:
+            self._session.close()
         self.policy.close()

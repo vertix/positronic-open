@@ -19,21 +19,19 @@ from positronic.dataset.ds_writer_agent import DsWriterCommandType
 from positronic.drivers import roboarm
 from positronic.drivers.roboarm.command import CartesianPosition, to_wire
 from positronic.geom import Rotation, Transform3D
-from positronic.policy.base import Policy, SampledPolicy
+from positronic.policy.base import Policy, SampledPolicy, Session
 from positronic.policy.codec import ActionTiming
 from positronic.policy.harness import Directive, Harness
 from positronic.policy.sampler import BalancedSampler
 from positronic.tests.testing_coutils import ManualDriver, RecordingEmitter, drive_scheduler
 
 
-class TargetPolicy(Policy):
-    """Reactive policy that moves toward a configurable target. Returns 5-action chunks."""
+class _TargetSession(Session):
+    def __init__(self, target, meta):
+        self._target = target
+        self._meta = meta
 
-    def __init__(self, target: list[float], name: str):
-        self._target = np.array(target, dtype=np.float32)
-        self._name = name
-
-    def select_action(self, obs):
+    def __call__(self, obs):
         current_pos = np.asarray(obs['robot_state.ee_pose'][:3], dtype=np.float32)
         delta = self._target - current_pos
         actions = []
@@ -44,8 +42,20 @@ class TargetPolicy(Policy):
             actions.append({'robot_command': to_wire(CartesianPosition(pose=pose)), 'target_grip': 0.5})
         return actions
 
-    def reset(self, context=None):
-        pass
+    @property
+    def meta(self):
+        return self._meta
+
+
+class TargetPolicy(Policy):
+    """Reactive policy that moves toward a configurable target. Returns 5-action chunks."""
+
+    def __init__(self, target: list[float], name: str):
+        self._target = np.array(target, dtype=np.float32)
+        self._name = name
+
+    def new_session(self, context=None):
+        return _TargetSession(self._target, self.meta)
 
     @property
     def meta(self):
@@ -120,15 +130,7 @@ def test_sampled_policy_e2e():
     with pimm.World(clock=clock) as world:
         p = _pair_all(world, harness)
 
-        # Wire the ds_command tap for counting (mirrors inference.py:_connect_ds_command)
-        original_emit = p['ds_recorder'].emit
-
-        def counting_emit(data, ts=-1):
-            original_emit(data, ts)
-            if data.type is DsWriterCommandType.STOP_EPISODE:
-                sampled.count_current()
-
-        p['ds_recorder'].emit = counting_emit
+        # Counting happens via session.on_episode_complete() called by the harness on FINISH.
 
         # Run 4 episodes: RUN → sensors → wait → FINISH, repeat
         script = []

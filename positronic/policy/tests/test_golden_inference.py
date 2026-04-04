@@ -22,7 +22,7 @@ from pimm.tests.testing import MockClock
 from positronic.drivers import roboarm
 from positronic.drivers.roboarm.command import CartesianPosition, to_wire
 from positronic.geom import Rotation, Transform3D
-from positronic.policy.base import Policy
+from positronic.policy.base import Policy, Session
 from positronic.policy.codec import ActionTiming
 from positronic.policy.harness import Directive, Harness
 from positronic.tests.testing_coutils import ManualDriver, RecordingEmitter, drive_scheduler
@@ -34,10 +34,8 @@ INITIAL_POS = np.array([0.3, 0.0, 0.4], dtype=np.float32)
 INITIAL_JOINTS = np.array([0.1, -0.2, 0.3, -0.4, 0.5, -0.6, 0.7], dtype=np.float32)
 
 
-class ReactivePolicy(Policy):
-    """Proportional controller toward TARGET_POS. Reads EE pose, returns 10-action chunks."""
-
-    def select_action(self, obs):
+class _ReactiveSession(Session):
+    def __call__(self, obs):
         current_pos = np.asarray(obs['robot_state.ee_pose'][:3], dtype=np.float32)
         delta = TARGET_POS - current_pos
         actions = []
@@ -51,8 +49,10 @@ class ReactivePolicy(Policy):
             })
         return actions
 
-    def reset(self, context=None):
-        pass
+
+class ReactivePolicy(Policy):
+    def new_session(self, context=None):
+        return _ReactiveSession()
 
 
 class SimulatedRobotState:

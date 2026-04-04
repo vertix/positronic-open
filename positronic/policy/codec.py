@@ -21,7 +21,7 @@ import rerun.blueprint as rrb
 
 from positronic.dataset.transforms import Elementwise
 from positronic.dataset.transforms.episode import Derive, EpisodeTransform, Group, Identity
-from positronic.policy.base import Policy
+from positronic.policy.base import Policy, Session
 from positronic.utils import merge_dicts
 from positronic.utils.rerun_compat import log_numeric_series, set_timeline_sequence, set_timeline_time
 
@@ -296,20 +296,39 @@ class BinarizeGripInference(Codec):
         return data
 
 
-class _WrappedPolicy(Policy):
-    """Policy wrapped with a codec: encodes observations, decodes actions."""
+class _WrappedSession(Session):
+    """Session wrapped with a codec: encodes observations, decodes actions."""
 
-    def __init__(self, policy: Policy, codec: Codec):
+    def __init__(self, inner: Session, codec: 'Codec'):
+        self._inner = inner
+        self._codec = codec
+
+    def __call__(self, obs):
+        encoded = self._codec.encode(obs)
+        action = self._inner(encoded)
+        return self._codec.decode(action, context=obs)
+
+    @property
+    def meta(self):
+        return self._inner.meta | self._codec.meta
+
+    def on_episode_complete(self):
+        self._inner.on_episode_complete()
+
+    def close(self):
+        self._inner.close()
+
+
+class _WrappedPolicy(Policy):
+    """Policy wrapped with a codec: creates codec-wrapped sessions."""
+
+    def __init__(self, policy: Policy, codec: 'Codec'):
         self._policy = policy
         self._codec = codec
 
-    def select_action(self, obs):
-        encoded = self._codec.encode(obs)
-        action = self._policy.select_action(encoded)
-        return self._codec.decode(action, context=obs)
-
-    def reset(self, context=None):
-        self._policy.reset(context)
+    def new_session(self, context=None):
+        inner = self._policy.new_session(context)
+        return _WrappedSession(inner, self._codec)
 
     @property
     def meta(self):
@@ -490,29 +509,20 @@ class RecordingCodec(Codec):
 
 
 class _RecordingPolicy(Policy):
-    """Policy wrapper that creates a fresh ``_RecordingSession`` on each ``reset()``."""
+    """Policy wrapper that creates a fresh ``_RecordingSession`` codec on each ``new_session()``."""
 
     def __init__(self, policy: Policy, codec: RecordingCodec):
         self._policy = policy
         self._codec = codec
-        self._active: Policy | None = None
 
-    def select_action(self, obs):
-        if self._active is None:
-            raise RuntimeError('reset() must be called before select_action()')
-        return self._active.select_action(obs)
-
-    def reset(self, context=None):
-        session = self._codec._new_session()
-        self._active = _WrappedPolicy(self._policy, session)
-        self._active.reset(context)
+    def new_session(self, context=None):
+        recording = self._codec._new_session()
+        inner = self._policy.new_session(context)
+        return _WrappedSession(inner, recording)
 
     @property
     def meta(self):
-        if self._active is not None:
-            return self._active.meta
-        return self._codec.meta
+        return self._policy.meta | self._codec.meta
 
     def close(self):
-        if self._active is not None:
-            self._active.close()
+        self._policy.close()

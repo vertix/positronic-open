@@ -16,7 +16,7 @@ import positronic.cfg.hardware.roboarm
 import positronic.cfg.policy as policy_cfg
 import positronic.cfg.simulator
 from positronic import utils, wire
-from positronic.dataset.ds_writer_agent import DsWriterCommandType, TimeMode
+from positronic.dataset.ds_writer_agent import TimeMode
 from positronic.dataset.local_dataset import LocalDatasetWriter, load_all_datasets
 from positronic.gui.dpg import DearpyguiUi
 from positronic.gui.eval import EvalUI
@@ -114,17 +114,10 @@ def _seed_sampler(policy, output_dir: Path):
 
 
 def _connect_ds_command(world, harness, ds_agent, policy):
-    """Connect harness.ds_command to ds_agent, with optional sampler tap."""
+    """Connect harness.ds_command to ds_agent."""
     if ds_agent is None:
         return
-
-    def _tap(cmd):
-        if cmd.type is DsWriterCommandType.STOP_EPISODE:
-            policy.count_current()
-        return cmd
-
-    wrapper = pimm.map(_tap) if isinstance(policy, SampledPolicy) else pimm.utils.identity
-    world.connect(harness.ds_command, ds_agent.command, emitter_wrapper=wrapper)
+    world.connect(harness.ds_command, ds_agent.command)
 
 
 def main(

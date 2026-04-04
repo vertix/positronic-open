@@ -10,9 +10,18 @@ from positronic.drivers import roboarm
 from positronic.drivers.roboarm import RobotStatus
 from positronic.drivers.roboarm.command import CartesianPosition, Recover, Reset, from_wire, to_wire
 from positronic.geom import Rotation, Transform3D
-from positronic.policy.base import Policy
+from positronic.policy.base import Policy, Session
 from positronic.policy.harness import Directive, DirectiveType, Harness
 from positronic.tests.testing_coutils import ManualDriver, RecordingEmitter, drive_scheduler
+
+
+class _SpySession(Session):
+    def __init__(self, policy):
+        self._policy = policy
+
+    def __call__(self, obs):
+        self._policy.last_obs = obs
+        return {'robot_command': to_wire(self._policy.command), 'target_grip': self._policy.target_grip}
 
 
 class SpyPolicy(Policy):
@@ -23,21 +32,32 @@ class SpyPolicy(Policy):
         self.command = command
         self.target_grip = float(target_grip)
         self.last_obs: dict[str, object] | None = None
+        self.reset_calls: int = 0
+        self.last_reset_context = None
 
-    def select_action(self, obs: dict[str, object]) -> dict[str, object]:
-        self.last_obs = obs
-        return {'robot_command': to_wire(self.command), 'target_grip': self.target_grip}
-
-    def reset(self, context=None) -> None:
-        self.reset_calls = getattr(self, 'reset_calls', 0) + 1
+    def new_session(self, context=None):
+        self.reset_calls += 1
         self.last_reset_context = context
+        return _SpySession(self)
+
+
+class _StubSession(Session):
+    def __init__(self, policy):
+        self._policy = policy
+        self._meta = dict(policy._meta)
+
+    def __call__(self, obs):
+        self._policy.last_obs = obs
+        self._policy.observations.append(obs)
+        return {'robot_command': to_wire(self._policy.command), 'target_grip': self._policy.target_grip}
+
+    @property
+    def meta(self):
+        return self._meta
 
 
 class StubPolicy(Policy):
-    """Reusable policy stub for tests.
-
-    Compatible with `positronic.policy.harness.Harness`: returns wire-format robot commands + target grip.
-    """
+    """Reusable policy stub for tests."""
 
     def __init__(
         self,
@@ -60,14 +80,22 @@ class StubPolicy(Policy):
     def meta(self) -> dict[str, object]:
         return self._meta
 
-    def select_action(self, obs: dict[str, object]) -> dict[str, object]:
-        self.last_obs = obs
-        self.observations.append(obs)
-        return {'robot_command': to_wire(self.command), 'target_grip': self.target_grip}
-
-    def reset(self, context=None) -> None:
+    def new_session(self, context=None):
         self.reset_calls += 1
         self.last_reset_context = context
+        return _StubSession(self)
+
+
+class _ChunkSession(Session):
+    def __init__(self, policy):
+        self._policy = policy
+
+    def __call__(self, obs):
+        self._policy.counter += 1
+        return [
+            {'robot_command': to_wire(self._policy.command), 'target_grip': self._policy.counter * 100.0 + i}
+            for i in range(10)
+        ]
 
 
 class ChunkPolicy(StubPolicy):
@@ -77,9 +105,10 @@ class ChunkPolicy(StubPolicy):
         super().__init__(*args, **kwargs)
         self.counter = 0
 
-    def select_action(self, obs):
-        self.counter += 1
-        return [{'robot_command': to_wire(self.command), 'target_grip': self.counter * 100.0 + i} for i in range(10)]
+    def new_session(self, context=None):
+        self.reset_calls += 1
+        self.last_reset_context = context
+        return _ChunkSession(self)
 
 
 class FakeRobotState:

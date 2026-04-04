@@ -145,7 +145,9 @@ class VendorServer(ABC):
             return
         try:
             logger.info('Running warmup inference...')
-            await asyncio.to_thread(policy.select_action, self.codec.dummy_encoded())
+            session = policy.new_session()
+            await asyncio.to_thread(session, self.codec.dummy_encoded())
+            session.close()
             logger.info('Warmup inference complete')
         except Exception:
             logger.warning('Warmup inference failed (non-fatal)', exc_info=True)
@@ -173,8 +175,8 @@ class VendorServer(ABC):
             model_handle, extra_meta = await self.resolve_model(model_id, websocket)
             base_policy = self.create_policy(model_handle)
             policy = self.codec.wrap(base_policy) if self.codec else base_policy
-            policy.reset()
-            meta = {**self.metadata, **extra_meta, **policy.meta}
+            session = policy.new_session()
+            meta = {**self.metadata, **extra_meta, **session.meta}
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
 
             try:
@@ -182,7 +184,7 @@ class VendorServer(ABC):
                     message = await websocket.receive_bytes()
                     try:
                         raw_obs = deserialise(message)
-                        actions = policy.select_action(raw_obs)
+                        actions = session(raw_obs)
                         await websocket.send_bytes(serialise({'result': actions}))
                     except Exception as e:
                         logger.error(f'Error processing message: {e}', exc_info=True)
@@ -204,7 +206,6 @@ class VendorServer(ABC):
     async def _startup(self):
         model_handle, _meta = await self.resolve_model(None, websocket=None)
         policy = self.create_policy(model_handle)
-        policy.reset()
         await self.warmup(policy)
 
     def serve(self):
