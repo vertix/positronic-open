@@ -177,13 +177,12 @@ class ActionTimestamp(Codec):
         return data
 
     def decode(self, data, *, context=None):
-        now = (context.get('inference_time_ns', 0) / 1e9) if context else 0.0
         if isinstance(data, list):
             dt = 1.0 / self._fps
             for i, d in enumerate(data):
-                d['timestamp'] = now + i * dt
+                d['timestamp'] = i * dt
             return data
-        data['timestamp'] = now
+        data['timestamp'] = 0.0
         return data
 
     @property
@@ -211,8 +210,7 @@ class ActionHorizon(Codec):
 
     def decode(self, data, *, context=None):
         if isinstance(data, list):
-            now = (context.get('inference_time_ns', 0) / 1e9) if context else 0.0
-            return [d for d in data if d.get('timestamp', 0.0) - now < self._horizon_sec]
+            return [d for d in data if d.get('timestamp', 0.0) < self._horizon_sec]
         return data
 
     @property

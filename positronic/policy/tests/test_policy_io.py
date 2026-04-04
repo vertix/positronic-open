@@ -237,7 +237,7 @@ def test_action_horizon_sec_seconds_truncates():
         assert action['timestamp'] == pytest.approx(i * dt)
 
 
-def test_action_timestamp_stamps_chunk_relative():
+def test_action_timestamp_stamps_chunk():
     actions = [{'v': i} for i in range(4)]
     codec = ActionTimestamp(fps=10.0)
     result = codec.decode(actions)
@@ -246,26 +246,10 @@ def test_action_timestamp_stamps_chunk_relative():
         assert action['timestamp'] == pytest.approx(i * 0.1)
 
 
-def test_action_timestamp_stamps_chunk_absolute():
-    now_ns = 5_000_000_000  # 5 seconds
-    actions = [{'v': i} for i in range(4)]
-    codec = ActionTimestamp(fps=10.0)
-    result = codec.decode(actions, context={'inference_time_ns': now_ns})
-    assert len(result) == 4
-    for i, action in enumerate(result):
-        assert action['timestamp'] == pytest.approx(5.0 + i * 0.1)
-
-
-def test_action_timestamp_single_action_relative():
+def test_action_timestamp_single_action():
     codec = ActionTimestamp(fps=15.0)
     result = codec.decode({'v': 42})
     assert result['timestamp'] == 0.0
-
-
-def test_action_timestamp_single_action_absolute():
-    codec = ActionTimestamp(fps=15.0)
-    result = codec.decode({'v': 42}, context={'inference_time_ns': 3_000_000_000})
-    assert result['timestamp'] == pytest.approx(3.0)
 
 
 def test_action_timestamp_meta():
@@ -277,14 +261,6 @@ def test_action_horizon_truncates():
     actions = [{'v': i, 'timestamp': i * 0.1} for i in range(10)]
     codec = ActionHorizon(0.3)
     result = codec.decode(actions)
-    assert [r['v'] for r in result] == [0, 1, 2]
-
-
-def test_action_horizon_truncates_absolute():
-    now_ns = 5_000_000_000
-    actions = [{'v': i, 'timestamp': 5.0 + i * 0.1} for i in range(10)]
-    codec = ActionHorizon(0.25)
-    result = codec.decode(actions, context={'inference_time_ns': now_ns})
     assert [r['v'] for r in result] == [0, 1, 2]
 
 

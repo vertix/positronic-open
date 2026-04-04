@@ -160,7 +160,6 @@ def main_sim(
     driver: tuple,
     camera_dict: Mapping[str, str],
     output_dir: str | Path | None = None,
-    simulate_timeout: bool = False,
     observers: Mapping[str, Any] | None = None,
 ):
     observers = observers or {}
@@ -171,7 +170,7 @@ def main_sim(
     cameras = {name: mujoco_cameras.cameras[orig_name] for name, orig_name in camera_dict.items()}
 
     static_meta = {'simulation.mujoco_model_path': mujoco_model_path, **wire.ROBOT_STATIC_META}
-    harness = Harness(policy, static_meta=static_meta, simulate_timeout=simulate_timeout)
+    harness = Harness(policy, static_meta=static_meta)
     control_systems = [mujoco_cameras, sim, robot_arm, gripper, harness]
 
     gui, harness_emitter, foreground_cs = driver
