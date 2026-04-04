@@ -19,8 +19,12 @@ class Session(ABC):
     """
 
     @abstractmethod
-    def __call__(self, obs: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
-        """Predict actions for the given observation."""
+    def __call__(self, obs: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]] | None:
+        """Predict actions for the given observation.
+
+        Returns a single action dict, a trajectory (list of dicts), or None
+        to signal "keep executing the current trajectory" (used by scheduling wrappers).
+        """
 
     @property
     def meta(self) -> dict[str, Any]:
@@ -32,6 +36,26 @@ class Session(ABC):
 
     def close(self):  # noqa: B027
         """End this session and release per-episode resources."""
+
+
+class DelegatingSession(Session):
+    """Session that delegates all methods to an inner session. Subclass and override what you need."""
+
+    def __init__(self, inner: Session):
+        self._inner = inner
+
+    def __call__(self, obs):
+        return self._inner(obs)
+
+    @property
+    def meta(self):
+        return self._inner.meta
+
+    def on_episode_complete(self):
+        self._inner.on_episode_complete()
+
+    def close(self):
+        self._inner.close()
 
 
 class Policy(ABC):
@@ -59,28 +83,35 @@ class Policy(ABC):
         """Release shared resources (model weights, connections, etc.)."""
 
 
-class _SampledSession(Session):
-    """Session created by SampledPolicy — wraps an inner session + tracks sampling."""
+class DelegatingPolicy(Policy):
+    """Policy that delegates all methods to an inner policy. Subclass and override what you need."""
 
-    def __init__(self, inner: Session, key: str, sampler: Sampler, context: dict):
+    def __init__(self, inner: Policy):
         self._inner = inner
-        self._key = key
-        self._sampler = sampler
-        self._context = context
 
-    def __call__(self, obs):
-        return self._inner(obs)
+    def new_session(self, context=None):
+        return self._inner.new_session(context)
 
     @property
     def meta(self):
         return self._inner.meta
 
-    def on_episode_complete(self):
-        self._sampler.count(self._key, self._context)
-        self._inner.on_episode_complete()
-
     def close(self):
         self._inner.close()
+
+
+class _SampledSession(DelegatingSession):
+    """Session created by SampledPolicy — wraps an inner session + tracks sampling."""
+
+    def __init__(self, inner: Session, key: str, sampler: Sampler, context: dict):
+        super().__init__(inner)
+        self._key = key
+        self._sampler = sampler
+        self._context = context
+
+    def on_episode_complete(self):
+        self._sampler.count(self._key, self._context)
+        super().on_episode_complete()
 
 
 class SampledPolicy(Policy):
@@ -116,8 +147,7 @@ class SampledPolicy(Policy):
         ctx = context or {}
         key = self.sampler.sample(keys, ctx)
         sub_policy = self._policies[keys.index(key)]
-        inner_session = sub_policy.new_session(context)
-        return _SampledSession(inner_session, key, self.sampler, ctx)
+        return _SampledSession(sub_policy.new_session(context), key, self.sampler, ctx)
 
     @property
     def meta(self):

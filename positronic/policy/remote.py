@@ -78,3 +78,6 @@ class RemotePolicy(Policy):
     @property
     def meta(self) -> dict[str, Any]:
         return {'type': 'remote'}
+
+    def close(self):
+        self._client = None

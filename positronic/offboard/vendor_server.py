@@ -171,6 +171,7 @@ class VendorServer(ABC):
         logger.info(f'Connected to {websocket.client} requesting {model_id or "default"}')
 
         model_handle = None
+        session = None
         try:
             model_handle, extra_meta = await self.resolve_model(model_id, websocket)
             base_policy = self.create_policy(model_handle)
@@ -200,6 +201,8 @@ class VendorServer(ABC):
             except Exception:
                 logger.debug('Failed to send error to client', exc_info=True)
         finally:
+            if session is not None:
+                session.close()
             if model_handle is not None:
                 await self.release_policy(model_handle)
 

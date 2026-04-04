@@ -7,7 +7,7 @@ from typing import Any
 import pimm
 from positronic.dataset.ds_writer_agent import DsWriterCommand, Serializers
 from positronic.drivers import roboarm
-from positronic.policy.base import Policy, Session
+from positronic.policy.base import DelegatingPolicy, DelegatingSession, Session
 from positronic.utils import flatten_dict, frozen_view
 
 
@@ -53,11 +53,11 @@ class Directive:
 # ---------------------------------------------------------------------------
 
 
-class _ChunkedSession(Session):
+class _ChunkedSession(DelegatingSession):
     """Calls inner session only when the previous trajectory has been consumed."""
 
     def __init__(self, inner: Session):
-        self._inner = inner
+        super().__init__(inner)
         self._trajectory_end: float | None = None
 
     def __call__(self, obs):
@@ -66,22 +66,11 @@ class _ChunkedSession(Session):
             return None
         result = self._inner(obs)
         if result is not None and isinstance(result, list) and result:
-            last_ts = result[-1].get('timestamp', 0.0)
-            self._trajectory_end = now + last_ts
+            self._trajectory_end = now + result[-1].get('timestamp', 0.0)
         return result
 
-    @property
-    def meta(self):
-        return self._inner.meta
 
-    def on_episode_complete(self):
-        self._inner.on_episode_complete()
-
-    def close(self):
-        self._inner.close()
-
-
-class ChunkedSchedule(Policy):
+class ChunkedSchedule(DelegatingPolicy):
     """Wait for current trajectory to finish before calling inner policy again.
 
     Wraps a policy so that ``new_session`` returns a session that returns
@@ -89,25 +78,15 @@ class ChunkedSchedule(Policy):
     action's timestamp has been reached.
     """
 
-    def __init__(self, inner: Policy):
-        self._inner = inner
-
     def new_session(self, context=None):
         return _ChunkedSession(self._inner.new_session(context))
 
-    @property
-    def meta(self):
-        return self._inner.meta
 
-    def close(self):
-        self._inner.close()
-
-
-class _ErrorRecoverySession(Session):
+class _ErrorRecoverySession(DelegatingSession):
     """Emits Recover trajectory on robot error, delegates otherwise."""
 
     def __init__(self, inner: Session):
-        self._inner = inner
+        super().__init__(inner)
         self._in_error = False
 
     def __call__(self, obs):
@@ -117,41 +96,21 @@ class _ErrorRecoverySession(Session):
 
         if self._in_error:
             if was_ok:
-                return [{'robot_command': roboarm.command.to_wire(roboarm.command.Recover()), 'target_grip': 0.0}]
+                return [{'robot_command': roboarm.command.to_wire(roboarm.command.Recover())}]
             return None
 
         return self._inner(obs)
 
-    @property
-    def meta(self):
-        return self._inner.meta
 
-    def on_episode_complete(self):
-        self._inner.on_episode_complete()
-
-    def close(self):
-        self._inner.close()
-
-
-class ErrorRecovery(Policy):
+class ErrorRecovery(DelegatingPolicy):
     """Wraps a policy to handle robot errors by emitting Recover commands.
 
     On error: emits a single Recover trajectory, then returns None until
     the robot recovers. On recovery: resumes normal inference.
     """
 
-    def __init__(self, inner: Policy):
-        self._inner = inner
-
     def new_session(self, context=None):
         return _ErrorRecoverySession(self._inner.new_session(context))
-
-    @property
-    def meta(self):
-        return self._inner.meta
-
-    def close(self):
-        self._inner.close()
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +131,7 @@ class Harness(pimm.ControlSystem):
         self.policy = policy
         self.context: dict[str, Any] = {}
         self._static_meta = static_meta or {}
+        self._session: Session | None = None
 
         self.frames = pimm.ReceiverDict(self)
         self.robot_state = pimm.ControlSystemReceiver(self)
@@ -272,14 +232,13 @@ class Harness(pimm.ControlSystem):
             (prediction_time + cmd.get('timestamp', 0.0), roboarm.command.from_wire(cmd['robot_command']))
             for cmd in commands
         ]
-        grip_traj = [(prediction_time + cmd.get('timestamp', 0.0), cmd['target_grip']) for cmd in commands]
+        grip_traj = [(prediction_time + cmd.get('timestamp', 0.0), cmd.get('target_grip')) for cmd in commands]
         self.robot_commands.emit(robot_traj)
         self.target_grip.emit(grip_traj)
 
     def run(self, should_stop: pimm.SignalReceiver, clock: pimm.Clock) -> Iterator[pimm.Sleep]:
         running = False
         recording = False
-        self._session = None
 
         while not should_stop.value:
             directive_msg = self.directive.read()

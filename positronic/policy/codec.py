@@ -21,7 +21,7 @@ import rerun.blueprint as rrb
 
 from positronic.dataset.transforms import Elementwise
 from positronic.dataset.transforms.episode import Derive, EpisodeTransform, Group, Identity
-from positronic.policy.base import Policy, Session
+from positronic.policy.base import DelegatingPolicy, DelegatingSession, Policy, Session
 from positronic.utils import merge_dicts
 from positronic.utils.rerun_compat import log_numeric_series, set_timeline_sequence, set_timeline_time
 
@@ -162,11 +162,11 @@ class _ParallelCodec(Codec):
 
 
 class ActionTimestamp(Codec):
-    """Stamps each decoded action with a ``timestamp`` field derived from fps.
+    """Stamps each decoded action with a relative ``timestamp`` field: ``i * (1/fps)``.
 
-    When the observation context contains ``inference_time_ns`` (pimm clock
-    nanoseconds), stamps absolute time: ``now + i * (1/fps)``.  Otherwise
-    falls back to relative timestamps: ``i * (1/fps)``.
+    For action chunks (lists), assigns ``timestamp = i * (1/fps)`` to each action.
+    For single actions (dicts), assigns ``timestamp = 0.0``.
+    The harness converts these relative timestamps to absolute at emission time.
     At training time, surfaces ``action_fps`` as transform metadata.
     """
 
@@ -294,11 +294,11 @@ class BinarizeGripInference(Codec):
         return data
 
 
-class _WrappedSession(Session):
+class _WrappedSession(DelegatingSession):
     """Session wrapped with a codec: encodes observations, decodes actions."""
 
     def __init__(self, inner: Session, codec: 'Codec'):
-        self._inner = inner
+        super().__init__(inner)
         self._codec = codec
 
     def __call__(self, obs):
@@ -310,30 +310,20 @@ class _WrappedSession(Session):
     def meta(self):
         return self._inner.meta | self._codec.meta
 
-    def on_episode_complete(self):
-        self._inner.on_episode_complete()
 
-    def close(self):
-        self._inner.close()
-
-
-class _WrappedPolicy(Policy):
+class _WrappedPolicy(DelegatingPolicy):
     """Policy wrapped with a codec: creates codec-wrapped sessions."""
 
     def __init__(self, policy: Policy, codec: 'Codec'):
-        self._policy = policy
+        super().__init__(policy)
         self._codec = codec
 
     def new_session(self, context=None):
-        inner = self._policy.new_session(context)
-        return _WrappedSession(inner, self._codec)
+        return _WrappedSession(self._inner.new_session(context), self._codec)
 
     @property
     def meta(self):
-        return self._policy.meta | self._codec.meta
-
-    def close(self):
-        self._policy.close()
+        return self._inner.meta | self._codec.meta
 
 
 def _squeeze_batch(arr: np.ndarray) -> np.ndarray:
@@ -467,8 +457,8 @@ class _RecordingSession(Codec):
 class RecordingCodec(Codec):
     """Transparent ``Codec`` wrapper that logs the encode/decode cycle to per-episode ``.rrd`` files.
 
-    Each ``reset()`` on the wrapped policy creates a ``_RecordingSession`` with independent
-    state, so concurrent sessions don't interfere with each other.
+    Each ``new_session()`` on the wrapped policy creates a fresh recording codec session
+    with independent state, so concurrent sessions don't interfere with each other.
     """
 
     def __init__(self, inner: Codec | None, recording_dir: str | Path):
@@ -506,21 +496,16 @@ class RecordingCodec(Codec):
         return self._inner.dummy_encoded(data) if self._inner else (data or {})
 
 
-class _RecordingPolicy(Policy):
+class _RecordingPolicy(DelegatingPolicy):
     """Policy wrapper that creates a fresh ``_RecordingSession`` codec on each ``new_session()``."""
 
     def __init__(self, policy: Policy, codec: RecordingCodec):
-        self._policy = policy
+        super().__init__(policy)
         self._codec = codec
 
     def new_session(self, context=None):
-        recording = self._codec._new_session()
-        inner = self._policy.new_session(context)
-        return _WrappedSession(inner, recording)
+        return _WrappedSession(self._inner.new_session(context), self._codec._new_session())
 
     @property
     def meta(self):
-        return self._policy.meta | self._codec.meta
-
-    def close(self):
-        self._policy.close()
+        return self._inner.meta | self._codec.meta

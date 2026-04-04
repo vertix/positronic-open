@@ -119,8 +119,6 @@ def test_remote_policy_lifecycle(inference_server, mock_policy):
     assert meta['server.model_name'] == 'test_model'
     assert meta['type'] == 'remote'
 
-    assert mock_policy.reset.call_count == 1
-
     obs = {'dataset': 'test'}
     action = session(obs)
     assert action['action_data'] == [1, 2, 3]
@@ -129,7 +127,6 @@ def test_remote_policy_lifecycle(inference_server, mock_policy):
 
     # New session
     session2 = policy.new_session()
-    assert mock_policy.reset.call_count == 2
     session2.close()
 
 

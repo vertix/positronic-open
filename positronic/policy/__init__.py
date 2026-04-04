@@ -1,4 +1,4 @@
-from .base import Policy, SampledPolicy, Session
+from .base import DelegatingPolicy, DelegatingSession, Policy, SampledPolicy, Session
 from .codec import ActionHorizon, ActionTimestamp, ActionTiming, Codec, RecordingCodec
 from .remote import RemotePolicy
 from .sampler import BalancedSampler, Sampler, UniformSampler
@@ -6,6 +6,8 @@ from .sampler import BalancedSampler, Sampler, UniformSampler
 __all__ = [
     'Policy',
     'Session',
+    'DelegatingPolicy',
+    'DelegatingSession',
     'SampledPolicy',
     'RemotePolicy',
     'Codec',
