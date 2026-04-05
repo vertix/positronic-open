@@ -232,9 +232,14 @@ class Harness(pimm.ControlSystem):
             (prediction_time + cmd.get('timestamp', 0.0), roboarm.command.from_wire(cmd['robot_command']))
             for cmd in commands
         ]
-        grip_traj = [(prediction_time + cmd.get('timestamp', 0.0), cmd.get('target_grip')) for cmd in commands]
+        grip_traj = [
+            (prediction_time + cmd.get('timestamp', 0.0), cmd['target_grip'])
+            for cmd in commands
+            if 'target_grip' in cmd
+        ]
         self.robot_commands.emit(robot_traj)
-        self.target_grip.emit(grip_traj)
+        if grip_traj:
+            self.target_grip.emit(grip_traj)
 
     def run(self, should_stop: pimm.SignalReceiver, clock: pimm.Clock) -> Iterator[pimm.Sleep]:
         running = False
