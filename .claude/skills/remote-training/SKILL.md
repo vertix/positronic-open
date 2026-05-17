@@ -1,21 +1,45 @@
 ---
 name: remote-training
-description: Manages remote training infrastructure on Nebius VMs. Use for building/pushing Docker images, starting/stopping VM machines (train, train2, train3), running training jobs, dataset generation, and starting inference servers.
+description: Manages remote training infrastructure on Nebius Serverless (Jobs for convert/train, Endpoints for inference). Use for dataset conversion, training jobs, serving checkpoints, and end-to-end pipeline validation. No VM lifecycle to manage.
 ---
 
-# Remote Training Infrastructure
+# Remote Training Infrastructure (Nebius Serverless)
 
-This skill manages the Positronic training infrastructure on Nebius GPU VMs. It covers Docker image management, VM lifecycle, training jobs, dataset generation, and inference server deployment.
+This skill runs the Positronic convert → train → serve pipeline on
+[Nebius Serverless](https://docs.nebius.com/serverless): **Jobs** for batch work
+(dataset conversion, training) and **Endpoints** for HTTP inference servers. Same
+containers and scripts as before — no VM to provision, SSH into, or shut down, and
+no idle compute cost.
+
+All operations go through the wrapper scripts in `workflows/nebius/`. Run them from
+the repo root. The full reference is `workflows/nebius/README.md`.
+
+## Vendor tokens
+
+Every script takes a `<vendor>` positional that selects the container image and `uv`
+extra. Supported: `lerobot_0_3_3` (ACT), `lerobot` (SmolVLA), `openpi`, `gr00t`.
+
+| Vendor | Image | Train/serve hardware |
+|--------|-------|----------------------|
+| `lerobot_0_3_3` (ACT) | `positro/positronic:latest` | H100 |
+| `lerobot` (SmolVLA) | `positro/positronic:latest` | H100 |
+| `openpi` | `positro/openpi:latest` | H100 |
+| `gr00t` | `positro/gr00t:latest` | H100 |
+
+Conversion always runs on CPU (`cpu-e2`, `8vcpu-32gb`); train/serve on
+`gpu-h100-sxm` (`1gpu-16vcpu-200gb`). `openpi`/`gr00t` re-use the `lerobot_0_3_3`
+converter with their own codec namespace.
 
 ## S3 Convention
 
 ```
-s3://interim/{dataset}/{vendor}/{codec}/          — converted LeRobot datasets
+s3://interim/{dataset}/{vendor}/{codec}/                    — converted LeRobot datasets
 s3://checkpoints/{dataset}/{vendor}/{codec_or_experiment}/  — training output
-s3://inference/{dataset}/{date_or_exp}/{vendor}/  — inference eval results
+s3://inference/{dataset}/{date_or_exp}/{vendor}/            — inference eval results
 ```
 
-Every run writes `run_metadata_*.yaml` with the full CLI command — read it to reconstruct the pipeline.
+Every run writes `run_metadata_*.yaml` with the full CLI command — read it to
+reconstruct the pipeline.
 
 ### Current Artifacts
 
@@ -23,9 +47,9 @@ Every run writes `run_metadata_*.yaml` with the full CLI command — read it to 
 
 | Vendor | Codec | Interim | Latest Checkpoint |
 |--------|-------|---------|-------------------|
-| groot | `ee_rot6d` | `s3://interim/sim_stack/groot/ee_rot6d/` | `s3://checkpoints/sim_stack/groot/ee_rot6d/230226/` |
+| gr00t | `ee_rot6d` | `s3://interim/sim_stack/groot/ee_rot6d/` | `s3://checkpoints/sim_stack/groot/ee_rot6d/230226/` |
 | lerobot (0.4.x) | `ee` | `s3://interim/sim_stack/lerobot_04/ee/` | `s3://checkpoints/sim_stack/lerobot_04/smolvla_150k/` |
-| lerobot (0.3.3) | `ee` | `s3://interim/sim_stack/lerobot/ee/` | `s3://checkpoints/sim_stack/lerobot/230226-ee/` |
+| lerobot_0_3_3 | `ee` | `s3://interim/sim_stack/lerobot/ee/` | `s3://checkpoints/sim_stack/lerobot/230226-ee/` |
 | openpi | `ee` | `s3://interim/sim_stack/openpi/ee/` | `s3://checkpoints/sim_stack/openpi/ee/pi05_positronic_lowmem/230226/` |
 
 **phail_unified** (production — `@positronic.cfg.ds.phail.phail_unified`):
@@ -33,213 +57,214 @@ Every run writes `run_metadata_*.yaml` with the full CLI command — read it to 
 | Vendor | Codec | Interim | Latest Checkpoint |
 |--------|-------|---------|-------------------|
 | smolvla (0.4.x) | `ee` | `s3://interim/phail_unified/smolvla/ee/` | `s3://checkpoints/phail_unified/smolvla/150315_ft_150k/` |
-| groot | `ee_rot6d` | `s3://interim/phail_unified/groot/ee_rot6d/` | — |
+| gr00t | `ee_rot6d` | `s3://interim/phail_unified/groot/ee_rot6d/` | — |
 | lerobot (0.4.x) / SmolVLA | `ee` | — | `s3://checkpoints/phail_unified/smolvla/170316_ee/` |
-| lerobot (0.3.3) | `ee` | `s3://interim/phail_unified/lerobot/ee/` | — |
+| lerobot_0_3_3 | `ee` | `s3://interim/phail_unified/lerobot/ee/` | — |
 | openpi | `ee` | `s3://interim/phail_unified/openpi/ee/` | — |
-
-## Two LeRobot Versions
-
-Positronic ships two LeRobot integrations because other vendors (GR00T, OpenPI) depend on the 0.3.3 dataset format:
-
-| | LeRobot 0.4.x | LeRobot 0.3.3 |
-|---|---|---|
-| **Convert** | `lerobot-convert` | `lerobot-0_3_3-convert` |
-| **Train** | `lerobot-train` | `lerobot-0_3_3-train` |
-| **Serve** | `lerobot-server` | `lerobot-0_3_3-server` |
-| **Codecs** | `@positronic.vendors.lerobot.codecs.*` | `@positronic.vendors.lerobot_0_3_3.codecs.*` |
-| **GPU** | Desktop (consumer GPU) | Desktop (consumer GPU) |
-
-`lerobot-0_3_3-convert` is also used for GR00T and OpenPI dataset conversion.
-
-## Machines
-
-| Context | GPU | Use Case |
-|---------|-----|----------|
-| `desktop` | RTX 3060 (12GB) | Dataset generation, lerobot training/inference, GR00T inference |
-| `notebook` | RTX 4060 Laptop (8GB) | Light tasks, testing, dataset generation |
-| `vm-train` | H100 (80GB) | GR00T/OpenPI training and inference |
-| `vm-train2` | H100 (80GB) | GR00T/OpenPI training and inference |
-| `vm-train3` | H100 (80GB) | GR00T/OpenPI training and inference |
-
-Only GR00T and OpenPI training/inference require H100. Everything else runs on `desktop`.
-
-### VM Management
-
-**IMPORTANT**: Always check if a VM is running a job before using it.
-
-```bash
-# Check connectivity and running containers
-ssh -o ConnectTimeout=5 vertix@vm-train 'echo connected' 2>&1
-docker --context vm-train ps 2>/dev/null
-
-# Start a stopped VM
-../internal/scripts/start.sh train   # or train2, train3
-```
 
 ## Docker Images
 
+Serverless jobs/endpoints pull `positro/<vendor>:latest` from the registry — they do
+**not** mount local source. Any code change requires a rebuild + push of the
+`:latest` tag before it takes effect remotely.
+
 | Image | Source | Used For |
 |-------|--------|----------|
-| `positro/positronic` | `positronic/docker/` | Dataset conversion, lerobot training/inference |
-| `positro/gr00t` | `positronic/docker/` (depends on `positro/gr00t-base`) | GR00T training and inference |
-| `positro/openpi` | `positronic/docker/` (depends on `positro/openpi-base`) | OpenPI training and inference |
-| `positro/dreamzero` | `positronic/docker/` (depends on `positro/dreamzero-base`) | DreamZero inference |
-
-Images are tagged by branch name. `make push` in `docker/` auto-derives the tag from the current git branch.
+| `positro/positronic` | `positronic/docker/` | Conversion, lerobot / SmolVLA train+serve |
+| `positro/openpi` | `positronic/docker/` (depends on `positro/openpi-base`) | OpenPI train+serve, openpi stats |
+| `positro/gr00t` | `positronic/docker/` (depends on `positro/gr00t-base`) | GR00T train+serve |
 
 ```bash
-cd /home/vertix/dev/positronic/docker
-make push-training  # Just positro/positronic
-make push-groot     # positro/gr00t (rebuild base first if ../gr00t changed)
-make push-openpi    # positro/openpi (rebuild base first if ../openpi changed)
-make push           # All images
+cd docker
+make push-training  # positro/positronic
+make push-openpi    # positro/openpi (rebuild positro/openpi-base first if ../openpi changed)
+make push-groot     # positro/gr00t (rebuild positro/gr00t-base first if ../gr00t changed)
+make push           # all images
 ```
 
-For cross-repo base image rebuilds: `cd ../gr00t/docker && make push` then `cd ../positronic/docker && make push-groot`.
+Cross-repo base rebuilds: `cd ../openpi/docker && make push` (or `../gr00t/docker`),
+then `cd ../positronic/docker && make push-openpi`. See `docker/CONTEXTS.md`.
+
+## One-time setup
+
+The pipeline reads credentials from Nebius MysteryBox secrets and uses a shared
+filesystem for `uv`/HF/openpi caches. This is already provisioned for the
+Positronic-internal project. To (re)create it for a different project, follow
+"One-time setup" in `workflows/nebius/README.md` (four MysteryBox secrets +
+one `network_ssd` filesystem).
+
+Defaults point at the Positronic-internal project; override via env when needed:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NEBIUS_PARENT_ID` | `project-e00f38wexevrr52b8j` | Project to create jobs/endpoints in |
+| `NEBIUS_SUBNET_ID` | `vpcsubnet-e00pk1j1x6hjmr4m92` | VPC subnet |
+| `WANDB_SECRET` | `positronic-serverless-wandb-api-key` | MysteryBox name for WandB key. Set empty to disable wandb. |
+| `NEBIUS_CACHE_FS` | `computefilesystem-e00f6jyfr5wkawyrab` | Shared cache filesystem **ID** (mounted RW at `/cache`) |
 
 ## Pipeline
 
-All commands run from `docker/` directory. Use `CACHE_ROOT=/home/vertix` when targeting remote Docker contexts from Mac.
-
 ### 1. Convert Dataset
 
-```bash
-# GR00T / OpenPI / LeRobot 0.3.3 — use lerobot-0_3_3-convert
-CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always lerobot-0_3_3-convert convert \
-  --dataset.dataset=@positronic.cfg.ds.phail.sim_stack_cubes \
-  --dataset.codec=@positronic.vendors.gr00t.codecs.ee_rot6d \
-  --output_dir=s3://interim/sim_stack/groot/ee_rot6d/
+`convert.sh` runs the right converter + codec for the vendor as a CPU Job. For
+`openpi` it **blocks until convert finishes, then chains a stats job** and prints
+the `--stats_path` to use for training.
 
-# LeRobot 0.4.x (SmolVLA) — use lerobot-convert
-CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always lerobot-convert convert \
+```bash
+bash workflows/nebius/convert.sh lerobot_0_3_3 \
   --dataset.dataset=@positronic.cfg.ds.phail.sim_stack_cubes \
-  --dataset.codec=@positronic.vendors.lerobot.codecs.ee \
-  --output_dir=s3://interim/sim_stack/lerobot_04/ee/
+  --dataset.codec=@positronic.vendors.lerobot_0_3_3.codecs.ee \
+  --output_dir=s3://interim/sim_stack/lerobot/ee/
+
+bash workflows/nebius/convert.sh openpi \
+  --dataset.dataset=@positronic.cfg.ds.phail.sim_stack_cubes \
+  --dataset.codec=@positronic.vendors.openpi.codecs.ee \
+  --output_dir=s3://interim/sim_stack/openpi/ee/
+# → also submits openpi-stats-* ; note the printed --stats_path=<...>/stats/assets/
 ```
 
-**Default codecs**: groot `ee_rot6d`, lerobot `ee`, openpi `ee`.
+Default codecs: gr00t `ee_rot6d`, lerobot `ee`, openpi `ee`,
+lerobot_0_3_3 `ee`.
 
 ### 2. Train
 
-Each vendor has a training script at `positronic/vendors/{vendor}/train.py` with usage examples in its docstring. Read the script's docstring for available subcommands and parameters.
+`train.sh` runs `python -m positronic.vendors.<vendor>.train` as an H100 Job. The
+dataset bucket is mounted read-only via Mountpoint-S3 at `/mnt/input` for
+`lerobot_0_3_3`; other vendors stream via `pos3` from the `s3://` path directly.
+`--output_dir` / `--output_path` stays an `s3://` URL (handled by `pos3`).
 
-General pattern:
+Read each vendor's `positronic/vendors/<vendor>/train.py` docstring for its exact
+flags. `--resume=true` resumes an interrupted run.
 
 ```bash
-# From docker/ directory
-[CACHE_ROOT=/home/vertix] docker [--context <machine>] compose run --rm --pull always <service> \
-  [subcommand] --input_path=<interim_path> --exp_name=<name> --output_dir=<checkpoint_path> ...
+# ACT / SmolVLA
+bash workflows/nebius/train.sh lerobot_0_3_3 \
+  --input_path=s3://interim/sim_stack/lerobot/ee/ \
+  --exp_name=act_sim_stack_v1 \
+  --output_dir=s3://checkpoints/sim_stack/lerobot/ \
+  --num_train_steps=50000 --save_freq=10000
+
+# OpenPI — needs --stats_path from the convert step's chained stats job
+bash workflows/nebius/train.sh openpi \
+  --input_path=s3://interim/sim_stack/openpi/ee/ \
+  --stats_path=s3://interim/sim_stack/openpi/stats/assets/ \
+  --output_path=s3://checkpoints/sim_stack/openpi/ \
+  --exp_name=pi_sim_stack_v1 \
+  --num_train_steps=30000
+# openpi checkpoint lands at <output_path>/pi05_positronic_lowmem/<exp_name>/
 ```
 
-| Vendor | Docker service | Machine | Script (read docstring for usage) |
-|--------|---------------|---------|-----------------------------------|
-| LeRobot 0.4.x (SmolVLA) | `lerobot-train` | desktop | `positronic/vendors/lerobot/train.py` |
-| LeRobot 0.3.3 (ACT) | `lerobot-0_3_3-train` | desktop | `positronic/vendors/lerobot_0_3_3/train.py` |
-| GR00T | `groot-train` | H100 | `positronic/vendors/gr00t/train.py` |
-| OpenPI | `openpi-train` (needs `openpi-stats` first) | H100 | `positronic/vendors/openpi/train.py` |
+The first job after a dependency change pays the full `uv`/HF cold-download
+(~10 min); later jobs reuse `/cache` and start faster.
 
-**Resume any training**: add `--resume=true` to the same command.
+### 3. Serve a Checkpoint
 
-### 3. Start Inference Server
-
-All servers use subcommands: `serve` for custom checkpoints, or named presets like `phail`, `sim_stack`.
+`serve.sh <vendor> <unique-endpoint-name> [server args...]` creates a public
+Endpoint on H100 port 8000, blocks until a public IP is allocated, and prints a
+banner with the URL + teardown command. The container then takes ~10–15 min more
+to `uv sync` and load the model.
 
 ```bash
-# LeRobot 0.4.x SmolVLA — preset (desktop)
-CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always --service-ports lerobot-server \
-  phail
+# Public ACT demo checkpoint (no S3 creds needed inside container)
+bash workflows/nebius/serve.sh lerobot_0_3_3 my-act-demo demo
 
-# LeRobot 0.4.x SmolVLA — custom checkpoint (desktop)
-CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always --service-ports lerobot-server \
-  --checkpoints_dir=s3://checkpoints/sim_stack/lerobot_04/smolvla_150k/
-
-# LeRobot 0.3.3 ACT (desktop) — requires subcommand
-CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always --service-ports lerobot-0_3_3-server \
-  serve \
+# Your own checkpoint (subcommand differs per vendor)
+bash workflows/nebius/serve.sh lerobot_0_3_3 act-server serve \
   --checkpoints_dir=s3://checkpoints/sim_stack/lerobot/230226-ee/
 
-# GR00T (desktop or H100) — codec subcommand required
-CACHE_ROOT=/home/vertix docker --context desktop compose run --rm --pull always --service-ports groot-server \
-  ee_rot6d \
-  --checkpoints_dir=s3://checkpoints/sim_stack/groot/ee_rot6d/230226/
-
-# OpenPI (H100) — requires subcommand
-docker --context vm-train compose run --rm --pull always --service-ports openpi-server \
-  serve \
+bash workflows/nebius/serve.sh openpi pi-server serve \
   --checkpoints_dir=s3://checkpoints/sim_stack/openpi/ee/pi05_positronic_lowmem/230226/
+
+bash workflows/nebius/serve.sh gr00t groot-server ee_rot6d \
+  --checkpoints_dir=s3://checkpoints/sim_stack/groot/ee_rot6d/230226/
 ```
 
-All servers expose WebSocket API on port 8000. Available presets per server:
+Sanity-check once warm:
 
-| Server | Presets |
-|--------|---------|
-| `lerobot-server` | `serve`, `phail` |
-| `lerobot-0_3_3-server` | `serve`, `phail`, `sim_stack` |
-| `groot-server` | `serve`, `ee`, `ee_rot6d`, `phail`, `sim_stack`, ... |
-| `openpi-server` | `serve`, `phail`, `sim_stack` |
+```bash
+curl http://<endpoint-ip>:8000/api/v1/models   # → {"models": ["<step>"]}
+```
+
+Tear down (releases compute + public IP):
+
+```bash
+bash workflows/nebius/stop.sh my-act-demo
+```
+
+To pause without releasing the static IP: `nebius ai endpoint stop <id>`
+(`start` resumes).
 
 ### 4. Run Inference Client
 
-```bash
-# With GUI
-uv run positronic-inference sim \
-  --policy=.remote --policy.host=desktop --policy.port=8000 \
-  --driver.show_gui
+Unchanged — point the existing CLI at the endpoint IP:
 
-# Headless
-MUJOCO_GL=egl uv run positronic-inference sim \
-  --policy=.remote --policy.host=desktop --policy.port=8000 \
-  --driver.show_gui=False --driver.simulation_time=10
+```bash
+uv run positronic-inference sim \
+  --policy=.remote --policy.host=<endpoint-ip> --policy.port=8000 \
+  --output_dir=s3://inference/sim_stack_validation/<run_name>/<vendor>/
 ```
 
-## Sim Eval End-to-End
+View results locally (top-level dir compares multiple runs):
 
 ```bash
-# 1. Start server in background (-d flag)
-# Check the server script's cfn.cli() to determine if a subcommand is needed (see table above)
-CACHE_ROOT=/home/vertix docker --context <machine> compose run -d --rm --pull always --service-ports <server-service> \
-  [subcommand] --checkpoints_dir=<checkpoint_path>
-
-# Wait for ready
-docker --context <machine> logs --tail 5 <container_id>
-# Look for: "Uvicorn running on http://0.0.0.0:8000"
-
-# 2. Run sim episodes
-CACHE_ROOT=/home/vertix docker --context <machine> compose run --rm --pull always positronic-inference \
-  sim --policy=.remote --policy.host=<server_machine> --policy.port=8000 \
-  --driver.num_iterations=50 --driver.simulation_time=30 \
-  --output_dir=s3://inference/sim_stack_validation/<run_name>/<model_type>
-
-# 3. View results (locally) — pass top-level dir to compare multiple runs
 uv run python -m positronic.cfg.eval sim \
   --dataset.base.path=s3://inference/sim_stack_validation/<run_name> --reset_cache --https
-# Opens http://localhost:5001
-
-# 4. Clean up
-docker --context <machine> stop <container_id>
+# http://localhost:5001
 ```
 
-**Naming**: `s3://inference/sim_stack_validation/<DDMMYY[-suffix]>/<model_type>/` where model_type is `lerobot`, `groot`, `openpi`, or `dreamzero`.
+## End-to-End Validation
 
-## Monitoring Background Jobs
+`e2e.sh` runs the whole pipeline for one vendor (convert → train 200 steps → serve
+→ `/api/v1/models` smoke → teardown), polling Nebius and printing a per-stage
+status line. ~$2–5 per run. Use it to verify a vendor still works after an
+image/dependency/script change.
 
 ```bash
-grep -o '[0-9]*%' /tmp/claude/-home-vertix-dev-positronic/tasks/<task_id>.output | tail -1
-tail -50 /tmp/claude/-home-vertix-dev-positronic/tasks/<task_id>.output
-grep -i "error\|complete\|finished" /tmp/claude/-home-vertix-dev-positronic/tasks/<task_id>.output
+bash workflows/nebius/e2e.sh openpi
+
+# All four — seed the cache with one first, then fan out warm
+bash workflows/nebius/e2e.sh lerobot_0_3_3
+for v in lerobot openpi gr00t; do bash workflows/nebius/e2e.sh "$v" & done; wait
 ```
+
+Override via env: `E2E_S3_BASE`, `E2E_EXP_NAME`, `E2E_LOG_ROOT`, `E2E_DATASET`.
+
+## Monitoring Jobs & Endpoints
+
+```bash
+# Jobs
+nebius ai job get  <aijob-id>                 # state: PROVISIONING/STARTING/RUNNING/COMPLETED/FAILED
+nebius ai job logs <aijob-id> --follow
+nebius ai job list --parent-id "$NEBIUS_PARENT_ID" --format json | jq '.items[].metadata.name'
+
+# Endpoints
+nebius ai endpoint get  <endpoint-id>
+nebius ai endpoint logs <endpoint-id> --follow   # wait for "INFO Started server process"
+nebius ai endpoint list --parent-id "$NEBIUS_PARENT_ID" --format json
+```
+
+The `create` call streams the job ID and ready-to-paste follow-up commands.
 
 ## Common Issues
 
-- **CUDA OOM**: Each GR00T server uses ~6GB. On 12GB GPUs (desktop), only one server at a time.
-- **Port conflict**: `docker ps -a | grep -E "groot-server|openpi-server"` then `docker stop <id>`.
-- **VM unreachable**: `../internal/scripts/start.sh train2` then verify SSH.
-- **Headless rendering**: Use `MUJOCO_GL=egl` env var.
+- **Job stuck in PROVISIONING/STARTING**: normal — image pull + `uv` resolve.
+  First run on a cold cache is ~10 min; check `nebius ai job logs <id> --follow`.
+- **OpenPI train can't find stats**: pass `--stats_path=<output_dir-sibling>/stats/assets/`
+  exactly as printed by `convert.sh openpi`. Stats must be a *sibling* of the
+  dataset dir (pos3 forbids upload-inside-download).
+- **gr00t with read-only input mount fails**: only `lerobot_0_3_3` uses the RO
+  Mountpoint-S3 mount; gr00t writes back into the dataset dir, so it streams via
+  `pos3` from the `s3://` path instead (handled automatically by `train.sh`).
+- **Endpoint name collision**: names must be unique in the project. Pick a fresh
+  name or `stop.sh` the old one.
+- **Cold cache + parallel fan-out**: 4 jobs racing to populate `/cache` thrash;
+  seed with one vendor, then fan out the rest warm (see `e2e.sh` header).
+- **Wipe the shared cache**: throwaway `busybox` job mounting the FS — see
+  "Cleaning the shared cache" in `workflows/nebius/README.md`.
 
 ### Nebius Auth (Headless)
 
 1. `nebius --no-browser --auth-timeout 5m iam whoami 2>&1` — extract auth URL
 2. User clicks URL, browser redirects to `http://127.0.0.1:PORT/?code=XXX&state=YYY`
 3. `curl -s "http://127.0.0.1:PORT/?code=XXX&state=YYY"` on the machine running nebius
-4. Auth completes, VM scripts work
+4. Auth completes, scripts work
