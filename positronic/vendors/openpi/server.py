@@ -190,8 +190,11 @@ class InferenceServer(VendorServer):
         openpi_ws_port: int = 8001,
         metadata: dict[str, Any] | None = None,
         recording_dir: str | None = None,
+        idle_timeout_min: float | None = 20,
     ):
-        super().__init__(codec=codec, host=host, port=port, recording_dir=recording_dir)
+        super().__init__(
+            codec=codec, host=host, port=port, recording_dir=recording_dir, idle_timeout_min=idle_timeout_min
+        )
         self.checkpoints_dir = str(checkpoints_dir).rstrip('/')
         self.config_name = config_name
         self.checkpoint = checkpoint
@@ -280,6 +283,7 @@ class InferenceServer(VendorServer):
     port=8000,
     openpi_ws_port=8001,
     recording_dir=None,
+    idle_timeout_min=20,
 )
 def server(
     codec,
@@ -290,6 +294,7 @@ def server(
     port: int,
     openpi_ws_port: int,
     recording_dir: str | None,
+    idle_timeout_min: float | None,
 ):
     """OpenPI inference server.
 
@@ -316,6 +321,7 @@ def server(
         port=port,
         openpi_ws_port=openpi_ws_port,
         recording_dir=recording_dir,
+        idle_timeout_min=idle_timeout_min,
     ).serve()
 
 

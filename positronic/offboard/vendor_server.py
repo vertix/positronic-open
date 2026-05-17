@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any
@@ -113,12 +114,23 @@ class VendorServer(ABC):
         resolve_model(None) → create_policy → reset → warmup
     """
 
-    def __init__(self, codec: Codec | None, host: str = '0.0.0.0', port: int = 8000, recording_dir: str | None = None):
+    def __init__(
+        self,
+        codec: Codec | None,
+        host: str = '0.0.0.0',
+        port: int = 8000,
+        recording_dir: str | None = None,
+        idle_timeout_min: float | None = 20,
+    ):
         self.codec = codec
         self.host = host
         self.port = port
         if recording_dir:
             self.codec = RecordingCodec(self.codec, pos3.sync(recording_dir))
+
+        self.idle_timeout_min = idle_timeout_min
+        self._active_sessions = 0
+        self._last_activity = time.monotonic()
 
         self.metadata: dict[str, Any] = {}
 
@@ -168,6 +180,8 @@ class VendorServer(ABC):
         await websocket.accept()
         logger.info(f'Connected to {websocket.client} requesting {model_id or "default"}')
 
+        self._active_sessions += 1
+        self._last_activity = time.monotonic()
         model_handle = None
         try:
             model_handle, extra_meta = await self.resolve_model(model_id, websocket)
@@ -180,6 +194,7 @@ class VendorServer(ABC):
             try:
                 while True:
                     message = await websocket.receive_bytes()
+                    self._last_activity = time.monotonic()
                     try:
                         raw_obs = deserialise(message)
                         actions = policy.select_action(raw_obs)
@@ -198,6 +213,8 @@ class VendorServer(ABC):
             except Exception:
                 logger.debug('Failed to send error to client', exc_info=True)
         finally:
+            self._active_sessions = max(0, self._active_sessions - 1)
+            self._last_activity = time.monotonic()
             if model_handle is not None:
                 await self.release_policy(model_handle)
 
@@ -207,11 +224,33 @@ class VendorServer(ABC):
         policy.reset()
         await self.warmup(policy)
 
+    async def _idle_watchdog(self, server: uvicorn.Server):
+        timeout_s = self.idle_timeout_min * 60
+        poll = min(timeout_s, 30)
+        while not server.should_exit:
+            await asyncio.sleep(poll)
+            if self._active_sessions > 0:
+                continue
+            idle = time.monotonic() - self._last_activity
+            if idle >= timeout_s:
+                logger.warning(f'No activity for {idle:.0f}s (idle timeout {timeout_s:.0f}s); shutting down server')
+                server.should_exit = True
+                return
+
     def serve(self):
         async def _run():
             await self._startup()
             config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level='info')
-            await uvicorn.Server(config).serve()
+            server = uvicorn.Server(config)
+            self._last_activity = time.monotonic()
+            watchdog = None
+            if self.idle_timeout_min and self.idle_timeout_min > 0:
+                watchdog = asyncio.create_task(self._idle_watchdog(server))
+            try:
+                await server.serve()
+            finally:
+                if watchdog is not None:
+                    watchdog.cancel()
 
         try:
             asyncio.run(_run())

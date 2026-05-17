@@ -202,8 +202,11 @@ class InferenceServer(VendorServer):
         roboarena_port: int = 1234,
         enable_dit_cache: bool = True,
         recording_dir: str | None = None,
+        idle_timeout_min: float | None = 20,
     ):
-        super().__init__(codec=codec, host=host, port=port, recording_dir=recording_dir)
+        super().__init__(
+            codec=codec, host=host, port=port, recording_dir=recording_dir, idle_timeout_min=idle_timeout_min
+        )
         self.model_path = model_path
         self.dreamzero_venv = Path(dreamzero_venv)
         self.backbone = backbone
@@ -272,6 +275,7 @@ class InferenceServer(VendorServer):
     port=8000,
     enable_dit_cache=True,
     recording_dir=None,
+    idle_timeout_min=20,
 )
 def server(
     codec: Codec | None,
@@ -282,6 +286,7 @@ def server(
     port: int,
     enable_dit_cache: bool,
     recording_dir: str | None,
+    idle_timeout_min: float | None,
 ):
     """Starts the DreamZero inference server."""
     with pos3.mirror():
@@ -294,6 +299,7 @@ def server(
             port=port,
             enable_dit_cache=enable_dit_cache,
             recording_dir=recording_dir,
+            idle_timeout_min=idle_timeout_min,
         ).serve()
 
 
