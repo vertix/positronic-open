@@ -64,9 +64,18 @@ reconstruct the pipeline.
 
 ## Docker Images
 
-Serverless jobs/endpoints pull `positro/<vendor>:latest` from the registry — they do
-**not** mount local source. Any code change requires a rebuild + push of the
-`:latest` tag before it takes effect remotely.
+Serverless jobs/endpoints pull `positro/<vendor>:${NEBIUS_IMAGE_TAG:-latest}` from the
+registry — they do **not** mount local source, so any code change needs a rebuild + push
+before it takes effect remotely.
+
+**Tag gotcha:** locally `make push-*` pushes `:<branch>` and `:<sha>` but **not** `:latest`
+(that only happens under `CI`). So after a code change, either:
+- `cd docker && CI=1 make push-<x>` — updates `:latest` (what the workflow pulls by default), or
+- `cd docker && make push-<x> IMAGE_TAG=<branch>` then run the workflow with
+  `NEBIUS_IMAGE_TAG=<branch>` — tests a branch build without clobbering `:latest`.
+
+Plain `make push-<x>` with no `CI`/`IMAGE_TAG`/`NEBIUS_IMAGE_TAG` leaves serverless
+running the **old** `:latest` image — the change silently won't take effect.
 
 | Image | Source | Used For |
 |-------|--------|----------|

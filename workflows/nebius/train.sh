@@ -20,6 +20,10 @@ WANDB_SECRET="${WANDB_SECRET-positronic-serverless-wandb-api-key}"
 # Shared filesystem (RWX) holding the uv / HF / openpi caches across cold starts.
 # pos3's cache stays on local disk (~/.cache/positronic/s3) — never redirected here.
 CACHE_FS="${NEBIUS_CACHE_FS:-computefilesystem-e00f6jyfr5wkawyrab}"
+# Docker image tag pulled by the job. `make push-*` only updates `:latest` under
+# CI; locally it pushes `:<branch>`/`:<sha>`. To test a branch build remotely:
+# `make push-<x> IMAGE_TAG=<branch>` then run with `NEBIUS_IMAGE_TAG=<branch>`.
+IMAGE_TAG="${NEBIUS_IMAGE_TAG:-latest}"
 
 if [ $# -lt 1 ]; then
   cat >&2 <<'EOF'
@@ -42,10 +46,10 @@ VENDOR="$1"
 shift
 
 case "$VENDOR" in
-  lerobot_0_3_3) IMAGE="positro/positronic:latest"; EXTRA="--extra lerobot_0_3_3 " ;;
-  lerobot)       IMAGE="positro/positronic:latest"; EXTRA="--extra lerobot " ;;
-  openpi)        IMAGE="positro/openpi:latest";     EXTRA="" ;;
-  gr00t)         IMAGE="positro/gr00t:latest";      EXTRA="" ;;
+  lerobot_0_3_3) IMAGE="positro/positronic:${IMAGE_TAG}"; EXTRA="--extra lerobot_0_3_3 " ;;
+  lerobot)       IMAGE="positro/positronic:${IMAGE_TAG}"; EXTRA="--extra lerobot " ;;
+  openpi)        IMAGE="positro/openpi:${IMAGE_TAG}";     EXTRA="" ;;
+  gr00t)         IMAGE="positro/gr00t:${IMAGE_TAG}";      EXTRA="" ;;
   *)
     echo "Unknown vendor: '$VENDOR'. Supported: lerobot_0_3_3 | lerobot | openpi | gr00t" >&2
     exit 1
