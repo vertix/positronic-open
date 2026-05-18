@@ -43,7 +43,7 @@ class InferenceServer(VendorServer):
         metadata: dict[str, Any] | None = None,
         device: str | None = None,
         recording_dir: str | None = None,
-        idle_timeout_min: float | None = 20,
+        idle_timeout_min: float | None = None,
     ):
         super().__init__(
             codec=codec, host=host, port=port, recording_dir=recording_dir, idle_timeout_min=idle_timeout_min
@@ -106,7 +106,7 @@ def act(checkpoint_path: str) -> PreTrainedPolicy:
     port=8000,
     host='0.0.0.0',
     recording_dir=None,
-    idle_timeout_min=20,
+    idle_timeout_min=None,
 )
 def main(
     policy_factory: Callable[[str], PreTrainedPolicy],
@@ -143,7 +143,7 @@ _DEMO_CHECKPOINT = 's3://positronic-public/checkpoints/sim_stack_cubes/act/'
 
 
 @cfn.config(
-    policy_factory=act, codec=lerobot_codecs.ee, checkpoint=None, port=8000, host='0.0.0.0', idle_timeout_min=20
+    policy_factory=act, codec=lerobot_codecs.ee, checkpoint=None, port=8000, host='0.0.0.0', idle_timeout_min=None
 )
 def demo(policy_factory, checkpoint, codec, port, host, idle_timeout_min):
     from positronic.cfg.ds import PUBLIC

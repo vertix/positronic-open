@@ -70,6 +70,14 @@ case "$VENDOR" in
     ;;
 esac
 
+# Serverless endpoints have no native idle/scale-to-zero, so opt the server into
+# self-shutdown (the base default is no timeout). Override the window with
+# NEBIUS_IDLE_TIMEOUT_MIN; skip injection if the caller already passed one.
+case " $* " in
+  *" --idle_timeout_min="*|*" --idle_timeout_min "*) ;;
+  *) set -- "$@" "--idle_timeout_min=${NEBIUS_IDLE_TIMEOUT_MIN:-20}" ;;
+esac
+
 SERVER_ARGS="run --python 3.11 ${EXTRA}python -m positronic.vendors.${VENDOR}.server $*"
 
 echo "Creating $VENDOR endpoint '$NAME'..."

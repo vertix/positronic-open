@@ -120,7 +120,7 @@ class VendorServer(ABC):
         host: str = '0.0.0.0',
         port: int = 8000,
         recording_dir: str | None = None,
-        idle_timeout_min: float | None = 20,
+        idle_timeout_min: float | None = None,
     ):
         self.codec = codec
         self.host = host

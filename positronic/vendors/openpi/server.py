@@ -190,7 +190,7 @@ class InferenceServer(VendorServer):
         openpi_ws_port: int = 8001,
         metadata: dict[str, Any] | None = None,
         recording_dir: str | None = None,
-        idle_timeout_min: float | None = 20,
+        idle_timeout_min: float | None = None,
     ):
         super().__init__(
             codec=codec, host=host, port=port, recording_dir=recording_dir, idle_timeout_min=idle_timeout_min
@@ -283,7 +283,7 @@ class InferenceServer(VendorServer):
     port=8000,
     openpi_ws_port=8001,
     recording_dir=None,
-    idle_timeout_min=20,
+    idle_timeout_min=None,
 )
 def server(
     codec,
