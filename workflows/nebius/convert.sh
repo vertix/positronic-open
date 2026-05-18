@@ -18,6 +18,10 @@ SUBNET_ID="${NEBIUS_SUBNET_ID:-vpcsubnet-e00pk1j1x6hjmr4m92}"
 # Shared filesystem (RWX) holding the uv / HF / openpi caches across cold starts.
 # pos3's cache stays on local disk (~/.cache/positronic/s3) — never redirected here.
 CACHE_FS="${NEBIUS_CACHE_FS:-computefilesystem-e00f6jyfr5wkawyrab}"
+# Docker image tag pulled by the job. `make push-*` only updates `:latest` under
+# CI; locally it pushes `:<branch>`/`:<sha>`. To convert with a branch build:
+# `make push-training IMAGE_TAG=<branch>` then run with `NEBIUS_IMAGE_TAG=<branch>`.
+IMAGE_TAG="${NEBIUS_IMAGE_TAG:-latest}"
 
 if [ $# -lt 1 ]; then
   cat >&2 <<'EOF'
@@ -83,7 +87,7 @@ CREATE_OUT=$(nebius ai job create \
   --parent-id "$PARENT_ID" \
   --subnet-id "$SUBNET_ID" \
   --name "$JOB_NAME" \
-  --image positro/positronic:latest \
+  --image "positro/positronic:${IMAGE_TAG}" \
   --container-command uv \
   --args "$CONVERT_ARGS" \
   --platform cpu-e2 \
@@ -149,7 +153,7 @@ nebius ai job create \
   --parent-id "$PARENT_ID" \
   --subnet-id "$SUBNET_ID" \
   --name "$STATS_JOB_NAME" \
-  --image positro/openpi:latest \
+  --image "positro/openpi:${IMAGE_TAG}" \
   --container-command uv \
   --args "$STATS_ARGS" \
   --platform cpu-e2 \

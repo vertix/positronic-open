@@ -70,7 +70,9 @@ nebius mysterybox secret create \
 The names matter — `convert.sh`, `train.sh`, and `serve.sh` reference the secrets by name. If a
 secret with one of these names already exists, the create call fails; skip it.
 
-Also create one shared filesystem for the dependency caches. Every job and endpoint mounts it
+## Shared cache filesystem
+
+Create one shared filesystem for the dependency caches. Every job and endpoint mounts it
 read-write at `/cache`; `uv`, HuggingFace, and openpi asset downloads land there and persist
 across cold starts, so only the first run after a dependency change pays the download cost:
 
@@ -91,38 +93,8 @@ The filesystem is RWX — many jobs/endpoints attach it concurrently. pos3's own
 (`~/.cache/positronic/s3/`) is deliberately *not* redirected here; it stays on each container's
 local disk and re-fetches from S3 by design.
 
-### Cleaning the shared cache
-
-There is no file browser for the filesystem — to inspect or wipe it you mount it in a
-throwaway job. Make sure no jobs/endpoints are using the cache first (a wipe while a
-warm job reads it will break that job).
-
-Inspect usage:
-
-```bash
-nebius ai job create --parent-id "$PARENT_ID" --subnet-id "$SUBNET_ID" \
-  --name cache-du --image busybox:latest \
-  --container-command du --args '-sh /cache /cache/uv /cache/hf /cache/openpi' \
-  --platform cpu-e2 --preset 4vcpu-16gb --timeout 1h \
-  --volume "$NEBIUS_CACHE_FS:/cache:rw"
-# then: nebius ai job logs <aijob-id>
-```
-
-Wipe everything (full reset — the next run repays the cold download):
-
-```bash
-nebius ai job create --parent-id "$PARENT_ID" --subnet-id "$SUBNET_ID" \
-  --name cache-wipe --image busybox:latest \
-  --container-command find --args '/cache -mindepth 1 -delete' \
-  --platform cpu-e2 --preset 4vcpu-16gb --timeout 1h \
-  --volume "$NEBIUS_CACHE_FS:/cache:rw"
-```
-
-To clear only one tool's cache, target its subdir, e.g. `--args '/cache/uv -mindepth 1
--delete'`. Two gotchas: `--volume` needs the filesystem **ID** (not name), and Nebius
-space-splits `--args`, so use a no-shell command (`find`/`du`) — a quoted `sh -c "..."`
-gets torn apart. Deleting and recreating the filesystem also works but loses the warm
-cache for every workflow.
+To inspect or wipe this filesystem later, see
+[Appendix: Cleaning the shared cache](#appendix-cleaning-the-shared-cache).
 
 ## Convert a Positronic dataset
 
@@ -311,6 +283,7 @@ override them** with their own project + subnet IDs:
 | `NEBIUS_SUBNET_ID` | `vpcsubnet-e00pk1j1x6hjmr4m92` | VPC subnet for the compute instance |
 | `WANDB_SECRET` | `positronic-serverless-wandb-api-key` | MysteryBox secret name for the WandB key. Set empty (`WANDB_SECRET=`) to skip wandb entirely. |
 | `NEBIUS_CACHE_FS` | `computefilesystem-e00f6jyfr5wkawyrab` | Shared filesystem **ID** (not name — `--volume` rejects names) mounted RW at `/cache` for the `uv`/HF/openpi caches (`UV_CACHE_DIR`, `HF_HOME`, `OPENPI_DATA_HOME`). Not used by pos3. The default is Positronic-internal; external users must override with their own filesystem ID. |
+| `NEBIUS_IMAGE_TAG` | `latest` | Docker image tag the job/endpoint pulls (`positro/<image>:<tag>`). `cd docker && make push-* IMAGE_TAG=<branch>` pushes that tag unconditionally; set `NEBIUS_IMAGE_TAG=<branch>` to run a branch build remotely without clobbering `:latest`. `make push-*` only updates `:latest` when run with `CI` set. Note `convert.sh openpi` chains a stats job on the `positro/openpi` image, so with `NEBIUS_IMAGE_TAG=<branch>` you must also have pushed `positro/openpi:<branch>` (not just `positro/positronic:<branch>`); otherwise leave `NEBIUS_IMAGE_TAG` unset so stats uses `:latest`. |
 
 Other operational settings (platform/preset, MysteryBox secret names, S3 endpoint URL, region)
 are hardcoded — change them by editing the script directly. The vendor positional arg selects
@@ -322,3 +295,36 @@ the container image and `uv` extras:
 | `lerobot` (SmolVLA) | `positro/positronic` | `--extra lerobot` |
 | `openpi` | `positro/openpi` | `--extra openpi` (serve); none for train/stats |
 | `gr00t` | `positro/gr00t` | _(none — `/gr00t` is co-installed)_ |
+
+## Appendix: Cleaning the shared cache
+
+There is no file browser for the [shared cache filesystem](#shared-cache-filesystem) — to
+inspect or wipe it you mount it in a throwaway job. Make sure no jobs/endpoints are using the
+cache first (a wipe while a warm job reads it will break that job).
+
+Inspect usage:
+
+```bash
+nebius ai job create --parent-id "$PARENT_ID" --subnet-id "$SUBNET_ID" \
+  --name cache-du --image busybox:latest \
+  --container-command du --args '-sh /cache /cache/uv /cache/hf /cache/openpi' \
+  --platform cpu-e2 --preset 4vcpu-16gb --timeout 1h \
+  --volume "$NEBIUS_CACHE_FS:/cache:rw"
+# then: nebius ai job logs <aijob-id>
+```
+
+Wipe everything (full reset — the next run repays the cold download):
+
+```bash
+nebius ai job create --parent-id "$PARENT_ID" --subnet-id "$SUBNET_ID" \
+  --name cache-wipe --image busybox:latest \
+  --container-command find --args '/cache -mindepth 1 -delete' \
+  --platform cpu-e2 --preset 4vcpu-16gb --timeout 1h \
+  --volume "$NEBIUS_CACHE_FS:/cache:rw"
+```
+
+To clear only one tool's cache, target its subdir, e.g. `--args '/cache/uv -mindepth 1
+-delete'`. Two gotchas: `--volume` needs the filesystem **ID** (not name), and Nebius
+space-splits `--args`, so use a no-shell command (`find`/`du`) — a quoted `sh -c "..."`
+gets torn apart. Deleting and recreating the filesystem also works but loses the warm
+cache for every workflow.

@@ -33,8 +33,11 @@ class InferenceServer(VendorServer):
         port: int = 8000,
         device: str | None = None,
         recording_dir: str | None = None,
+        idle_timeout_min: float | None = None,
     ):
-        super().__init__(codec=codec, host=host, port=port, recording_dir=recording_dir)
+        super().__init__(
+            codec=codec, host=host, port=port, recording_dir=recording_dir, idle_timeout_min=idle_timeout_min
+        )
         self.checkpoints_dir = str(checkpoints_dir).rstrip('/') + '/checkpoints'
         self.checkpoint = checkpoint
         self.device = device or _detect_device()
@@ -73,10 +76,28 @@ class InferenceServer(VendorServer):
         await self.policy_manager.release_session()
 
 
-@cfn.config(codec=lerobot_codecs.ee, checkpoint=None, port=8000, host='0.0.0.0', recording_dir=None)
-def main(checkpoints_dir: str, checkpoint: str | None, codec, port: int, host: str, recording_dir: str | None):
+@cfn.config(
+    codec=lerobot_codecs.ee, checkpoint=None, port=8000, host='0.0.0.0', recording_dir=None, idle_timeout_min=None
+)
+def main(
+    checkpoints_dir: str,
+    checkpoint: str | None,
+    codec,
+    port: int,
+    host: str,
+    recording_dir: str | None,
+    idle_timeout_min: float | None,
+):
     checkpoints_dir = str(pos3.download(checkpoints_dir))
-    InferenceServer(codec, checkpoints_dir, checkpoint, host=host, port=port, recording_dir=recording_dir).serve()
+    InferenceServer(
+        codec,
+        checkpoints_dir,
+        checkpoint,
+        host=host,
+        port=port,
+        recording_dir=recording_dir,
+        idle_timeout_min=idle_timeout_min,
+    ).serve()
 
 
 phail = main.override(
