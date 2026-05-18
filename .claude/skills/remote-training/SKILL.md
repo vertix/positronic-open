@@ -1,15 +1,15 @@
 ---
 name: remote-training
-description: Manages remote training infrastructure on Nebius Serverless (Jobs for convert/train, Endpoints for inference). Use for dataset conversion, training jobs, serving checkpoints, and end-to-end pipeline validation. No VM lifecycle to manage.
+description: Manages remote training infrastructure on Nebius Serverless (Jobs for convert/train, Endpoints for inference). Use for dataset conversion, training jobs, serving checkpoints, and end-to-end pipeline validation.
 ---
 
 # Remote Training Infrastructure (Nebius Serverless)
 
 This skill runs the Positronic convert → train → serve pipeline on
 [Nebius Serverless](https://docs.nebius.com/serverless): **Jobs** for batch work
-(dataset conversion, training) and **Endpoints** for HTTP inference servers. Same
-containers and scripts as before — no VM to provision, SSH into, or shut down, and
-no idle compute cost.
+(dataset conversion, training) and **Endpoints** for HTTP inference servers.
+Compute is provisioned per job/endpoint and released automatically when it
+finishes, so there is no idle compute cost.
 
 All operations go through the wrapper scripts in `workflows/nebius/`. Run them from
 the repo root. The full reference is `workflows/nebius/README.md`.
@@ -38,29 +38,28 @@ s3://checkpoints/{dataset}/{vendor}/{codec_or_experiment}/  — training output
 s3://inference/{dataset}/{date_or_exp}/{vendor}/            — inference eval results
 ```
 
-Every run writes `run_metadata_*.yaml` with the full CLI command — read it to
-reconstruct the pipeline.
+Every run writes a `run_metadata_*.yaml` into its output directory capturing the
+full CLI command plus a snapshot of the code state (`*.py`/`*.toml`). See
+[Analysing a past run](#analysing-a-past-run) to reconstruct what produced a
+given checkpoint.
 
-### Current Artifacts
+### Where current paths live
 
-**sim_stack** (automated testing — `@positronic.cfg.ds.phail.sim_stack_cubes`):
+Concrete dataset/checkpoint S3 paths are intentionally **not** listed here — they
+rotate as new runs land and any list goes stale. The source of truth is the
+config in the codebase:
 
-| Vendor | Codec | Interim | Latest Checkpoint |
-|--------|-------|---------|-------------------|
-| gr00t | `ee_rot6d` | `s3://interim/sim_stack/groot/ee_rot6d/` | `s3://checkpoints/sim_stack/groot/ee_rot6d/230226/` |
-| lerobot (0.4.x) | `ee` | `s3://interim/sim_stack/lerobot_04/ee/` | `s3://checkpoints/sim_stack/lerobot_04/smolvla_150k/` |
-| lerobot_0_3_3 | `ee` | `s3://interim/sim_stack/lerobot/ee/` | `s3://checkpoints/sim_stack/lerobot/230226-ee/` |
-| openpi | `ee` | `s3://interim/sim_stack/openpi/ee/` | `s3://checkpoints/sim_stack/openpi/ee/pi05_positronic_lowmem/230226/` |
+- **Datasets**: `positronic/cfg/ds/` (e.g. `@positronic.cfg.ds.phail.sim_stack_cubes`,
+  `@positronic.cfg.ds.phail.phail_unified`).
+- **Checkpoints**: the per-vendor server presets in
+  `positronic/vendors/<vendor>/server.py` — the named configs (e.g. `phail`,
+  `sim_stack`) set `checkpoints_dir=` to the path currently in use. Read those
+  for the live values rather than relying on a checkpoint path memorized
+  anywhere.
 
-**phail_unified** (production — `@positronic.cfg.ds.phail.phail_unified`):
-
-| Vendor | Codec | Interim | Latest Checkpoint |
-|--------|-------|---------|-------------------|
-| smolvla (0.4.x) | `ee` | `s3://interim/phail_unified/smolvla/ee/` | `s3://checkpoints/phail_unified/smolvla/150315_ft_150k/` |
-| gr00t | `ee_rot6d` | `s3://interim/phail_unified/groot/ee_rot6d/` | — |
-| lerobot (0.4.x) / SmolVLA | `ee` | — | `s3://checkpoints/phail_unified/smolvla/170316_ee/` |
-| lerobot_0_3_3 | `ee` | `s3://interim/phail_unified/lerobot/ee/` | — |
-| openpi | `ee` | `s3://interim/phail_unified/openpi/ee/` | — |
+To discover what physically exists, `aws s3 ls` under the convention above; to
+learn what produced a given checkpoint, read its `run_metadata_*.yaml` (see
+[Analysing a past run](#analysing-a-past-run)).
 
 ## Docker Images
 
@@ -170,22 +169,25 @@ The first job after a dependency change pays the full `uv`/HF cold-download
 
 `serve.sh <vendor> <unique-endpoint-name> [server args...]` creates a public
 Endpoint on H100 port 8000, blocks until a public IP is allocated, and prints a
-banner with the URL + teardown command. The container then takes ~10–15 min more
+banner containing `Endpoint URL:  http://<IP>` (the endpoint IP), the endpoint
+ID/name, and the teardown command. The container then takes ~10–15 min more
 to `uv sync` and load the model.
 
 ```bash
-# Public ACT demo checkpoint (no S3 creds needed inside container)
+# Named preset — checkpoint path comes from the vendor's server.py config
+# (e.g. `demo`, `sim_stack`, `phail`). These are the source of truth; prefer them.
 bash workflows/nebius/serve.sh lerobot_0_3_3 my-act-demo demo
 
-# Your own checkpoint (subcommand differs per vendor)
+# Explicit checkpoint dir (subcommand differs per vendor). Get <ckpt-dir> from the
+# vendor's server.py preset or `aws s3 ls` under the S3 convention — not memorized.
 bash workflows/nebius/serve.sh lerobot_0_3_3 act-server serve \
-  --checkpoints_dir=s3://checkpoints/sim_stack/lerobot/230226-ee/
+  --checkpoints_dir=<ckpt-dir>
 
 bash workflows/nebius/serve.sh openpi pi-server serve \
-  --checkpoints_dir=s3://checkpoints/sim_stack/openpi/ee/pi05_positronic_lowmem/230226/
+  --checkpoints_dir=<ckpt-dir>
 
 bash workflows/nebius/serve.sh gr00t groot-server ee_rot6d \
-  --checkpoints_dir=s3://checkpoints/sim_stack/groot/ee_rot6d/230226/
+  --checkpoints_dir=<ckpt-dir>
 ```
 
 Sanity-check once warm:
@@ -205,7 +207,17 @@ To pause without releasing the static IP: `nebius ai endpoint stop <id>`
 
 ### 4. Run Inference Client
 
-Unchanged — point the existing CLI at the endpoint IP:
+`serve.sh` prints the endpoint IP in its banner. To read it again later (by
+endpoint name):
+
+```bash
+nebius ai endpoint list --parent-id "$NEBIUS_PARENT_ID" --format json \
+  | jq -r --arg n "<endpoint-name>" \
+    '.items[] | select(.metadata.name==$n) | .status.public_endpoints[0]'
+# → the public IP; the endpoint serves on port 8000
+```
+
+Point the `positronic-inference` CLI at the endpoint IP:
 
 ```bash
 uv run positronic-inference sim \
@@ -237,6 +249,32 @@ for v in lerobot openpi gr00t; do bash workflows/nebius/e2e.sh "$v" & done; wait
 ```
 
 Override via env: `E2E_S3_BASE`, `E2E_EXP_NAME`, `E2E_LOG_ROOT`, `E2E_DATASET`.
+
+## Analysing a past run
+
+Each convert/train/serve run writes `run_metadata_*.yaml` into its S3 output
+directory. It records the exact CLI command that produced the artifact and a
+snapshot of the relevant source files (`*.py`/`*.toml`), so a checkpoint or
+dataset can be traced back to the code and arguments that made it — without
+guessing.
+
+```bash
+# List the metadata files under a checkpoint/dataset output dir
+aws s3 ls s3://checkpoints/sim_stack/openpi/ee/pi05_positronic_lowmem/<exp>/ \
+  --recursive | grep run_metadata_
+
+# Read one (full command + code snapshot)
+aws s3 cp s3://checkpoints/.../run_metadata_YYYYMMDD_HHMMSS.yaml - | less
+```
+
+To reproduce a run, copy the command recorded in `run_metadata_*.yaml` and
+resubmit it via the matching `workflows/nebius/*.sh` wrapper (set
+`NEBIUS_IMAGE_TAG` if the run used a non-`latest` image).
+
+For inference runs, each episode also has a `static.json` alongside the recorded
+data; the eval viewer in [4. Run Inference Client](#4-run-inference-client)
+(`positronic.cfg.eval sim --dataset.base.path=…`) renders these for inspection
+and side-by-side comparison of multiple runs.
 
 ## Monitoring Jobs & Endpoints
 
