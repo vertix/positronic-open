@@ -46,6 +46,9 @@ def main(
         command.append('--resume' if resume else '--overwrite')
         if num_train_steps is not None:
             command.append(f'--num-train-steps={num_train_steps}')
+            # Tie the cosine LR schedule to the run length so it spans the whole
+            # run instead of openpi's hardcoded default decay_steps.
+            command.append(f'--lr-schedule.decay-steps={num_train_steps}')
         command.extend(['--assets-base-dir', stats_dir.as_posix()])
         command.extend(['--checkpoint-base-dir', output_dir.parent.parent.as_posix()])
         command.extend(extra_args)
