@@ -59,7 +59,7 @@ def sample(origins: list[cfn.Config], weights: list[float] | None):
     return SampledPolicy(*origins, weights=weights)
 
 
-@cfn.config(host='localhost', port=8000, resize=640, model_id=None, horizon_sec=None, codec=None)
+@cfn.config(host='localhost', port=8000, resize=640, model_id=None, horizon_sec=None, codec=None, secure=False)
 def remote(
     host: str,
     port: int,
@@ -67,15 +67,19 @@ def remote(
     model_id: str | None = None,
     horizon_sec: float | None = None,
     codec: Codec | None = None,
+    headers: dict[str, str] | None = None,
+    secure: bool = False,
 ):
     from positronic.policy.remote import RemotePolicy
 
     effective_resize = None if codec and codec.meta.get('image_sizes') else resize
-    policy = RemotePolicy(host, port, effective_resize, model_id=model_id, horizon_sec=horizon_sec)
+    policy = RemotePolicy(
+        host, port, effective_resize, model_id=model_id, horizon_sec=horizon_sec, headers=headers, secure=secure
+    )
     return codec.wrap(policy) if codec else policy
 
 
-@cfn.config(host=None, port=8000, weight=1.0, model_id=None, resize=640, horizon_sec=None, codec=None)
+@cfn.config(host=None, port=8000, weight=1.0, model_id=None, resize=640, horizon_sec=None, codec=None, secure=False)
 def weighted_remote(
     host: str | None,
     port: int,
@@ -84,6 +88,8 @@ def weighted_remote(
     resize: int | None,
     horizon_sec: float | None,
     codec: Codec | None = None,
+    headers: dict[str, str] | None = None,
+    secure: bool = False,
 ):
     if not host:
         return None
@@ -91,7 +97,9 @@ def weighted_remote(
     from positronic.policy.remote import RemotePolicy
 
     effective_resize = None if codec and codec.meta.get('image_sizes') else resize
-    policy = RemotePolicy(host, port, effective_resize, model_id=model_id, horizon_sec=horizon_sec)
+    policy = RemotePolicy(
+        host, port, effective_resize, model_id=model_id, horizon_sec=horizon_sec, headers=headers, secure=secure
+    )
     return (codec.wrap(policy) if codec else policy), weight
 
 

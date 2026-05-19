@@ -29,8 +29,11 @@ class RemotePolicy(Policy):
         resize: int | None = None,
         model_id: str | None = None,
         horizon_sec: float | None = None,
+        *,
+        headers: dict[str, str] | None = None,
+        secure: bool = False,
     ):
-        self._client = InferenceClient(host, port)
+        self._client = InferenceClient(host, port, headers=headers, secure=secure)
         self.__session: InferenceSession | None = None
         self._resize = resize
         self._model_id = model_id
