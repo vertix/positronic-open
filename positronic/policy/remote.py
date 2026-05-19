@@ -32,19 +32,21 @@ class RemotePolicy(Policy):
         *,
         headers: dict[str, str] | None = None,
         secure: bool = False,
+        connect_deadline: float = 180.0,
     ):
         self._client = InferenceClient(host, port, headers=headers, secure=secure)
         self.__session: InferenceSession | None = None
         self._resize = resize
         self._model_id = model_id
         self._horizon_sec = horizon_sec
+        self._connect_deadline = connect_deadline
         self._image_sizes: dict[str, tuple[int, int]] = {}
         self._default_image_size: tuple[int, int] | None = None
 
     def reset(self, context=None):
         """Resets the policy by starting a new session with the server."""
         self.close()
-        self.__session = self._client.new_session(model_id=self._model_id)
+        self.__session = self._client.new_session(model_id=self._model_id, connect_deadline=self._connect_deadline)
         sizes = self.__session.metadata.get('image_sizes')
         if isinstance(sizes, dict):
             self._image_sizes = {k: tuple(v) for k, v in sizes.items()}
