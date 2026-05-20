@@ -114,7 +114,12 @@ def _seed_sampler(policy, output_dir: Path):
 
 
 def _connect_ds_command(world, harness, ds_agent, policy):
-    """Connect harness.ds_command to ds_agent."""
+    """Connect harness.ds_command to ds_agent.
+
+    Stage 2: ``SampledPolicy`` counting happens via
+    ``Session.on_episode_complete()`` (invoked by the harness on ``FINISH``/
+    ``RUN`` restart), so no sampler tap is needed here.
+    """
     if ds_agent is None:
         return
     world.connect(harness.ds_command, ds_agent.command)
@@ -160,6 +165,7 @@ def main_sim(
     driver: tuple,
     camera_dict: Mapping[str, str],
     output_dir: str | Path | None = None,
+    simulate_inference: bool | float = False,
     observers: Mapping[str, Any] | None = None,
 ):
     observers = observers or {}
@@ -170,7 +176,7 @@ def main_sim(
     cameras = {name: mujoco_cameras.cameras[orig_name] for name, orig_name in camera_dict.items()}
 
     static_meta = {'simulation.mujoco_model_path': mujoco_model_path, **wire.ROBOT_STATIC_META}
-    harness = Harness(policy, static_meta=static_meta)
+    harness = Harness(policy, static_meta=static_meta, simulate_inference=simulate_inference)
     control_systems = [mujoco_cameras, sim, robot_arm, gripper, harness]
 
     gui, harness_emitter, foreground_cs = driver

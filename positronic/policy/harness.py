@@ -171,6 +171,7 @@ class Harness(pimm.ControlSystem):
         *,
         static_meta: dict[str, Any] | None = None,
         wrap: PolicyWrapper | Callable[[pimm.Clock], PolicyWrapper] | None = default_wrappers,
+        simulate_inference: bool | float = False,
     ):
         self._raw_policy = policy
         self._wrap = wrap
@@ -180,6 +181,11 @@ class Harness(pimm.ControlSystem):
         self.context: dict[str, Any] = {}
         self._static_meta = static_meta or {}
         self._session: Session | None = None
+        # ``True`` advances the (sim) clock by the wall-clock cost of the inference
+        # call; a float is a fixed deterministic delay (used by the reproducible
+        # golden). Sleep is yielded BEFORE ``ChunkedSchedule`` reads ``clock.now()``
+        # so the trajectory is anchored to inference-finish, not inference-start.
+        self.simulate_inference = simulate_inference
 
         self.frames = pimm.ReceiverDict(self)
         self.robot_state = pimm.ControlSystemReceiver(self)
@@ -204,6 +210,21 @@ class Harness(pimm.ControlSystem):
         now = clock.now_ns()
         self.robot_commands.emit([(now, roboarm.command.Reset())])
         self.target_grip.emit([(now, 0.0)])
+
+    def _bump_schedule_end(self, delta_sec: float) -> None:
+        """Shift the active ``ChunkedSchedule._Session`` ``_trajectory_end`` by ``delta_sec``.
+
+        Used by ``simulate_inference``: the session anchored the chunk pre-sleep,
+        then we slept and post-shifted the emitted timestamps. The scheduling
+        wrapper's internal end-of-chunk gate must move forward too, or it will
+        re-infer before the driver has actually played the (shifted) trajectory.
+        """
+        s = self._session
+        while s is not None:
+            if isinstance(s, ChunkedSchedule._Session) and s._trajectory_end is not None:
+                s._trajectory_end += delta_sec
+                return
+            s = getattr(s, '_inner', None)
 
     def _cancel_trajectories(self) -> None:
         """Drop any in-flight chunk from drivers and from the recording's tail.
@@ -285,7 +306,7 @@ class Harness(pimm.ControlSystem):
         inputs.update(self.context)
         return inputs
 
-    def _step(self, clock: pimm.Clock) -> None:
+    def _step(self, clock: pimm.Clock) -> Generator[pimm.Sleep, None, None]:
         """Build obs, call session, demux trajectories into per-channel emissions.
 
         The session output already carries absolute timestamps (stamped by the
@@ -295,9 +316,33 @@ class Harness(pimm.ControlSystem):
         if obs is None:
             return
 
+        # Advance the (sim) clock by the inference cost so rollouts feel the
+        # model's latency. ``True`` measures real wall time around the session
+        # call; a float is a fixed deterministic delay (used by the golden).
+        # We only sleep on cycles where inference actually ran (session
+        # returned a chunk) — otherwise blocked cycles would slow the
+        # harness's directive-handling loop. The trajectory was anchored
+        # pre-sleep, so we post-shift it and also bump the scheduling
+        # wrapper's internal ``_trajectory_end`` to stay consistent.
+        wall_start = time.monotonic()
         actions = self._session(frozen_view(obs))
         if actions is None:
             return
+        # Recover-only output (from ``ErrorRecovery``) bypasses inference latency
+        # simulation — it's an emergency emit, not a model-driven chunk.
+        is_recover_only = len(actions) == 1 and isinstance(actions[0].get('robot_command'), roboarm.command.Recover)
+        if is_recover_only:
+            delay = 0.0
+        elif self.simulate_inference is True:  # bool is an int subclass — check identity first
+            delay = time.monotonic() - wall_start
+        elif self.simulate_inference:
+            delay = float(self.simulate_inference)
+        else:
+            delay = 0.0
+        if delay > 0.0:
+            yield pimm.Sleep(delay)
+            actions = [{**a, 'timestamp': a['timestamp'] + delay} for a in actions]
+            self._bump_schedule_end(delay)
 
         # Wrappers do action-timing math in float seconds (codecs are fps-based);
         # clients on every pimm channel (driver TrajectoryPlayer, dataset writer)
@@ -306,7 +351,8 @@ class Harness(pimm.ControlSystem):
         grip_traj = [(int(cmd['timestamp'] * 1e9), cmd['target_grip']) for cmd in actions if 'target_grip' in cmd]
 
         self.robot_commands.emit(robot_traj)
-        self.target_grip.emit(grip_traj)
+        if grip_traj:
+            self.target_grip.emit(grip_traj)
 
     def run(self, should_stop: pimm.SignalReceiver, clock: pimm.Clock) -> Iterator[pimm.Sleep]:
         # Resolve wrap now that we have the clock — some wrappers (e.g. ChunkedSchedule) need it.
@@ -327,7 +373,7 @@ class Harness(pimm.ControlSystem):
 
             try:
                 if running:
-                    self._step(clock)
+                    yield from self._step(clock)
             except pimm.NoValueException:
                 pass
             finally:

@@ -13,10 +13,8 @@ robot changes state only when a command is *applied*, so
   * horizon/gating regression   -> the state trajectory diverges
 
 Everything runs on CPU with a ``MockClock`` only: no GL/GPU/MuJoCo, no wall
-clock in the asserted path. Inference is instantaneous (no latency injection):
-the harness no longer simulates inference cost — that concern moved into the
-``ChunkedSchedule`` wrapper, which anchors trajectories to ``clock.now()``
-after inference returns.
+clock in the asserted path (a fixed-float ``simulate_inference`` is used so
+inference latency is deterministic).
 
 Regenerate the golden after an intentional behavior change:
 
@@ -52,6 +50,9 @@ INITIAL_POS = np.array([0.30, 0.00, 0.40], dtype=np.float32)
 INITIAL_Q = np.array([0.10, -0.20, 0.30, -0.40, 0.50, -0.60, 0.70], dtype=np.float32)
 TARGET_POS = np.array([0.50, 0.00, 0.45], dtype=np.float32)
 
+# Fixed deterministic inference latency. Spans >1 control tick (harness loop is
+# 0.01 s) so the post-inference anchoring effect is observable in recorded ts.
+SIMULATE_INFERENCE_S = 0.05
 ACTION_FPS = 15.0
 ACTION_HORIZON_S = 0.5  # 8 of every 10-action chunk survives truncation
 CONTROL_PERIOD_S = 0.005  # fake robot/gripper sampling cadence (200 Hz)
@@ -76,7 +77,7 @@ class ScriptedProportionalPolicy(Policy):
     """Pure proportional controller toward ``TARGET_POS``.
 
     Reads ``robot_state.ee_pose`` only; returns a 10-action chunk. No RNG, no
-    clock, no images. Codec stamps/truncates; ``ChunkedSchedule`` anchors.
+    clock, no images. Codec stamps/truncates; the harness anchors/schedules.
     """
 
     def new_session(self, context=None):
@@ -183,7 +184,7 @@ def _run_pipeline(tmp_path: Path) -> dict:
     gripper = FakeGripper()
 
     with LocalDatasetWriter(tmp_path) as ds_writer, pimm.World(clock=clock) as world:
-        harness = Harness(policy)
+        harness = Harness(policy, simulate_inference=SIMULATE_INFERENCE_S)
         ds_agent = wire.wire(world, harness, ds_writer, {}, robot, gripper, None, TimeMode.MESSAGE)
         world.connect(harness.ds_command, ds_agent.command)
         directive_em = world.pair(harness.directive)
