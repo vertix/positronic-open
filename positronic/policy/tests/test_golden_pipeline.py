@@ -13,8 +13,10 @@ robot changes state only when a command is *applied*, so
   * horizon/gating regression   -> the state trajectory diverges
 
 Everything runs on CPU with a ``MockClock`` only: no GL/GPU/MuJoCo, no wall
-clock in the asserted path (a fixed-float ``simulate_inference`` is used so
-inference latency is deterministic).
+clock in the asserted path. Inference is instantaneous (no latency injection):
+the harness no longer simulates inference cost — that concern moved into the
+``ChunkedSchedule`` wrapper, which anchors trajectories to ``clock.now()``
+after inference returns.
 
 Regenerate the golden after an intentional behavior change:
 
@@ -37,9 +39,9 @@ from positronic import wire
 from positronic.dataset.ds_writer_agent import TimeMode
 from positronic.dataset.local_dataset import LocalDataset, LocalDatasetWriter
 from positronic.drivers.roboarm import RobotStatus
-from positronic.drivers.roboarm.command import CartesianPosition, Recover, Reset, TrajectoryPlayer, to_wire
+from positronic.drivers.roboarm.command import CartesianPosition, Recover, Reset, TrajectoryPlayer
 from positronic.geom import Rotation, Transform3D
-from positronic.policy.base import Policy
+from positronic.policy.base import Policy, Session
 from positronic.policy.codec import ActionTiming
 from positronic.policy.harness import Directive, Harness
 from positronic.tests.testing_coutils import ManualDriver, drive_scheduler
@@ -50,9 +52,6 @@ INITIAL_POS = np.array([0.30, 0.00, 0.40], dtype=np.float32)
 INITIAL_Q = np.array([0.10, -0.20, 0.30, -0.40, 0.50, -0.60, 0.70], dtype=np.float32)
 TARGET_POS = np.array([0.50, 0.00, 0.45], dtype=np.float32)
 
-# Fixed deterministic inference latency. Spans >1 control tick (harness loop is
-# 0.01 s) so the post-inference anchoring effect is observable in recorded ts.
-SIMULATE_INFERENCE_S = 0.05
 ACTION_FPS = 15.0
 ACTION_HORIZON_S = 0.5  # 8 of every 10-action chunk survives truncation
 CONTROL_PERIOD_S = 0.005  # fake robot/gripper sampling cadence (200 Hz)
@@ -61,28 +60,27 @@ CONTROL_PERIOD_S = 0.005  # fake robot/gripper sampling cadence (200 Hz)
 CAPTURED_SIGNALS = ('robot_state.ee_pose', 'robot_state.q', 'grip')
 
 
-class ScriptedProportionalPolicy(Policy):
-    """Pure proportional controller toward ``TARGET_POS``.
-
-    Reads ``robot_state.ee_pose`` only; returns a 10-action chunk. No RNG, no
-    clock, no images. Codec stamps/truncates; the harness anchors/schedules.
-    """
-
-    def select_action(self, obs):
+class _ScriptedSession(Session):
+    def __call__(self, obs):
         current = np.asarray(obs['robot_state.ee_pose'][:3], dtype=np.float32)
         delta = TARGET_POS - current
         chunk = []
         for i in range(10):
             step = current + delta * 0.5 * ((i + 1) / 10.0)
             pose = Transform3D(translation=step.astype(np.float32), rotation=Rotation.identity)
-            chunk.append({
-                'robot_command': to_wire(CartesianPosition(pose=pose)),
-                'target_grip': round(0.50 + 0.01 * i, 4),
-            })
+            chunk.append({'robot_command': CartesianPosition(pose=pose), 'target_grip': round(0.50 + 0.01 * i, 4)})
         return chunk
 
-    def reset(self, context=None):
-        pass
+
+class ScriptedProportionalPolicy(Policy):
+    """Pure proportional controller toward ``TARGET_POS``.
+
+    Reads ``robot_state.ee_pose`` only; returns a 10-action chunk. No RNG, no
+    clock, no images. Codec stamps/truncates; ``ChunkedSchedule`` anchors.
+    """
+
+    def new_session(self, context=None):
+        return _ScriptedSession()
 
 
 class _FakeRobotState:
@@ -185,7 +183,7 @@ def _run_pipeline(tmp_path: Path) -> dict:
     gripper = FakeGripper()
 
     with LocalDatasetWriter(tmp_path) as ds_writer, pimm.World(clock=clock) as world:
-        harness = Harness(policy, simulate_inference=SIMULATE_INFERENCE_S)
+        harness = Harness(policy)
         ds_agent = wire.wire(world, harness, ds_writer, {}, robot, gripper, None, TimeMode.MESSAGE)
         world.connect(harness.ds_command, ds_agent.command)
         directive_em = world.pair(harness.directive)
