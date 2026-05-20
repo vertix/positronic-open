@@ -284,8 +284,11 @@ class InferenceServer(VendorServer):
         zmq_port: int = 5555,
         recording_dir: str | None = None,
         ready_timeout: float = 120.0,
+        idle_timeout_min: float | None = None,
     ):
-        super().__init__(codec=codec, host=host, port=port, recording_dir=recording_dir)
+        super().__init__(
+            codec=codec, host=host, port=port, recording_dir=recording_dir, idle_timeout_min=idle_timeout_min
+        )
         self.checkpoints_dir = checkpoints_dir.rstrip('/')
         self.checkpoint = checkpoint
         self.modality_config = modality_config
@@ -382,6 +385,7 @@ class InferenceServer(VendorServer):
     modality_config='ee',
     recording_dir=None,
     ready_timeout=120.0,
+    idle_timeout_min=None,
 )
 def server(
     codec: Codec,
@@ -392,6 +396,7 @@ def server(
     modality_config: str,
     recording_dir: str | None,
     ready_timeout: float,
+    idle_timeout_min: float | None,
 ):
     """Starts the GR00T inference server with encoding/decoding."""
 
@@ -405,6 +410,7 @@ def server(
             port=port,
             recording_dir=recording_dir,
             ready_timeout=ready_timeout,
+            idle_timeout_min=idle_timeout_min,
         ).serve()
 
 
