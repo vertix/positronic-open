@@ -296,31 +296,6 @@ def test_serializer_dict_expansion(world, clock):
     assert ('img.extra', 11) in names_and_vals
 
 
-def test_serializer_plain_list_value(world, clock):
-    """A serializer returning a plain list (not list[Timestamped]) is recorded as one sample.
-
-    Regression for the Timestamped-guard removal: without the guard, list-valued
-    serializer outputs were iterated as Timestamped streams and raised AttributeError.
-    """
-    ds = FakeDatasetWriter()
-
-    def to_list(v):
-        return [v, v + 1, v + 2]
-
-    agent, cmd_em, emitters = build_agent_with_pipes({'x': to_list}, ds, world)
-
-    script = [
-        (partial(cmd_em.emit, DsWriterCommand(DsWriterCommandType.START_EPISODE)), 0.001),
-        (partial(emitters['x'].emit, 10), 0.001),
-        (partial(cmd_em.emit, DsWriterCommand(DsWriterCommandType.STOP_EPISODE)), 0.001),
-    ]
-
-    run_scripted_agent(agent, script, world=world, clock=clock)
-
-    w = ds.created[-1]
-    assert [(s, v) for (s, v, _, _) in w.appends] == [('x', [10, 11, 12])]
-
-
 def test_serializer_none_drops_sample(world, clock):
     ds = FakeDatasetWriter()
 
@@ -514,16 +489,36 @@ def test_trajectory_override_serializer():
     assert s('reset') == 'reset'
 
 
+def test_serializer_plain_list_value(world, clock):
+    """A serializer returning a plain list (non-`Timestamped`) is appended as one sample.
+
+    The trajectory-stream dispatch must not hijack legitimate list-valued samples.
+    """
+    ds = FakeDatasetWriter()
+
+    def to_list(_):
+        return [1, 2, 3]
+
+    agent, cmd_em, emitters = build_agent_with_pipes({'v': to_list}, ds, world)
+    script = [
+        (partial(cmd_em.emit, DsWriterCommand(DsWriterCommandType.START_EPISODE)), 0.001),
+        (partial(emitters['v'].emit, 0), 0.001),
+        (partial(cmd_em.emit, DsWriterCommand(DsWriterCommandType.STOP_EPISODE)), 0.001),
+    ]
+    run_scripted_agent(agent, script, world=world, clock=clock)
+
+    w = ds.created[-1]
+    assert [(s, v) for (s, v, _, _) in w.appends] == [('v', [1, 2, 3])]
+
+
 def test_trajectory_override_serializer_empty_cancels_buffer():
-    """Empty trajectory is the cancel signal: drop the buffered tail."""
+    """Empty trajectory is the Harness STOP cancel signal: drop the buffered tail."""
     s = TrajectoryOverrideSerializer(None)
     s.reset()
 
-    # Buffer a trajectory.
-    s([(1, 'a'), (2, 'b'), (3, 'c')])
-
-    # Cancel: empty trajectory clears the buffer.
+    # Buffer a trajectory (nothing committed yet).
+    assert s([(1, 'a'), (2, 'b'), (3, 'c')]) == []
+    # Empty trajectory = cancel: nothing committed AND buffer cleared.
     assert s([]) == []
-
-    # flush() must not return the canceled waypoints.
+    # Subsequent flush must not emit the canceled waypoints.
     assert s.flush() == []

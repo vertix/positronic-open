@@ -235,8 +235,8 @@ class TrajectoryOverrideSerializer(StatefulSerializer):
             # Bare value (teleop Reset/Cartesian, scalar grip): one-shot, agent-timestamped.
             return self._encode(message)
         if not message:
-            # Empty trajectory is the cancel signal: drop the buffered tail so
-            # flush() at STOP_EPISODE does not commit canceled waypoints.
+            # Empty trajectory is the cancel signal (Harness STOP): drop the
+            # buffered tail so flush() does not commit canceled waypoints.
             self._buffer = []
             return []
 
@@ -345,8 +345,8 @@ class DsWriterAgent(pimm.ControlSystem):
                             value = msg.data
                             if serializer is not None:
                                 value = serializer(value)
-                            # Gate on Timestamped so plain list-valued samples
-                            # (e.g. list-state vectors) still go through _append.
+                            # Gate on `Timestamped` so plain list-valued samples
+                            # (e.g. list-state vectors) still go through `_append`.
                             # Empty list matches too — used as the cancel signal.
                             if isinstance(value, list) and (not value or isinstance(value[0], Timestamped)):
                                 for sample in value:
