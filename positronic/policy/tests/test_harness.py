@@ -11,6 +11,7 @@ from positronic.drivers.roboarm import RobotStatus
 from positronic.drivers.roboarm.command import CartesianPosition, Recover, Reset, from_wire, to_wire
 from positronic.geom import Rotation, Transform3D
 from positronic.policy.base import Policy, Session
+from positronic.policy.codec import ActionTimestamp
 from positronic.policy.harness import Directive, DirectiveType, Harness
 from positronic.tests.testing_coutils import ManualDriver, RecordingEmitter, drive_scheduler
 
@@ -406,72 +407,99 @@ def test_run_calls_policy_reset_with_context(world, clock):
 
 @pytest.mark.timeout(3.0)
 def test_stop_cancels_in_flight_trajectory(world, clock):
-    """STOP must emit [] on robot/grip channels so drivers clear their TrajectoryPlayer.
+    """STOP must override buffered driver trajectories so devices hold position.
 
-    Otherwise a STOP issued mid-chunk would let drivers keep playing buffered motion.
+    With trajectory-as-command the harness preloads each driver's
+    ``TrajectoryPlayer`` with the whole chunk. STOP only used to suspend the
+    dataset writer, so already-buffered waypoints would keep executing until
+    the chunk ended — a safety regression vs the queue-in-harness design.
     """
+    policy = ChunkPolicy()
+    wrapped = ActionTimestamp(fps=5.0).wrap(policy)  # chunk spans 1.8 s — won't drain before STOP
+    harness = Harness(wrapped)
+
     cmd_recorder = RecordingEmitter()
     grip_recorder = RecordingEmitter()
-    policy = ChunkPolicy()
-    harness = Harness(policy)
     harness.robot_commands._bind(cmd_recorder)
     harness.target_grip._bind(grip_recorder)
-    p = _pair_all(world, harness)
+    harness.ds_command._bind(RecordingEmitter())
+
+    frame_em = world.pair(harness.frames['image.cam'])
+    robot_em = world.pair(harness.robot_state)
+    grip_em = world.pair(harness.gripper_state)
+    directive_em = world.pair(harness.directive)
 
     robot_state = make_robot_state([0.1, 0.2, 0.3], [0.4, 0.5, 0.6])
-    scheduler = world.start([harness])
+    script = [
+        (partial(directive_em.emit, Directive.RUN(task='t')), 0.0),
+        (partial(emit_ready_payload, frame_em, robot_em, grip_em, robot_state), 0.01),
+        (None, 0.1),  # let one chunk be inferred + buffered, well short of 1.8 s
+        (partial(directive_em.emit, Directive.STOP()), 0.0),
+        (None, 0.1),
+    ]
+    scheduler = world.start([harness, ManualDriver(script)])
+    drive_scheduler(scheduler, clock=clock, steps=200)
 
-    p['directive_em'].emit(Directive.RUN(task='test'))
-    drive_scheduler(scheduler, clock=clock, steps=1)
-    emit_ready_payload(p['frame_em'], p['robot_em'], p['grip_em'], robot_state)
-    drive_scheduler(scheduler, clock=clock, steps=5)
-
-    p['directive_em'].emit(Directive.STOP())
-    drive_scheduler(scheduler, clock=clock, steps=3)
-
-    cmd_emissions = [d for _, d in cmd_recorder.emitted]
-    grip_emissions = [d for _, d in grip_recorder.emitted]
-    assert cmd_emissions[-1] == [], 'STOP did not emit cancel [] on robot_commands'
-    assert grip_emissions[-1] == [], 'STOP did not emit cancel [] on target_grip'
+    cmd_emits = [data for _ts, data in cmd_recorder.emitted]
+    grip_emits = [data for _ts, data in grip_recorder.emitted]
+    assert any(isinstance(d, list) and d for d in cmd_emits), 'expected a buffered chunk before STOP'
+    assert cmd_emits[-1] == [], f'STOP did not cancel robot_commands buffer: last={cmd_emits[-1]!r}'
+    assert grip_emits[-1] == [], f'STOP did not cancel target_grip buffer: last={grip_emits[-1]!r}'
 
 
 @pytest.mark.timeout(3.0)
 def test_finish_cancels_buffered_trajectory_before_stop_episode(world, clock):
-    """FINISH must cancel buffered trajectories before STOP_EPISODE.
+    """FINISH must cancel the recording's trajectory tail *before* `STOP_EPISODE`.
 
-    Otherwise STOP_EPISODE flushes TrajectoryOverrideSerializer with the
-    canceled tail, committing future waypoints into the recorded episode.
+    `STOP_EPISODE` calls `flush()` on `TrajectoryOverrideSerializer`, which
+    commits whatever is still buffered. The harness must emit `[]` on
+    `robot_commands`/`target_grip` first, so the serializer drops its tail and
+    canceled waypoints are not recorded.
     """
-    cmd_recorder = RecordingEmitter()
-    grip_recorder = RecordingEmitter()
+
+    class _LabeledRecorder(pimm.SignalEmitter):
+        def __init__(self, label, events):
+            self._label = label
+            self._events = events
+
+        def emit(self, data, ts: int = -1):
+            self._events.append((self._label, data))
+
+    events: list[tuple[str, object]] = []
     policy = ChunkPolicy()
-    harness = Harness(policy)
-    harness.robot_commands._bind(cmd_recorder)
-    harness.target_grip._bind(grip_recorder)
-    p = _pair_all(world, harness)
+    wrapped = ActionTimestamp(fps=5.0).wrap(policy)  # 1.8 s chunk — won't drain before FINISH
+    harness = Harness(wrapped)
+    harness.robot_commands._bind(_LabeledRecorder('robot_commands', events))
+    harness.target_grip._bind(_LabeledRecorder('target_grip', events))
+    harness.ds_command._bind(_LabeledRecorder('ds_command', events))
+
+    frame_em = world.pair(harness.frames['image.cam'])
+    robot_em = world.pair(harness.robot_state)
+    grip_em = world.pair(harness.gripper_state)
+    directive_em = world.pair(harness.directive)
 
     robot_state = make_robot_state([0.1, 0.2, 0.3], [0.4, 0.5, 0.6])
-    scheduler = world.start([harness])
+    script = [
+        (partial(directive_em.emit, Directive.RUN(task='t')), 0.0),
+        (partial(emit_ready_payload, frame_em, robot_em, grip_em, robot_state), 0.01),
+        (None, 0.1),
+        (partial(directive_em.emit, Directive.FINISH()), 0.0),
+        (None, 0.1),
+    ]
+    scheduler = world.start([harness, ManualDriver(script)])
+    drive_scheduler(scheduler, clock=clock, steps=200)
 
-    p['directive_em'].emit(Directive.RUN(task='test'))
-    drive_scheduler(scheduler, clock=clock, steps=1)
-    emit_ready_payload(p['frame_em'], p['robot_em'], p['grip_em'], robot_state)
-    drive_scheduler(scheduler, clock=clock, steps=5)
-
-    p['directive_em'].emit(Directive.FINISH())
-    drive_scheduler(scheduler, clock=clock, steps=3)
-
-    # Build a per-channel timeline interleaving robot_commands, target_grip, and ds_command,
-    # then assert each cancel [] precedes its STOP_EPISODE.
-    ds_stop_idx = next(
-        i for i, (_, d) in enumerate(p['ds_recorder'].emitted) if d.type == DsWriterCommandType.STOP_EPISODE
+    cancels = [i for i, (lbl, data) in enumerate(events) if lbl == 'robot_commands' and data == []]
+    stops = [
+        i
+        for i, (lbl, data) in enumerate(events)
+        if lbl == 'ds_command' and getattr(data, 'type', None) is DsWriterCommandType.STOP_EPISODE
+    ]
+    assert cancels, 'FINISH did not emit a cancel on robot_commands'
+    assert stops, 'FINISH did not emit STOP_EPISODE'
+    assert cancels[0] < stops[0], (
+        f'cancel ({cancels[0]}) must precede STOP_EPISODE ({stops[0]}); otherwise flush() commits canceled waypoints'
     )
-    ds_stop_t = p['ds_recorder'].emitted[ds_stop_idx][0]
-
-    cmd_cancel_t = next(t for t, d in cmd_recorder.emitted if d == [])
-    grip_cancel_t = next(t for t, d in grip_recorder.emitted if d == [])
-    assert cmd_cancel_t <= ds_stop_t, 'robot_commands [] cancel must precede STOP_EPISODE'
-    assert grip_cancel_t <= ds_stop_t, 'target_grip [] cancel must precede STOP_EPISODE'
 
 
 @pytest.mark.timeout(3.0)
