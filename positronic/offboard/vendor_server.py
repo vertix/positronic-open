@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any
@@ -11,7 +10,7 @@ import pos3
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-from positronic.policy import Codec, Policy, RecordingCodec
+from positronic.policy import Codec, Policy, RecordingWrapper
 from positronic.utils.checkpoints import get_latest_checkpoint, list_checkpoints
 from positronic.utils.serialization import deserialise, serialise
 
@@ -114,23 +113,11 @@ class VendorServer(ABC):
         resolve_model(None) → create_policy → reset → warmup
     """
 
-    def __init__(
-        self,
-        codec: Codec | None,
-        host: str = '0.0.0.0',
-        port: int = 8000,
-        recording_dir: str | None = None,
-        idle_timeout_min: float | None = None,
-    ):
+    def __init__(self, codec: Codec | None, host: str = '0.0.0.0', port: int = 8000, recording_dir: str | None = None):
         self.codec = codec
         self.host = host
         self.port = port
-        if recording_dir:
-            self.codec = RecordingCodec(self.codec, pos3.sync(recording_dir))
-
-        self.idle_timeout_min = idle_timeout_min
-        self._active_sessions = 0
-        self._last_activity = time.monotonic()
+        self._recording = RecordingWrapper(pos3.sync(recording_dir)) if recording_dir else None
 
         self.metadata: dict[str, Any] = {}
 
@@ -157,7 +144,9 @@ class VendorServer(ABC):
             return
         try:
             logger.info('Running warmup inference...')
-            await asyncio.to_thread(policy.select_action, self.codec.dummy_encoded())
+            session = policy.new_session()
+            await asyncio.to_thread(session, self.codec.dummy_encoded())
+            session.close()
             logger.info('Warmup inference complete')
         except Exception:
             logger.warning('Warmup inference failed (non-fatal)', exc_info=True)
@@ -180,24 +169,24 @@ class VendorServer(ABC):
         await websocket.accept()
         logger.info(f'Connected to {websocket.client} requesting {model_id or "default"}')
 
-        self._active_sessions += 1
-        self._last_activity = time.monotonic()
         model_handle = None
+        session = None
         try:
             model_handle, extra_meta = await self.resolve_model(model_id, websocket)
             base_policy = self.create_policy(model_handle)
             policy = self.codec.wrap(base_policy) if self.codec else base_policy
-            policy.reset()
-            meta = {**self.metadata, **extra_meta, **policy.meta}
+            if self._recording is not None:
+                policy = self._recording.wrap(policy)
+            session = policy.new_session()
+            meta = {**self.metadata, **extra_meta, **session.meta}
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
 
             try:
                 while True:
                     message = await websocket.receive_bytes()
-                    self._last_activity = time.monotonic()
                     try:
                         raw_obs = deserialise(message)
-                        actions = policy.select_action(raw_obs)
+                        actions = session(raw_obs)
                         await websocket.send_bytes(serialise({'result': actions}))
                     except Exception as e:
                         logger.error(f'Error processing message: {e}', exc_info=True)
@@ -213,44 +202,21 @@ class VendorServer(ABC):
             except Exception:
                 logger.debug('Failed to send error to client', exc_info=True)
         finally:
-            self._active_sessions = max(0, self._active_sessions - 1)
-            self._last_activity = time.monotonic()
+            if session is not None:
+                session.close()
             if model_handle is not None:
                 await self.release_policy(model_handle)
 
     async def _startup(self):
         model_handle, _meta = await self.resolve_model(None, websocket=None)
         policy = self.create_policy(model_handle)
-        policy.reset()
         await self.warmup(policy)
-
-    async def _idle_watchdog(self, server: uvicorn.Server):
-        timeout_s = self.idle_timeout_min * 60
-        poll = min(timeout_s, 30)
-        while not server.should_exit:
-            await asyncio.sleep(poll)
-            if self._active_sessions > 0:
-                continue
-            idle = time.monotonic() - self._last_activity
-            if idle >= timeout_s:
-                logger.warning(f'No activity for {idle:.0f}s (idle timeout {timeout_s:.0f}s); shutting down server')
-                server.should_exit = True
-                return
 
     def serve(self):
         async def _run():
             await self._startup()
             config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level='info')
-            server = uvicorn.Server(config)
-            self._last_activity = time.monotonic()
-            watchdog = None
-            if self.idle_timeout_min and self.idle_timeout_min > 0:
-                watchdog = asyncio.create_task(self._idle_watchdog(server))
-            try:
-                await server.serve()
-            finally:
-                if watchdog is not None:
-                    watchdog.cancel()
+            await uvicorn.Server(config).serve()
 
         try:
             asyncio.run(_run())

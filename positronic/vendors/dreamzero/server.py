@@ -16,7 +16,7 @@ from fastapi import WebSocket
 
 from positronic.offboard.server_utils import monitor_async_task, wait_for_subprocess_ready
 from positronic.offboard.vendor_server import VendorServer
-from positronic.policy import Codec, Policy
+from positronic.policy import Codec, Policy, Session
 from positronic.utils.logging import init_logging
 from positronic.utils.serialization import deserialize, serialize
 from positronic.vendors.dreamzero import codecs
@@ -170,12 +170,13 @@ class DreamZeroSubprocess:
             self.process = None
 
 
-class DreamZeroPolicy(Policy):
-    def __init__(self, client: RoboarenaClient):
+class _DreamZeroSession(Session):
+    def __init__(self, client: RoboarenaClient, session_id: str):
         self._client = client
-        self._session_id = str(uuid.uuid4())
+        self._session_id = session_id
 
-    def select_action(self, obs):
+    def __call__(self, obs):
+        obs = dict(obs)
         obs['session_id'] = self._session_id
         action_array = np.asarray(self._client.infer(obs))
 
@@ -184,9 +185,18 @@ class DreamZeroPolicy(Policy):
             return [{'action': action_array}]
         return [{'action': action_array[i]} for i in range(action_array.shape[0])]
 
-    def reset(self, context=None):
-        self._client.reset(session_id=self._session_id)
-        self._session_id = str(uuid.uuid4())
+
+class DreamZeroPolicy(Policy):
+    def __init__(self, client: RoboarenaClient):
+        self._client = client
+        self._prev_session_id: str | None = None
+
+    def new_session(self, context=None):
+        if self._prev_session_id is not None:
+            self._client.reset(session_id=self._prev_session_id)
+        session_id = str(uuid.uuid4())
+        self._prev_session_id = session_id
+        return _DreamZeroSession(self._client, session_id)
 
 
 class InferenceServer(VendorServer):
@@ -202,11 +212,8 @@ class InferenceServer(VendorServer):
         roboarena_port: int = 1234,
         enable_dit_cache: bool = True,
         recording_dir: str | None = None,
-        idle_timeout_min: float | None = None,
     ):
-        super().__init__(
-            codec=codec, host=host, port=port, recording_dir=recording_dir, idle_timeout_min=idle_timeout_min
-        )
+        super().__init__(codec=codec, host=host, port=port, recording_dir=recording_dir)
         self.model_path = model_path
         self.dreamzero_venv = Path(dreamzero_venv)
         self.backbone = backbone
@@ -275,7 +282,6 @@ class InferenceServer(VendorServer):
     port=8000,
     enable_dit_cache=True,
     recording_dir=None,
-    idle_timeout_min=None,
 )
 def server(
     codec: Codec | None,
@@ -286,7 +292,6 @@ def server(
     port: int,
     enable_dit_cache: bool,
     recording_dir: str | None,
-    idle_timeout_min: float | None,
 ):
     """Starts the DreamZero inference server."""
     with pos3.mirror():
@@ -299,7 +304,6 @@ def server(
             port=port,
             enable_dit_cache=enable_dit_cache,
             recording_dir=recording_dir,
-            idle_timeout_min=idle_timeout_min,
         ).serve()
 
 

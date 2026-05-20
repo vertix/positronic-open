@@ -4,7 +4,6 @@ from ctypes import c_uint16
 import pymodbus.client as ModbusClient
 
 import pimm
-from positronic.drivers.roboarm.command import TrajectoryPlayer
 
 
 class DHGripper(pimm.ControlSystem):
@@ -31,18 +30,10 @@ class DHGripper(pimm.ControlSystem):
             while _state_g() != 1 and _state_r() != 1:
                 yield pimm.Sleep(0.1)
 
-        player = TrajectoryPlayer()
-        last_grip = 0.0
-
         # TODO: We must translate these to physical units (N and m/s)
         while not should_stop.value:
             try:
-                grip_msg = self.target_grip.read()
-                if grip_msg.updated:
-                    player.set(grip_msg.data)
-                for grip in player.advance(clock.now_ns()):
-                    last_grip = grip
-                width = round((1 - max(0, min(last_grip, 1))) * 1000)
+                width = round((1 - max(0, min(self.target_grip.value, 1))) * 1000)
                 client.write_register(0x103, c_uint16(width).value, slave=1)
                 client.write_register(0x101, c_uint16(self.force.value).value, slave=1)
                 client.write_register(0x104, c_uint16(self.speed.value).value, slave=1)
