@@ -205,6 +205,22 @@ class Harness(pimm.ControlSystem):
         self.robot_commands.emit([(now, roboarm.command.Reset())])
         self.target_grip.emit([(now, 0.0)])
 
+    def _cancel_trajectories(self) -> None:
+        """Drop any in-flight chunk from drivers and from the recording's tail.
+
+        Emits ``[]`` on ``robot_commands``/``target_grip`` so each driver's
+        ``TrajectoryPlayer`` clears its buffer (devices hold position) and
+        ``TrajectoryOverrideSerializer`` drops its uncommitted tail. Must
+        precede ``STOP_EPISODE``, which ``flush()``​es the recording's
+        serializers and would otherwise commit canceled waypoints. Also
+        cancels the active session's scheduling state so the next inference
+        is not held back by stale trajectory_end.
+        """
+        self.robot_commands.emit([])
+        self.target_grip.emit([])
+        if self._session is not None:
+            self._session.cancel()
+
     def _handle_directive(
         self, directive: Directive, clock: pimm.Clock, recording: bool
     ) -> Generator[pimm.Sleep, None, tuple[bool, bool]]:
@@ -214,6 +230,7 @@ class Harness(pimm.ControlSystem):
                 if recording:
                     if self._session:
                         self._session.on_episode_complete()
+                    self._cancel_trajectories()
                     self.ds_command.emit(DsWriterCommand.STOP())
                     self._home(clock)
                     yield pimm.Pass()
@@ -226,11 +243,13 @@ class Harness(pimm.ControlSystem):
             case DirectiveType.STOP:
                 if recording:
                     self.ds_command.emit(DsWriterCommand.SUSPEND())
+                self._cancel_trajectories()
                 return False, recording
             case DirectiveType.FINISH:
                 if recording:
                     if self._session:
                         self._session.on_episode_complete()
+                    self._cancel_trajectories()
                     self.ds_command.emit(DsWriterCommand.STOP(directive.payload or {}))
                     recording = False
                 self._home(clock)

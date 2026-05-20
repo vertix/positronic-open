@@ -405,6 +405,76 @@ def test_run_calls_policy_reset_with_context(world, clock):
 
 
 @pytest.mark.timeout(3.0)
+def test_stop_cancels_in_flight_trajectory(world, clock):
+    """STOP must emit [] on robot/grip channels so drivers clear their TrajectoryPlayer.
+
+    Otherwise a STOP issued mid-chunk would let drivers keep playing buffered motion.
+    """
+    cmd_recorder = RecordingEmitter()
+    grip_recorder = RecordingEmitter()
+    policy = ChunkPolicy()
+    harness = Harness(policy)
+    harness.robot_commands._bind(cmd_recorder)
+    harness.target_grip._bind(grip_recorder)
+    p = _pair_all(world, harness)
+
+    robot_state = make_robot_state([0.1, 0.2, 0.3], [0.4, 0.5, 0.6])
+    scheduler = world.start([harness])
+
+    p['directive_em'].emit(Directive.RUN(task='test'))
+    drive_scheduler(scheduler, clock=clock, steps=1)
+    emit_ready_payload(p['frame_em'], p['robot_em'], p['grip_em'], robot_state)
+    drive_scheduler(scheduler, clock=clock, steps=5)
+
+    p['directive_em'].emit(Directive.STOP())
+    drive_scheduler(scheduler, clock=clock, steps=3)
+
+    cmd_emissions = [d for _, d in cmd_recorder.emitted]
+    grip_emissions = [d for _, d in grip_recorder.emitted]
+    assert cmd_emissions[-1] == [], 'STOP did not emit cancel [] on robot_commands'
+    assert grip_emissions[-1] == [], 'STOP did not emit cancel [] on target_grip'
+
+
+@pytest.mark.timeout(3.0)
+def test_finish_cancels_buffered_trajectory_before_stop_episode(world, clock):
+    """FINISH must cancel buffered trajectories before STOP_EPISODE.
+
+    Otherwise STOP_EPISODE flushes TrajectoryOverrideSerializer with the
+    canceled tail, committing future waypoints into the recorded episode.
+    """
+    cmd_recorder = RecordingEmitter()
+    grip_recorder = RecordingEmitter()
+    policy = ChunkPolicy()
+    harness = Harness(policy)
+    harness.robot_commands._bind(cmd_recorder)
+    harness.target_grip._bind(grip_recorder)
+    p = _pair_all(world, harness)
+
+    robot_state = make_robot_state([0.1, 0.2, 0.3], [0.4, 0.5, 0.6])
+    scheduler = world.start([harness])
+
+    p['directive_em'].emit(Directive.RUN(task='test'))
+    drive_scheduler(scheduler, clock=clock, steps=1)
+    emit_ready_payload(p['frame_em'], p['robot_em'], p['grip_em'], robot_state)
+    drive_scheduler(scheduler, clock=clock, steps=5)
+
+    p['directive_em'].emit(Directive.FINISH())
+    drive_scheduler(scheduler, clock=clock, steps=3)
+
+    # Build a per-channel timeline interleaving robot_commands, target_grip, and ds_command,
+    # then assert each cancel [] precedes its STOP_EPISODE.
+    ds_stop_idx = next(
+        i for i, (_, d) in enumerate(p['ds_recorder'].emitted) if d.type == DsWriterCommandType.STOP_EPISODE
+    )
+    ds_stop_t = p['ds_recorder'].emitted[ds_stop_idx][0]
+
+    cmd_cancel_t = next(t for t, d in cmd_recorder.emitted if d == [])
+    grip_cancel_t = next(t for t, d in grip_recorder.emitted if d == [])
+    assert cmd_cancel_t <= ds_stop_t, 'robot_commands [] cancel must precede STOP_EPISODE'
+    assert grip_cancel_t <= ds_stop_t, 'target_grip [] cancel must precede STOP_EPISODE'
+
+
+@pytest.mark.timeout(3.0)
 def test_harness_clears_trajectory_on_home(world, clock):
     """Verify that HOME resets trajectory state so next RUN gets a fresh chunk."""
     policy = ChunkPolicy()

@@ -238,7 +238,9 @@ class ActionHorizon(Codec):
 
     def decode(self, data, *, context=None):
         if isinstance(data, list):
-            return [d for d in data if d['timestamp'] < self._horizon_sec]
+            # Treat untimestamped actions as t=0 so they always pass the horizon
+            # (servers may apply horizon truncation before stamping).
+            return [d for d in data if d.get('timestamp', 0.0) < self._horizon_sec]
         return data
 
     @property
