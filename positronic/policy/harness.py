@@ -1,6 +1,4 @@
-import logging
 import time
-from collections import deque
 from collections.abc import Generator, Iterator
 from dataclasses import dataclass
 from enum import Enum
@@ -86,47 +84,70 @@ class Harness(pimm.ControlSystem):
         meta.update(context)
         return meta
 
-    def _home(self):
-        self.robot_commands.emit(roboarm.command.Reset())
-        self.target_grip.emit(0.0)
+    def _home(self, clock):
+        now = clock.now_ns()
+        self.robot_commands.emit([(now, roboarm.command.Reset())])
+        self.target_grip.emit([(now, 0.0)])
+
+    def _cancel_trajectories(self) -> None:
+        """Drop any in-flight chunk from drivers and from the recording's tail.
+
+        Emits ``[]`` on ``robot_commands``/``target_grip`` so each driver's
+        ``TrajectoryPlayer`` clears its buffer (devices hold position) and
+        ``TrajectoryOverrideSerializer`` drops its uncommitted tail. Must
+        precede ``STOP_EPISODE``, which ``flush()``​es the recording's
+        serializers and would otherwise commit canceled waypoints.
+        """
+        self.robot_commands.emit([])
+        self.target_grip.emit([])
+        self._trajectory_end = None
 
     def _handle_directive(
-        self, directive: Directive, recording: bool
+        self, directive: Directive, clock: pimm.Clock, recording: bool
     ) -> Generator[pimm.Sleep, None, tuple[bool, bool]]:
         """Handle a directive, yielding any necessary pauses. Returns (running, recording)."""
         match directive.type:
             case DirectiveType.RUN:
                 if recording:
+                    self._cancel_trajectories()
                     self.ds_command.emit(DsWriterCommand.STOP())
-                    self._home()
+                    self._home(clock)
                     yield pimm.Pass()
                 self.context = directive.payload or {}
                 self.policy.reset(self.context)
                 self.ds_command.emit(DsWriterCommand.START(self._build_episode_meta(self.context)))
+                self._trajectory_end = None
                 return True, True
             case DirectiveType.STOP:
                 if recording:
                     self.ds_command.emit(DsWriterCommand.SUSPEND())
+                self._cancel_trajectories()
                 return False, recording
             case DirectiveType.FINISH:
                 if recording:
+                    self._cancel_trajectories()
                     self.ds_command.emit(DsWriterCommand.STOP(directive.payload or {}))
                     recording = False
-                self._home()
+                self._home(clock)
                 yield pimm.Pass()
                 return False, recording
             case DirectiveType.HOME:
                 if recording:
                     self.ds_command.emit(DsWriterCommand.ABORT())
                     recording = False
-                self._home()
+                self._home(clock)
                 yield pimm.Pass()
                 return False, recording
             case _:
                 raise ValueError(f'Unknown directive type: {directive.type}')
 
     def _infer(self, clock: pimm.Clock) -> list[dict[str, Any]] | None:
-        """Read sensors and run policy inference. Returns commands or None if not ready."""
+        """Read sensors and run policy inference. Returns a command list or None if not ready.
+
+        A single action (not a list) means "execute immediately" — it is stamped
+        ``timestamp=0.0`` so the harness anchors it to the current clock. A list
+        is a trajectory and every action must already carry a ``timestamp``.
+        """
         robot_state = self.robot_state.value
         inputs = {
             'robot_state.q': robot_state.q,
@@ -139,65 +160,72 @@ class Harness(pimm.ControlSystem):
         if len(images) != len(self.frames):
             return None
         inputs.update(images)
-        inputs['__wall_time_ns__'] = time.time_ns()
-        inputs['__inference_time_ns__'] = clock.now_ns()
+        inputs['wall_time_ns'] = time.time_ns()
+        inputs['inference_time_ns'] = clock.now_ns()
         inputs.update(self.context)
         commands = self.policy.select_action(frozen_view(inputs))
-        return commands if isinstance(commands, list) else [commands]
+        if isinstance(commands, list):
+            return commands
+        return [{**commands, 'timestamp': 0.0}]
 
-    def _step(self, clock: pimm.Clock, commands_queue: deque, in_error: bool) -> Generator[pimm.Sleep, None, bool]:
-        """Execute one inference step. Returns updated in_error state."""
+    def _step(self, clock: pimm.Clock, in_error: bool) -> Generator[pimm.Sleep, None, bool]:
+        """Run one inference cycle if the current trajectory is consumed. Returns in_error."""
         was_ok = not in_error
         in_error = self.robot_state.value.status == roboarm.RobotStatus.ERROR
         if in_error and was_ok:
-            commands_queue.clear()
-            self.robot_commands.emit(roboarm.command.Recover())
+            self.robot_commands.emit([(clock.now_ns(), roboarm.command.Recover())])
+            self._trajectory_end = None
         if in_error:
             return True
 
-        if not commands_queue:
-            wall_start = time.monotonic()
-            commands = self._infer(clock)
-            if commands is None:
-                return False
-            if self.simulate_inference is True:  # bool is an int subclass — check identity first
-                yield pimm.Sleep(time.monotonic() - wall_start)
-            elif self.simulate_inference:
-                yield pimm.Sleep(float(self.simulate_inference))
-            prediction_time = clock.now()
-            for cmd in commands:
-                commands_queue.append((
-                    roboarm.command.from_wire(cmd['robot_command']),
-                    cmd['target_grip'],
-                    prediction_time + cmd.get('timestamp', 0.0),
-                ))
-
-        if not commands_queue:
-            logging.error('Policy returned no commands')
+        if self._trajectory_end is not None and clock.now_ns() < self._trajectory_end:
             return in_error
 
-        roboarm_cmd, target_grip, scheduled_time = commands_queue.popleft()
-        yield pimm.Sleep(max(0.0, scheduled_time - clock.now()))
-        self.robot_commands.emit(roboarm_cmd)
-        self.target_grip.emit(target_grip)
+        wall_start = time.monotonic()
+        commands = self._infer(clock)
+        if commands is None:
+            return in_error
+        # Advance the (sim) clock by the inference cost so rollouts feel the
+        # model's latency. `True` measures real wall time; a float is a fixed
+        # deterministic delay (used by the reproducible golden).
+        if self.simulate_inference is True:  # bool is an int subclass — check identity first
+            yield pimm.Sleep(time.monotonic() - wall_start)
+        elif self.simulate_inference:
+            yield pimm.Sleep(float(self.simulate_inference))
+
+        # The codec emits chunk-relative offsets (seconds); anchor them to the
+        # current (post-inference) clock so the chunk starts at ~now. Single
+        # explicit seconds->ns seam for drivers' TrajectoryPlayer and the
+        # dataset writer.
+        now_ns = clock.now_ns()
+        robot_traj = [
+            (now_ns + int(cmd['timestamp'] * 1e9), roboarm.command.from_wire(cmd['robot_command'])) for cmd in commands
+        ]
+        grip_traj = [
+            (now_ns + int(cmd['timestamp'] * 1e9), cmd['target_grip']) for cmd in commands if 'target_grip' in cmd
+        ]
+        self.robot_commands.emit(robot_traj)
+        if grip_traj:
+            self.target_grip.emit(grip_traj)
+        self._trajectory_end = robot_traj[-1][0] if robot_traj else None
         return in_error
 
     def run(self, should_stop: pimm.SignalReceiver, clock: pimm.Clock) -> Iterator[pimm.Sleep]:
         running = False
         recording = False
         in_error = False
-        commands_queue = deque()
+        self._trajectory_end = None
 
         while not should_stop.value:
             directive_msg = self.directive.read()
             if directive_msg.updated:
-                commands_queue.clear()
+                self._trajectory_end = None
                 in_error = False
-                running, recording = yield from self._handle_directive(directive_msg.data, recording)
+                running, recording = yield from self._handle_directive(directive_msg.data, clock, recording)
 
             try:
                 if running:
-                    in_error = yield from self._step(clock, commands_queue, in_error)
+                    in_error = yield from self._step(clock, in_error)
             except pimm.NoValueException:
                 pass
             finally:

@@ -14,6 +14,7 @@ from positronic.dataset.ds_writer_agent import (
     DsWriterCommandType,
     Serializers,
     TimeMode,
+    TrajectoryOverrideSerializer,
 )
 from positronic.dataset.local_dataset import LocalDataset, LocalDatasetWriter
 from positronic.drivers.roboarm import RobotStatus, State
@@ -468,3 +469,56 @@ def test_suspend_resume(world, clock):
     w = ds.created[-1]
     assert [(s, v) for (s, v, _, _) in w.appends] == [('a', 1)]
     assert w.exited is True
+
+
+def test_trajectory_override_serializer():
+    s = TrajectoryOverrideSerializer(None)
+    s.reset()
+
+    # First trajectory: nothing is final yet (could be overridden).
+    assert s([(1, 'a'), (2, 'b'), (3, 'c')]) == []
+
+    # Next trajectory starts at ts=2 -> only ts<2 ('a') is final; 'b','c' overridden.
+    out = s([(2, 'B'), (3, 'C'), (4, 'D')])
+    assert [(t.ts, t.value) for t in out] == [(1, 'a')]
+
+    # Episode end drains the still-live buffer.
+    assert [(t.ts, t.value) for t in s.flush()] == [(2, 'B'), (3, 'C'), (4, 'D')]
+
+    # Bare (teleop) values bypass buffering entirely.
+    assert s('reset') == 'reset'
+
+
+def test_serializer_plain_list_value(world, clock):
+    """A serializer returning a plain list (non-`Timestamped`) is appended as one sample.
+
+    The trajectory-stream dispatch must not hijack legitimate list-valued samples.
+    """
+    ds = FakeDatasetWriter()
+
+    def to_list(_):
+        return [1, 2, 3]
+
+    agent, cmd_em, emitters = build_agent_with_pipes({'v': to_list}, ds, world)
+    script = [
+        (partial(cmd_em.emit, DsWriterCommand(DsWriterCommandType.START_EPISODE)), 0.001),
+        (partial(emitters['v'].emit, 0), 0.001),
+        (partial(cmd_em.emit, DsWriterCommand(DsWriterCommandType.STOP_EPISODE)), 0.001),
+    ]
+    run_scripted_agent(agent, script, world=world, clock=clock)
+
+    w = ds.created[-1]
+    assert [(s, v) for (s, v, _, _) in w.appends] == [('v', [1, 2, 3])]
+
+
+def test_trajectory_override_serializer_empty_cancels_buffer():
+    """Empty trajectory is the Harness STOP cancel signal: drop the buffered tail."""
+    s = TrajectoryOverrideSerializer(None)
+    s.reset()
+
+    # Buffer a trajectory (nothing committed yet).
+    assert s([(1, 'a'), (2, 'b'), (3, 'c')]) == []
+    # Empty trajectory = cancel: nothing committed AND buffer cleared.
+    assert s([]) == []
+    # Subsequent flush must not emit the canceled waypoints.
+    assert s.flush() == []
