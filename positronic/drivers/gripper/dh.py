@@ -4,13 +4,14 @@ from ctypes import c_uint16
 import pymodbus.client as ModbusClient
 
 import pimm
+from positronic.drivers.roboarm.command import TrajectoryPlayer
 
 
 class DHGripper(pimm.ControlSystem):
     def __init__(self, port: str):
         self.port = port
         self.grip: pimm.SignalEmitter = pimm.ControlSystemEmitter(self)
-        self.target_grip: pimm.SignalReceiver = pimm.ControlSystemReceiver(self, default=0)
+        self.target_grip: pimm.SignalReceiver = pimm.ControlSystemReceiver(self, default=None)
         self.force: pimm.SignalReceiver = pimm.ControlSystemReceiver(self, default=100)
         self.speed: pimm.SignalReceiver = pimm.ControlSystemReceiver(self, default=100)
 
@@ -30,15 +31,21 @@ class DHGripper(pimm.ControlSystem):
             while _state_g() != 1 and _state_r() != 1:
                 yield pimm.Sleep(0.1)
 
+        player = TrajectoryPlayer()
+
         # TODO: We must translate these to physical units (N and m/s)
         while not should_stop.value:
-            try:
-                width = round((1 - max(0, min(self.target_grip.value, 1))) * 1000)
-                client.write_register(0x103, c_uint16(width).value, slave=1)
-                client.write_register(0x101, c_uint16(self.force.value).value, slave=1)
-                client.write_register(0x104, c_uint16(self.speed.value).value, slave=1)
-            except pimm.NoValueException:
-                pass
+            msg = self.target_grip.read()
+            if msg.updated and msg.data is not None:
+                player.set(msg.data)
+            for grip in player.advance(clock.now_ns()):
+                try:
+                    width = round((1 - max(0.0, min(float(grip), 1.0))) * 1000)
+                    client.write_register(0x103, c_uint16(width).value, slave=1)
+                    client.write_register(0x101, c_uint16(self.force.value).value, slave=1)
+                    client.write_register(0x104, c_uint16(self.speed.value).value, slave=1)
+                except pimm.NoValueException:
+                    pass
 
             current_grip = 1 - client.read_holding_registers(0x202, count=1, slave=1).registers[0] / 1000
             self.grip.emit(current_grip)

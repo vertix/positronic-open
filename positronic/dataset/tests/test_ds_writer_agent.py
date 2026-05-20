@@ -296,6 +296,31 @@ def test_serializer_dict_expansion(world, clock):
     assert ('img.extra', 11) in names_and_vals
 
 
+def test_serializer_plain_list_value(world, clock):
+    """A serializer returning a plain list (not list[Timestamped]) is recorded as one sample.
+
+    Regression for the Timestamped-guard removal: without the guard, list-valued
+    serializer outputs were iterated as Timestamped streams and raised AttributeError.
+    """
+    ds = FakeDatasetWriter()
+
+    def to_list(v):
+        return [v, v + 1, v + 2]
+
+    agent, cmd_em, emitters = build_agent_with_pipes({'x': to_list}, ds, world)
+
+    script = [
+        (partial(cmd_em.emit, DsWriterCommand(DsWriterCommandType.START_EPISODE)), 0.001),
+        (partial(emitters['x'].emit, 10), 0.001),
+        (partial(cmd_em.emit, DsWriterCommand(DsWriterCommandType.STOP_EPISODE)), 0.001),
+    ]
+
+    run_scripted_agent(agent, script, world=world, clock=clock)
+
+    w = ds.created[-1]
+    assert [(s, v) for (s, v, _, _) in w.appends] == [('x', [10, 11, 12])]
+
+
 def test_serializer_none_drops_sample(world, clock):
     ds = FakeDatasetWriter()
 
