@@ -90,14 +90,29 @@ class RemotePolicy(Policy):
         self._client = InferenceClient(host, port, headers=headers, secure=secure)
         self._resize = resize
         self._model_id = model_id
+        # Server metadata cached after the first session is created or `meta`
+        # is read. Needed so consumers like ``SampledPolicy._get_keys`` see
+        # ``server.checkpoint_path`` etc. before any session exists.
+        self._server_meta: dict[str, Any] | None = None
+
+    def _ensure_server_meta(self) -> dict[str, Any]:
+        if self._server_meta is None:
+            ws_session = self._client.new_session(model_id=self._model_id)
+            try:
+                self._server_meta = dict(ws_session.metadata)
+            finally:
+                ws_session.close()
+        return self._server_meta
 
     def new_session(self, context=None) -> RemoteSession:
         ws_session = self._client.new_session(model_id=self._model_id)
+        if self._server_meta is None:
+            self._server_meta = dict(ws_session.metadata)
         return RemoteSession(ws_session, self._resize)
 
     @property
     def meta(self) -> dict[str, Any]:
-        return {'type': 'remote'}
+        return flatten_dict({'type': 'remote', 'server': self._ensure_server_meta()})
 
     def close(self):
         self._client = None

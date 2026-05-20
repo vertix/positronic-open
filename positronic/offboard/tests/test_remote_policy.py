@@ -220,6 +220,20 @@ def test_remote_session_passes_through_none():
     assert session({}) is None
 
 
+def test_remote_policy_meta_exposes_server_fields():
+    """RemotePolicy.meta must expose server metadata so SampledPolicy._get_keys
+    can read e.g. 'server.checkpoint_path' before a session is created."""
+    mock_ws = _mock_ws_session({'checkpoint_path': '/ckpts/abc', 'model_name': 'foo'})
+    policy = RemotePolicy('localhost', 0)
+    policy._client = MagicMock()
+    policy._client.new_session.return_value = mock_ws
+
+    meta = policy.meta
+    assert meta['type'] == 'remote'
+    assert meta['server.checkpoint_path'] == '/ckpts/abc'
+    assert meta['server.model_name'] == 'foo'
+
+
 def test_remote_policy_lifecycle(inference_server, mock_policy):
     """Test RemotePolicy.new_session() and session call."""
     host, port = inference_server
