@@ -512,3 +512,18 @@ def test_trajectory_override_serializer():
 
     # Bare (teleop) values bypass buffering entirely.
     assert s('reset') == 'reset'
+
+
+def test_trajectory_override_serializer_empty_cancels_buffer():
+    """Empty trajectory is the cancel signal: drop the buffered tail."""
+    s = TrajectoryOverrideSerializer(None)
+    s.reset()
+
+    # Buffer a trajectory.
+    s([(1, 'a'), (2, 'b'), (3, 'c')])
+
+    # Cancel: empty trajectory clears the buffer.
+    assert s([]) == []
+
+    # flush() must not return the canceled waypoints.
+    assert s.flush() == []

@@ -91,6 +91,10 @@ class ChunkedSchedule(PolicyWrapper):
                 self._trajectory_end = result[-1]['timestamp'] if result else None
             return result
 
+        def cancel(self):
+            self._trajectory_end = None
+            super().cancel()
+
     def __init__(self, clock: pimm.Clock):
         self._clock = clock
 
@@ -124,6 +128,9 @@ class ErrorRecovery(PolicyWrapper):
 
             if self._in_error:
                 if was_ok:
+                    # Reset any inner scheduling state so post-recovery doesn't stall
+                    # on a stale trajectory_end from the pre-error chunk.
+                    self._inner.cancel()
                     return [{'robot_command': roboarm.command.Recover(), 'timestamp': self._clock.now()}]
                 return None
 

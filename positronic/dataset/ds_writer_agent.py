@@ -235,7 +235,10 @@ class TrajectoryOverrideSerializer(StatefulSerializer):
             # Bare value (teleop Reset/Cartesian, scalar grip): one-shot, agent-timestamped.
             return self._encode(message)
         if not message:
-            return []  # empty trajectory: nothing to commit, buffer untouched
+            # Empty trajectory is the cancel signal: drop the buffered tail so
+            # flush() at STOP_EPISODE does not commit canceled waypoints.
+            self._buffer = []
+            return []
 
         start = message[0][0]
         # Buffer is ts-sorted: everything before the new trajectory's start is

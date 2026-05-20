@@ -196,6 +196,30 @@ class TestActionHorizonWrapping:
         assert len(actions) == 2
 
 
+def test_remote_session_normalizes_single_dict():
+    """Server returning a single action dict (legacy shape) is wrapped into a 1-element list."""
+    mock_ws = _mock_ws_session()
+    mock_ws.infer.return_value = {'robot_command': 'X', 'timestamp': 0.0}
+    policy = RemotePolicy('localhost', 0)
+    policy._client = MagicMock()
+    policy._client.new_session.return_value = mock_ws
+
+    session = policy.new_session()
+    actions = session({})
+    assert actions == [{'robot_command': 'X', 'timestamp': 0.0}]
+
+
+def test_remote_session_passes_through_none():
+    mock_ws = _mock_ws_session()
+    mock_ws.infer.return_value = None
+    policy = RemotePolicy('localhost', 0)
+    policy._client = MagicMock()
+    policy._client.new_session.return_value = mock_ws
+
+    session = policy.new_session()
+    assert session({}) is None
+
+
 def test_remote_policy_lifecycle(inference_server, mock_policy):
     """Test RemotePolicy.new_session() and session call."""
     host, port = inference_server
@@ -209,7 +233,8 @@ def test_remote_policy_lifecycle(inference_server, mock_policy):
 
     obs = {'dataset': 'test'}
     action = session(obs)
-    assert action['action_data'] == [1, 2, 3]
+    # Single-dict server response is normalized to a 1-element list (Session contract).
+    assert action == [{'action_data': [1, 2, 3]}]
 
     session.close()
 

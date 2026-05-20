@@ -209,3 +209,31 @@ class TestPipelineComposition:
         c2 = ActionTimestamp(fps=5.0)
         composed = c1 & c2
         assert isinstance(composed, Codec)
+
+    def test_error_recovery_cancels_schedule(self):
+        """ErrorRecovery | ChunkedSchedule: post-recovery should not stall on stale trajectory_end.
+
+        Without the cancel, ChunkedSchedule would keep its pre-error trajectory_end and
+        return None after recovery until that timestamp elapses.
+        """
+        clock = _FakeClock(t=1.0)
+        # Long trajectory: ends at clock=1.0 + 5.0 = 6.0
+        inner = _ConstPolicy([{'v': 1, 'timestamp': 0.0}, {'v': 2, 'timestamp': 5.0}])
+        pipeline = ErrorRecovery(clock) | ChunkedSchedule(clock)
+        session = pipeline.wrap(inner).new_session()
+
+        # Normal call sets trajectory_end = 6.0.
+        result = session(_obs(now_sec=1.0, status=RobotStatus.AVAILABLE))
+        assert result is not None
+
+        # Robot enters error mid-trajectory; ErrorRecovery emits Recover and cancels schedule.
+        clock.t = 2.0
+        result = session(_obs(now_sec=2.0, status=RobotStatus.ERROR))
+        assert result is not None and isinstance(result[0]['robot_command'], Recover)
+
+        # Robot recovers. ChunkedSchedule must not block on the stale 6.0 end —
+        # cancel cleared trajectory_end so this call hits inner immediately.
+        clock.t = 2.5
+        result = session(_obs(now_sec=2.5, status=RobotStatus.AVAILABLE))
+        assert result is not None
+        assert inner._session.call_count == 2  # initial call + post-recovery call

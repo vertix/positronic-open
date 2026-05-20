@@ -44,6 +44,13 @@ class Session(ABC):
         """
         return None
 
+    def cancel(self):
+        """Drop any in-flight trajectory state. Wrappers that buffer/schedule a
+        trajectory (e.g. ``ChunkedSchedule``) should reset so the next call
+        triggers a fresh inference. Override and propagate via ``super().cancel()``.
+        """
+        return None
+
     def close(self):
         """End this session and release per-episode resources."""
         return None
@@ -64,6 +71,9 @@ class DelegatingSession(Session):
 
     def on_episode_complete(self):
         self._inner.on_episode_complete()
+
+    def cancel(self):
+        self._inner.cancel()
 
     def close(self):
         self._inner.close()
