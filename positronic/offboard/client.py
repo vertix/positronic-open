@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -77,13 +78,20 @@ class InferenceSession:
 
 
 class InferenceClient:
-    def __init__(self, host: str, port: int):
+    def __init__(self, host: str, port: int, *, headers: dict[str, str] | None = None, secure: bool = False):
         self.host = host
         self.port = port
-        self.base_uri = f'ws://{host}:{port}/api/v1/session'
-        self.api_url = f'http://{host}:{port}/api/v1'
+        self.headers = dict(headers) if headers else None
+        ws_scheme = 'wss' if secure else 'ws'
+        http_scheme = 'https' if secure else 'http'
+        default_port = 443 if secure else 80
+        netloc = host if port == default_port else f'{host}:{port}'
+        self.base_uri = f'{ws_scheme}://{netloc}/api/v1/session'
+        self.api_url = f'{http_scheme}://{netloc}/api/v1'
 
-    def new_session(self, model_id: str | None = None, open_timeout: float = 10.0) -> InferenceSession:
+    def new_session(
+        self, model_id: str | None = None, open_timeout: float = 10.0, connect_deadline: float = 180.0
+    ) -> InferenceSession:
         """
         Creates a new inference session.
 
@@ -94,14 +102,28 @@ class InferenceClient:
                         Model loading timeout is controlled by per-message timeout in handshake.
         """
         uri = self.base_uri if model_id is None else f'{self.base_uri}/{model_id}'
-        try:
-            ws = connect(uri, open_timeout=open_timeout)
-        except OSError as e:
-            raise type(e)(f'{e} (connecting to {self.host}:{self.port})') from e
+        connect_kwargs: dict[str, object] = {'open_timeout': open_timeout}
+        if self.headers:
+            connect_kwargs['additional_headers'] = self.headers
+
+        deadline = time.monotonic() + connect_deadline
+        backoff = 1.0
+        while True:
+            try:
+                ws = connect(uri, **connect_kwargs)
+                break
+            except TimeoutError as e:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f'{e} (connecting to {self.host}:{self.port})') from e
+                logger.info('Server not ready (cold start?); retrying in %.0fs', backoff)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
+            except OSError as e:
+                raise type(e)(f'{e} (connecting to {self.host}:{self.port})') from e
         return InferenceSession(ws)
 
     def list_models(self) -> list[str]:
         """List available models from the server."""
-        response = httpx.get(f'{self.api_url}/models')
+        response = httpx.get(f'{self.api_url}/models', headers=self.headers)
         response.raise_for_status()
         return response.json()['models']
