@@ -30,15 +30,15 @@ Positronic datasets must be converted into the LeRobot format using an OpenPI co
 **Command:**
 ```bash
 docker compose run --rm -v ~/datasets:/data lerobot-0_3_3-convert convert \
-  --dataset.dataset=@positronic.cfg.ds.phail.phail \
+  --dataset.dataset=@positronic.cfg.phail.v1_0.dataset.teleoperation \
   --dataset.codec=@positronic.vendors.openpi.codecs.ee \
   --output_dir=/data/my_lerobot_data
 ```
 
 **Available public datasets:**
-- `@positronic.cfg.ds.phail.phail` - DROID teleoperation data (12GB, 352 episodes)
-- `@positronic.cfg.ds.phail.sim_stack_cubes` - Simulated cube stacking (499MB, 317 episodes)
-- `@positronic.cfg.ds.phail.sim_pick_place` - Simulated pick-and-place (1.3GB, 214 episodes)
+- `@positronic.cfg.phail.v1_0.dataset.teleoperation` - DROID teleoperation data (12GB, 352 episodes)
+- `@positronic.cfg.ds.sim.sim_stack_cubes` - Simulated cube stacking (499MB, 317 episodes)
+- `@positronic.cfg.ds.sim.sim_pick_place` - Simulated pick-and-place (1.3GB, 214 episodes)
 
 **Examples for different codecs:**
 ```bash

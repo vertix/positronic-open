@@ -15,7 +15,7 @@ PARENT_ID="${NEBIUS_PARENT_ID:-project-e00f38wexevrr52b8j}"
 S3_BASE="${E2E_S3_BASE:-s3://tmp/e2e_validation}"
 EXP_NAME="${E2E_EXP_NAME:-e2e_$(date +%Y%m%d_%H%M%S)}"
 LOG_ROOT="${E2E_LOG_ROOT:-/tmp/e2e_logs}"
-DATASET="${E2E_DATASET:-@positronic.cfg.ds.phail.sim_stack_cubes}"
+DATASET="${E2E_DATASET:-@positronic.cfg.ds.sim.sim_stack_cubes}"
 
 VENDOR="${1:-}"
 if [ -z "$VENDOR" ]; then
@@ -28,7 +28,7 @@ Optional env:
   E2E_S3_BASE     S3 base for outputs (default: s3://tmp/e2e_validation)
   E2E_EXP_NAME    Experiment name (default: e2e_<timestamp>)
   E2E_LOG_ROOT    Local log dir (default: /tmp/e2e_logs)
-  E2E_DATASET     Dataset config target (default: @positronic.cfg.ds.phail.sim_stack_cubes)
+  E2E_DATASET     Dataset config target (default: @positronic.cfg.ds.sim.sim_stack_cubes)
 
 To run all four in parallel:
   for v in lerobot_0_3_3 lerobot openpi gr00t; do bash workflows/nebius/e2e.sh "$v" & done; wait

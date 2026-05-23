@@ -112,13 +112,13 @@ vendor positional:
 The job runs on CPU (`cpu-e2`, `8vcpu-32gb`) — conversion is video-encoding heavy; a GPU would
 be wasted.
 
-Example: convert the public [`sim_stack_cubes`](../../positronic/cfg/ds/phail.py) dataset (317
+Example: convert the public [`sim_stack_cubes`](../../positronic/cfg/ds/sim.py) dataset (317
 cube-stacking episodes, hosted on Positronic's public S3 bucket) into an ACT-ready LeRobot
 dataset on your own bucket:
 
 ```bash
 bash workflows/nebius/convert.sh lerobot_0_3_3 \
-  --dataset.dataset=@positronic.cfg.ds.phail.sim_stack_cubes \
+  --dataset.dataset=@positronic.cfg.ds.sim.sim_stack_cubes \
   --dataset.codec=@positronic.vendors.lerobot_0_3_3.codecs.ee \
   --output_dir=s3://<your-bucket>/sim_stack_cubes_lerobot/
 ```
@@ -127,12 +127,12 @@ Same shape for the other vendors — swap the vendor token and the codec:
 
 ```bash
 bash workflows/nebius/convert.sh openpi \
-  --dataset.dataset=@positronic.cfg.ds.phail.sim_stack_cubes \
+  --dataset.dataset=@positronic.cfg.ds.sim.sim_stack_cubes \
   --dataset.codec=@positronic.vendors.openpi.codecs.ee \
   --output_dir=s3://<your-bucket>/sim_stack_cubes_openpi/
 
 bash workflows/nebius/convert.sh gr00t \
-  --dataset.dataset=@positronic.cfg.ds.phail.sim_stack_cubes \
+  --dataset.dataset=@positronic.cfg.ds.sim.sim_stack_cubes \
   --dataset.codec=@positronic.vendors.gr00t.codecs.ee_rot6d_joints \
   --output_dir=s3://<your-bucket>/sim_stack_cubes_gr00t/
 ```

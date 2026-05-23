@@ -747,6 +747,8 @@ phail_inference_release = base_cfg.transform.override(
 
 PROD_VARIANTS = {'groot': '270226-ee_rot6d_rel:150000'}
 
+TRAINED_OBJECTS = ('Towels', 'Wooden spoons', 'Scissors', 'Batteries')
+
 
 def _prod_predicate(ep):
     model = ep.get('model', '')
@@ -754,6 +756,28 @@ def _prod_predicate(ep):
         return True
     return ep.get('variant', '') == PROD_VARIANTS[model]
 
+
+def _trained_objects_predicate(ep):
+    return ep.get('eval.object') in TRAINED_OBJECTS
+
+
+phail_act_groot_release = base_cfg.transform.override(
+    base=base_cfg.local_all.override(path='s3://inference/phail_act_groot/'),
+    transforms=[
+        Group(
+            Identity(
+                remove=[
+                    'robot_commands.reset',
+                    'inference.policy.port',
+                    'inference.policy.host',
+                    'inference.policy.type',
+                ]
+            ),
+            Derive(model=_raw_model, variant=phail_variant),
+        ),
+        internal.REAL_ROBOT_TRANSFORM,
+    ],
+)
 
 # AUDIT-CORRECTED EPISODES — manual edits to static.json on both private and
 # public S3 (audit captured wrong eval.* fields; fixed in place rather than
@@ -764,7 +788,10 @@ def _prod_predicate(ep):
 #   - public 000000000000/000000000285 (private 050326/000000000000/000000000015):
 #     eval.object 'Towels' → 'Wooden spoons' (operator selected wrong task at record time;
 #     content is wooden spoons; task field intentionally left as recorded).
-phail_inference_prod = base_cfg.filter_ds.override(dataset=phail_inference_release, predicate=_prod_predicate)
+phail_inference_prod_v1_0 = base_cfg.filter_ds.override(
+    dataset=base_cfg.concat_ds.override(datasets=[phail_inference_release, phail_act_groot_release]),
+    predicate=lambda ep: _prod_predicate(ep) and _trained_objects_predicate(ep),
+)
 
 # TELEOP HEURISTIC OVER-COUNTS — calculate_units (line ~486) returns
 # FIXED_ITEM_COUNTS[BATTERIES_TASK]=8 for every Batteries teleop episode, but

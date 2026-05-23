@@ -35,26 +35,26 @@ cd docker && docker compose run --rm lerobot-0_3_3-convert convert \
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `--dataset.dataset` | Dataset configuration | `.local` for local directories, `@positronic.cfg.ds.phail.phail` for public datasets |
+| `--dataset.dataset` | Dataset configuration | `.local` for local directories, `@positronic.cfg.phail.v1_0.dataset.teleoperation` for public datasets |
 | `--dataset.dataset.path` | Path to raw Positronic dataset (only for `.local`, not needed for phail datasets) | `~/datasets/stack_cubes_raw` |
 | `--dataset.codec` | Codec for observation/action encoding | `@positronic.vendors.lerobot_0_3_3.codecs.ee` |
 | `--output_dir` | Destination for converted dataset | `~/datasets/lerobot/stack_cubes` or `s3://bucket/path` |
 | `--task` | (Optional) Task description to embed | `"pick up the green cube"` |
 
-**Note:** `--dataset.dataset.path` is only required when providing your own local datasets (with `--dataset.dataset=.local`). For available phail datasets (like `@positronic.cfg.ds.phail.sim_stack_cubes`), this parameter is not needed.
+**Note:** `--dataset.dataset.path` is only required when providing your own local datasets (with `--dataset.dataset=.local`). For available phail datasets (like `@positronic.cfg.ds.sim.sim_stack_cubes`), this parameter is not needed.
 
 ### Available Public Datasets
 
 | Dataset | Description | Size | Episodes |
 |---------|-------------|------|----------|
-| `@positronic.cfg.ds.phail.phail` | DROID teleoperation data | 12GB | 352 |
-| `@positronic.cfg.ds.phail.sim_stack_cubes` | Simulated cube stacking | 499MB | 317 |
-| `@positronic.cfg.ds.phail.sim_pick_place` | Simulated pick-and-place | 1.3GB | 214 |
+| `@positronic.cfg.phail.v1_0.dataset.teleoperation` | DROID teleoperation data | 12GB | 352 |
+| `@positronic.cfg.ds.sim.sim_stack_cubes` | Simulated cube stacking | 499MB | 317 |
+| `@positronic.cfg.ds.sim.sim_pick_place` | Simulated pick-and-place | 1.3GB | 214 |
 
 **Example:**
 ```bash
 cd docker && docker compose run --rm lerobot-0_3_3-convert convert \
-  --dataset.dataset=@positronic.cfg.ds.phail.sim_stack_cubes \
+  --dataset.dataset=@positronic.cfg.ds.sim.sim_stack_cubes \
   --dataset.codec=@positronic.vendors.lerobot_0_3_3.codecs.ee \
   --output_dir=~/datasets/lerobot/sim_stack_cubes
 ```
