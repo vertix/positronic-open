@@ -35,7 +35,7 @@ cd docker && docker compose run --rm lerobot-0_3_3-convert convert \
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `--dataset.dataset` | Dataset configuration | `.local` for local directories, `@positronic.cfg.phail.v1_0.dataset.teleoperation` for public datasets |
+| `--dataset.dataset` | Dataset configuration | `.local` for local directories, `@positronic.cfg.phail.v1_0.ds.teleop` for public datasets |
 | `--dataset.dataset.path` | Path to raw Positronic dataset (only for `.local`, not needed for phail datasets) | `~/datasets/stack_cubes_raw` |
 | `--dataset.codec` | Codec for observation/action encoding | `@positronic.vendors.lerobot_0_3_3.codecs.ee` |
 | `--output_dir` | Destination for converted dataset | `~/datasets/lerobot/stack_cubes` or `s3://bucket/path` |
@@ -47,7 +47,7 @@ cd docker && docker compose run --rm lerobot-0_3_3-convert convert \
 
 | Dataset | Description | Size | Episodes |
 |---------|-------------|------|----------|
-| `@positronic.cfg.phail.v1_0.dataset.teleoperation` | DROID teleoperation data | 12GB | 352 |
+| `@positronic.cfg.phail.v1_0.ds.teleop` | DROID teleoperation data | 12GB | 352 |
 | `@positronic.cfg.ds.sim.sim_stack_cubes` | Simulated cube stacking | 499MB | 317 |
 | `@positronic.cfg.ds.sim.sim_pick_place` | Simulated pick-and-place | 1.3GB | 214 |
 

@@ -1,4 +1,4 @@
-"""Simulated datasets hosted on the public Positronic S3 bucket."""
+"""Positronic datasets for tasks ran in simulation."""
 
 from . import PUBLIC, local, transform
 from .internal import SIM_ROBOT_TRANSFORM

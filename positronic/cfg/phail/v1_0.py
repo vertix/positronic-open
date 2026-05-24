@@ -2,9 +2,9 @@
 
 Public S3 URLs for the v1.0 dataset release and model checkpoint paths.
 
-`teleoperation_unified` is the single-task label variant that the released
-models were trained on. Re-point this config at a different dataset to
-evaluate a trained-on-unified policy against teleop reference data.
+`teleop_unified` is the single-task label variant that the released models
+were trained on. Re-point this config at a different dataset to evaluate a
+trained-on-unified policy against teleop reference data.
 """
 
 import types
@@ -23,8 +23,8 @@ from positronic.utils.logging import init_logging
 
 _ROOT = 's3://positronic-public/phail/v1.0'
 
-dataset = types.SimpleNamespace(
-    teleoperation=local_all.override(path=f'{_ROOT}/dataset/teleoperation/', profile=PUBLIC),
+ds = types.SimpleNamespace(
+    teleop=local_all.override(path=f'{_ROOT}/dataset/teleoperation/', profile=PUBLIC),
     rollouts=local_all.override(path=f'{_ROOT}/dataset/rollouts/', profile=PUBLIC),
     human=local_all.override(path=f'{_ROOT}/dataset/human/', profile=PUBLIC),
 )
@@ -37,9 +37,8 @@ models = types.SimpleNamespace(
 )
 
 UNIFIED_TASK = 'Pick all the items one by one from transparent tote and place them into the large grey tote.'
-teleoperation_unified = transform.override(
-    base=dataset.teleoperation,
-    transforms=[group.override(transforms=[Derive(task=FromValue(UNIFIED_TASK)), Identity()])],
+teleop_unified = transform.override(
+    base=ds.teleop, transforms=[group.override(transforms=[Derive(task=FromValue(UNIFIED_TASK)), Identity()])]
 )
 
 
@@ -73,7 +72,7 @@ def group_by_task():
 # column resolver to fall back on `meta.*` keys (so `episodes_table` can reference
 # `meta.created_ts_ns` directly), then delete this transform.
 phail_with_started = transform.override(
-    base=dataset.teleoperation,
+    base=ds.teleop,
     transforms=[
         group.override(
             transforms=[Identity(), Derive(started=lambda ep: datetime.fromtimestamp(ep.meta['created_ts_ns'] / 1e9))]

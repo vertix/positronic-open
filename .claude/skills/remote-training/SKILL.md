@@ -50,7 +50,7 @@ rotate as new runs land and any list goes stale. The source of truth is the
 config in the codebase:
 
 - **Datasets**: `positronic/cfg/phail/` and `positronic/cfg/ds/` (e.g. `@positronic.cfg.ds.sim.sim_stack_cubes`,
-  `@positronic.cfg.phail.v1_0.teleoperation_unified`).
+  `@positronic.cfg.phail.v1_0.teleop_unified`).
 - **Checkpoints**: the per-vendor server presets in
   `positronic/vendors/<vendor>/server.py` — the named configs (e.g. `phail`,
   `sim_stack`) set `checkpoints_dir=` to the path currently in use. Read those
