@@ -25,6 +25,7 @@ from positronic.cfg import eval as eval_cfg
 from positronic.cfg.ds import PUBLIC
 from positronic.dataset.dataset import Dataset
 from positronic.dataset.utilities.migrate_remote import migrate_dataset
+from positronic.utils.checkpoints import get_latest_checkpoint
 from positronic.utils.logging import init_logging
 
 DEST_ROOT = 's3://positronic-public/phail'
@@ -34,12 +35,46 @@ PUBLIC_WRITE = dataclasses.replace(PUBLIC, public=False)
 
 REQUIRED_FIELDS = ['model', 'eval.object', 'eval.successful_items', 'eval.total_items']
 
-MODEL_SOURCES = {
-    'openpi': 's3://checkpoints/phail_unified/openpi/pi05_positronic_lowmem/270226-ee/',
-    'gr00t': 's3://checkpoints/phail_unified/groot/270226-ee_rot6d_rel/',
-    'smolvla': 's3://checkpoints/phail_unified/smolvla/170316_ee/',
-    'act': 's3://checkpoints/phail_unified/lerobot/270226-ee/',
+
+@dataclasses.dataclass(frozen=True)
+class _ModelLayout:
+    """Per-vendor checkpoint layout under `checkpoints_dir`.
+
+    The vendor server resolves checkpoints as
+    `<checkpoints_dir>/<inner_dir>/<prefix><N>/`. We must preserve that
+    nested structure when copying so a server pointed at the dest finds it.
+    """
+
+    source: str
+    inner_dir: str = ''
+    prefix: str = ''
+
+
+MODEL_SOURCES: dict[str, _ModelLayout] = {
+    'openpi': _ModelLayout(source='s3://checkpoints/phail_unified/openpi/pi05_positronic_lowmem/270226-ee/'),
+    'gr00t': _ModelLayout(source='s3://checkpoints/phail_unified/groot/270226-ee_rot6d_rel/', prefix='checkpoint-'),
+    'smolvla': _ModelLayout(source='s3://checkpoints/phail_unified/smolvla/170316_ee/', inner_dir='checkpoints'),
+    'act': _ModelLayout(source='s3://checkpoints/phail_unified/lerobot/270226-ee/', inner_dir='checkpoints'),
 }
+
+
+def _copy_latest_checkpoint(layout: _ModelLayout, dest: str):
+    """Copy only the latest checkpoint subdir from `layout.source` to `dest`.
+
+    Preserves the inner directory structure expected by the vendor server.
+    """
+    src_root = layout.source.rstrip('/')
+    dest_root = dest.rstrip('/')
+    src_checkpoints_dir = f'{src_root}/{layout.inner_dir}' if layout.inner_dir else src_root
+    dest_checkpoints_dir = f'{dest_root}/{layout.inner_dir}' if layout.inner_dir else dest_root
+
+    latest = get_latest_checkpoint(src_checkpoints_dir, prefix=layout.prefix)
+    src_path = f'{src_checkpoints_dir}/{latest}'
+    dest_path = f'{dest_checkpoints_dir}/{latest}'
+
+    logging.info(f'Copying latest checkpoint {latest!r} from {src_path} to {dest_path}')
+    local = pos3.download(src_path)
+    pos3.upload(dest_path, local=local, sync_on_error=False, interval=None, profile=PUBLIC_WRITE)
 
 
 def _check_dest_empty(dest: str, profile=None):
@@ -125,12 +160,16 @@ def human(dataset: Dataset, dest: str):
 
 @cfn.config(dest_root=DEST_ROOT, version='v1.0')
 def models(dest_root: str, version: str):
-    """Copy trained model checkpoints to the public release layout."""
-    for vendor, source in MODEL_SOURCES.items():
+    """Copy latest checkpoint per vendor to the public release layout.
+
+    Preserves each vendor's expected inner structure so a server pointed at
+    `s3://.../models/<vendor>/` resolves the checkpoint via its normal
+    `get_latest_checkpoint` call.
+    """
+    for vendor, layout in MODEL_SOURCES.items():
         dest = f'{dest_root}/{version}/models/{vendor}/'
         _check_dest_empty(dest, profile=PUBLIC_WRITE)
-        local = pos3.download(source)
-        pos3.upload(dest, local=local, sync_on_error=False, interval=None, profile=PUBLIC_WRITE)
+        _copy_latest_checkpoint(layout, dest)
 
 
 @cfn.config(
@@ -155,9 +194,8 @@ def release_all(
     migrate_dataset(training_ds, f'{dest}/dataset/teleoperation/', profile=PUBLIC_WRITE)
     migrate_dataset(inference_ds, f'{dest}/dataset/rollouts/', profile=PUBLIC_WRITE)
     migrate_dataset(human_ds, f'{dest}/dataset/human/', profile=PUBLIC_WRITE)
-    for vendor, source in MODEL_SOURCES.items():
-        local = pos3.download(source)
-        pos3.upload(f'{dest}/models/{vendor}/', local=local, sync_on_error=False, interval=None, profile=PUBLIC_WRITE)
+    for vendor, layout in MODEL_SOURCES.items():
+        _copy_latest_checkpoint(layout, f'{dest}/models/{vendor}/')
 
 
 if __name__ == '__main__':
