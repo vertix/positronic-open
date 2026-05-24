@@ -68,6 +68,10 @@ def group_by_task():
     return GroupTableConfig(group_keys='task', group_fn=group_fn, format_table=format_table)
 
 
+# TODO: bad smell. This wrapper exists only to materialize `meta['created_ts_ns']`
+# as a signal so the server table can display it. Teach `positronic_server`'s
+# column resolver to fall back on `meta.*` keys (so `episodes_table` can reference
+# `meta.created_ts_ns` directly), then delete this transform.
 phail_with_started = transform.override(
     base=dataset.teleoperation,
     transforms=[
