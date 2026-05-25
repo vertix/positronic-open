@@ -1,5 +1,12 @@
 """Release PhAIL datasets to public S3.
 
+TODO: this script (and the phail-specific configs in `positronic.cfg.eval`
+it depends on — `phail_inference_release`, `phail_inference_prod_v1_0`,
+`phail_teleop_release`, `phail_human_release`, `PROD_VARIANTS`,
+`TRAINED_OBJECTS`, audit-corrected episode comments) belongs in phail-website.
+positronic should remain a generic robotics library; phail-release ops belong
+on the phail side.
+
 Bakes source-of-truth fields and robot metadata into the output.
 Display fields (model display name, UPH, completion, started) remain as
 server-side transforms.
