@@ -8,6 +8,7 @@ Verifies the full sampling + inference + metadata + counting flow:
 - Balanced sampler counting works through the ds_command tap
 """
 
+import random
 from functools import partial
 
 import numpy as np
@@ -99,6 +100,7 @@ def _episode_metas(p):
 @pytest.mark.timeout(5.0)
 def test_sampled_policy_e2e():
     """Full harness e2e with SampledPolicy: 4 episodes, 2 policies, balanced sampling."""
+    random.seed(0)
     clock = MockClock()
     robot_state = FakeRobotState()
 
