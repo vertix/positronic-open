@@ -11,7 +11,7 @@ Columns added by the converter (in addition to whatever the codec produces):
 
 Example:
     docker compose run --rm lance-convert convert \\
-      --dataset.dataset=@positronic.cfg.ds.phail.sim_stack_cubes \\
+      --dataset.dataset=@positronic.cfg.ds.sim.sim_stack_cubes \\
       --dataset.codec=@positronic.vendors.lance.codecs.ee \\
       --output_dir=/data/lance/sim_stack_cubes
 """

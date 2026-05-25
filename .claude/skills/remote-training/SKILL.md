@@ -49,8 +49,8 @@ Concrete dataset/checkpoint S3 paths are intentionally **not** listed here — t
 rotate as new runs land and any list goes stale. The source of truth is the
 config in the codebase:
 
-- **Datasets**: `positronic/cfg/ds/` (e.g. `@positronic.cfg.ds.phail.sim_stack_cubes`,
-  `@positronic.cfg.ds.phail.phail_unified`).
+- **Datasets**: `positronic/cfg/phail/` and `positronic/cfg/ds/` (e.g. `@positronic.cfg.ds.sim.sim_stack_cubes`,
+  `@positronic.cfg.phail.v1_0.teleop_unified`).
 - **Checkpoints**: the per-vendor server presets in
   `positronic/vendors/<vendor>/server.py` — the named configs (e.g. `phail`,
   `sim_stack`) set `checkpoints_dir=` to the path currently in use. Read those
@@ -120,12 +120,12 @@ the `--stats_path` to use for training.
 
 ```bash
 bash workflows/nebius/convert.sh lerobot_0_3_3 \
-  --dataset.dataset=@positronic.cfg.ds.phail.sim_stack_cubes \
+  --dataset.dataset=@positronic.cfg.ds.sim.sim_stack_cubes \
   --dataset.codec=@positronic.vendors.lerobot_0_3_3.codecs.ee \
   --output_dir=s3://interim/sim_stack/lerobot/ee/
 
 bash workflows/nebius/convert.sh openpi \
-  --dataset.dataset=@positronic.cfg.ds.phail.sim_stack_cubes \
+  --dataset.dataset=@positronic.cfg.ds.sim.sim_stack_cubes \
   --dataset.codec=@positronic.vendors.openpi.codecs.ee \
   --output_dir=s3://interim/sim_stack/openpi/ee/
 # → also submits openpi-stats-* ; note the printed --stats_path=<...>/stats/assets/
