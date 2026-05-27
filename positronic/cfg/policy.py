@@ -59,7 +59,16 @@ def sample(origins: list[cfn.Config], weights: list[float] | None):
     return SampledPolicy(*origins, weights=weights)
 
 
-@cfn.config(host='localhost', port=8000, resize=640, model_id=None, horizon_sec=None, codec=None, secure=False)
+@cfn.config(
+    host='localhost',
+    port=8000,
+    resize=640,
+    model_id=None,
+    horizon_sec=None,
+    codec=None,
+    secure=False,
+    recording_dir=None,
+)
 def remote(
     host: str,
     port: int,
@@ -69,18 +78,31 @@ def remote(
     codec: Codec | None = None,
     headers: dict[str, str] | None = None,
     secure: bool = False,
+    recording_dir: str | None = None,
 ):
-    from positronic.policy.codec import ActionHorizon
+    from positronic.policy.codec import ActionHorizon, RecordingCodec
     from positronic.policy.remote import RemotePolicy
 
     effective_resize = None if codec and codec.meta.get('image_sizes') else resize
     policy = RemotePolicy(host, port, effective_resize, model_id=model_id, headers=headers, secure=secure)
     if horizon_sec is not None:
         codec = ActionHorizon(horizon_sec) | codec if codec else ActionHorizon(horizon_sec)
+    if recording_dir is not None:
+        codec = RecordingCodec(codec, pos3.sync(recording_dir))
     return codec.wrap(policy) if codec else policy
 
 
-@cfn.config(host=None, port=8000, weight=1.0, model_id=None, resize=640, horizon_sec=None, codec=None, secure=False)
+@cfn.config(
+    host=None,
+    port=8000,
+    weight=1.0,
+    model_id=None,
+    resize=640,
+    horizon_sec=None,
+    codec=None,
+    secure=False,
+    recording_dir=None,
+)
 def weighted_remote(
     host: str | None,
     port: int,
@@ -91,17 +113,20 @@ def weighted_remote(
     codec: Codec | None = None,
     headers: dict[str, str] | None = None,
     secure: bool = False,
+    recording_dir: str | None = None,
 ):
     if not host:
         return None
 
-    from positronic.policy.codec import ActionHorizon
+    from positronic.policy.codec import ActionHorizon, RecordingCodec
     from positronic.policy.remote import RemotePolicy
 
     effective_resize = None if codec and codec.meta.get('image_sizes') else resize
     policy = RemotePolicy(host, port, effective_resize, model_id=model_id, headers=headers, secure=secure)
     if horizon_sec is not None:
         codec = ActionHorizon(horizon_sec) | codec if codec else ActionHorizon(horizon_sec)
+    if recording_dir is not None:
+        codec = RecordingCodec(codec, pos3.sync(recording_dir))
     return (codec.wrap(policy) if codec else policy), weight
 
 
