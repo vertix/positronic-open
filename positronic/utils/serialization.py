@@ -39,15 +39,38 @@ def _pack(obj):
     return obj
 
 
+# TODO(remove-pre-PR-server-compat): drop once all deployed inference servers
+# are rebuilt against the new client. Pre-PR vendor codecs returned commands as
+# unwrapped ``to_wire(...)`` dicts (no ``__cmd__`` envelope), which the new
+# client otherwise forwards to drivers as plain dicts and the driver ``match``
+# falls through. The legacy ``type`` strings are specific enough that collision
+# with arbitrary payloads is unlikely in practice.
+_LEGACY_COMMAND_TYPES = frozenset({
+    _roboarm_command.Reset.TYPE,
+    _roboarm_command.Recover.TYPE,
+    _roboarm_command.CartesianPosition.TYPE,
+    _roboarm_command.JointPosition.TYPE,
+    _roboarm_command.JointDelta.TYPE,
+})
+
+
 def _unpack(obj):
     if b'__ndarray__' in obj:
         return np.ndarray(buffer=obj[b'data'], dtype=np.dtype(obj[b'dtype']), shape=obj[b'shape'])
     if b'__npgeneric__' in obj:
         return np.dtype(obj[b'dtype']).type(obj[b'data'])
     if b'__cmd__' in obj:
-        return _roboarm_command.from_wire(obj[b'__cmd__'])
+        inner = obj[b'__cmd__']
+        # The legacy shim below decodes the inner ``to_wire`` dict to a Command
+        # before this outer hook fires — accept either shape.
+        if isinstance(inner, _roboarm_command.CommandType):
+            return inner
+        return _roboarm_command.from_wire(inner)
     if b'__robotstatus__' in obj:
         return _roboarm.RobotStatus(obj[b'__robotstatus__'])
+    # TODO(remove-pre-PR-server-compat): see _LEGACY_COMMAND_TYPES above.
+    if obj.get('type') in _LEGACY_COMMAND_TYPES:
+        return _roboarm_command.from_wire(obj)
     return obj
 
 
