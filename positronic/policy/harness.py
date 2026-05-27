@@ -200,6 +200,7 @@ class Harness(pimm.ControlSystem):
     def _build_episode_meta(self, context: dict[str, Any]) -> dict[str, Any]:
         meta = dict(self._static_meta)
         meta.update(self.robot_meta_in.value)
+        meta['inference.simulate_inference'] = self.simulate_inference
         session_meta = self._session.meta if self._session else self.policy.meta
         for k, v in flatten_dict(session_meta).items():
             meta[f'inference.policy.{k}'] = v

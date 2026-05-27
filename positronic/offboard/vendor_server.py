@@ -154,14 +154,17 @@ class VendorServer(ABC):
         """Run one warmup inference. Default uses codec.dummy_encoded(). Non-fatal on failure."""
         if not self.codec:
             return
+        session = None
         try:
             logger.info('Running warmup inference...')
             session = policy.new_session()
             await asyncio.to_thread(session, self.codec.dummy_encoded())
-            session.close()
             logger.info('Warmup inference complete')
         except Exception:
             logger.warning('Warmup inference failed (non-fatal)', exc_info=True)
+        finally:
+            if session is not None:
+                session.close()
 
     def shutdown_model(self):  # noqa: B027
         """Called on server shutdown. Default: no-op."""
