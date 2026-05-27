@@ -352,7 +352,11 @@ class Harness(pimm.ControlSystem):
         grip_traj = [(int(cmd['timestamp'] * 1e9), cmd['target_grip']) for cmd in actions if 'target_grip' in cmd]
 
         self.robot_commands.emit(robot_traj)
-        if grip_traj:
+        # Empty ``actions`` is the session's explicit cancel signal — propagate
+        # ``[]`` to *both* drivers so neither buffer keeps executing stale
+        # waypoints. For non-empty chunks without grip targets, skip grip emit
+        # so we don't spuriously cancel an in-flight gripper trajectory.
+        if grip_traj or not actions:
             self.target_grip.emit(grip_traj)
 
     def run(self, should_stop: pimm.SignalReceiver, clock: pimm.Clock) -> Iterator[pimm.Sleep]:

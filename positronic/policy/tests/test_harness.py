@@ -503,6 +503,51 @@ def test_finish_cancels_buffered_trajectory_before_stop_episode(world, clock):
 
 
 @pytest.mark.timeout(3.0)
+def test_empty_chunk_cancels_both_robot_and_grip(world, clock):
+    """A session returning ``[]`` must cancel *both* driver buffers.
+
+    Empty action chunk is the session-level cancel signal (per the
+    ``Session.__call__`` contract). If only ``robot_commands`` gets ``[]`` while
+    ``target_grip`` is skipped, the gripper ``TrajectoryPlayer`` keeps draining
+    stale waypoints — a partial cancel that's worse than no cancel.
+    """
+
+    class _EmptyChunkSession(Session):
+        def __call__(self, obs):
+            return []
+
+    class EmptyChunkPolicy(Policy):
+        def new_session(self, context=None):
+            return _EmptyChunkSession()
+
+    harness = Harness(EmptyChunkPolicy())
+    cmd_recorder = RecordingEmitter()
+    grip_recorder = RecordingEmitter()
+    harness.robot_commands._bind(cmd_recorder)
+    harness.target_grip._bind(grip_recorder)
+    harness.ds_command._bind(RecordingEmitter())
+
+    frame_em = world.pair(harness.frames['image.cam'])
+    robot_em = world.pair(harness.robot_state)
+    grip_em = world.pair(harness.gripper_state)
+    directive_em = world.pair(harness.directive)
+
+    robot_state = make_robot_state([0.1, 0.2, 0.3], [0.4, 0.5, 0.6])
+    script = [
+        (partial(directive_em.emit, Directive.RUN(task='t')), 0.0),
+        (partial(emit_ready_payload, frame_em, robot_em, grip_em, robot_state), 0.01),
+        (None, 0.1),
+    ]
+    scheduler = world.start([harness, ManualDriver(script)])
+    drive_scheduler(scheduler, clock=clock, steps=200)
+
+    cmd_emits = [data for _ts, data in cmd_recorder.emitted]
+    grip_emits = [data for _ts, data in grip_recorder.emitted]
+    assert [] in cmd_emits, 'empty chunk did not cancel robot_commands buffer'
+    assert [] in grip_emits, 'empty chunk did not cancel target_grip buffer'
+
+
+@pytest.mark.timeout(3.0)
 def test_harness_clears_trajectory_on_home(world, clock):
     """Verify that HOME resets trajectory state so next RUN gets a fresh chunk."""
     policy = ChunkPolicy()
