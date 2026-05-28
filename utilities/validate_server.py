@@ -46,13 +46,13 @@ def main(
 
     Example:
 
-        uv run python utilities/validate_server.py \\
+        uv run --frozen python utilities/validate_server.py \\
             --host=notebook --port=8000 \\
             --output_dir=s3://runs/server_validation/021225/
 
     This will execute commands like:
 
-        uv run positronic-inference sim --policy=.remote \\
+        uv run --frozen positronic-inference sim --policy=.remote \\
             --policy.host=notebook --policy.port=8000 \\
             --policy.model_id=checkpoint-123 \\
             --output_dir=s3://runs/server_validation/021225/checkpoint-123/

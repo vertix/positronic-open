@@ -138,14 +138,14 @@ After installation, the following command-line scripts will be available:
 - `lerobot-0_3_3-convert`: Convert datasets to model format
 - `positronic-inference`: Run trained policies in simulation or on hardware
 
-All commands work both inside an activated virtual environment and with `uv run` prefix (e.g., `uv run positronic-server`).
+All commands work both inside an activated virtual environment and with `uv run --frozen` prefix (e.g., `uv run --frozen positronic-server`). Use `--frozen` so the installed environment matches the committed `uv.lock` — uv errors loudly if you edited `pyproject.toml` without re-running `uv lock`.
 
 For training and inference servers, use vendor-specific Docker services (see [Training Workflow](docs/training-workflow.md)).
 
 ## Quick Start — 30 Seconds to Data Collection
 
 ```bash
-uv run positronic-data-collection sim \
+uv run --frozen positronic-data-collection sim \
     --output_dir=~/datasets/stack_cubes_raw \
     --sound=None --webxr=.iphone
 ```
@@ -155,7 +155,7 @@ Opens MuJoCo simulation with phone-based teleoperation. Record demonstrations by
 Then browse your episodes:
 
 ```bash
-uv run positronic-server --dataset.path=~/datasets/stack_cubes_raw --port=5001
+uv run --frozen positronic-server --dataset.path=~/datasets/stack_cubes_raw --port=5001
 ```
 
 Visit `http://localhost:5001` to view episodes. Continue to full workflow below.
@@ -171,7 +171,7 @@ Use the [data collection script](positronic/data_collection.py) for both simulat
 **Quick start in simulation:**
 
 ```bash
-uv run positronic-data-collection sim \
+uv run --frozen positronic-data-collection sim \
     --output_dir=~/datasets/stack_cubes_raw \
     --sound=None --webxr=.iphone --operator_position=.BACK
 ```
@@ -186,9 +186,9 @@ Loads the MuJoCo scene, starts the DearPyGui UI, and records episodes into the l
 **Physical robots:**
 
 ```bash
-uv run positronic-data-collection real  --output_dir=~/datasets/franka_kitchen
-uv run positronic-data-collection so101 --output_dir=~/datasets/so101_runs
-uv run positronic-data-collection droid --output_dir=~/datasets/droid_runs
+uv run --frozen positronic-data-collection real  --output_dir=~/datasets/franka_kitchen
+uv run --frozen positronic-data-collection so101 --output_dir=~/datasets/so101_runs
+uv run --frozen positronic-data-collection droid --output_dir=~/datasets/droid_runs
 ```
 
 ### 2. Review and Curate
@@ -196,7 +196,7 @@ uv run positronic-data-collection droid --output_dir=~/datasets/droid_runs
 Browse datasets with the [positronic-server](positronic/server/positronic_server.py):
 
 ```bash
-uv run positronic-server \
+uv run --frozen positronic-server \
     --dataset.path=~/datasets/stack_cubes_raw \
     --port=5001
 ```
@@ -206,7 +206,7 @@ Visit `http://localhost:5001` to view episodes. The viewer is read-only for now:
 To preview exactly what the training will see, pass the same codec configuration you'll use for conversion:
 
 ```bash
-uv run positronic-server \
+uv run --frozen positronic-server \
     --dataset=@positronic.cfg.ds.local_all \
     --dataset.path=~/datasets/stack_cubes_raw \
     --dataset.codec=@positronic.vendors.openpi.codecs.ee \
@@ -247,7 +247,7 @@ Progress to OpenPI or GR00T when you need more capable models. See:
 Run trained policies through the [inference script](positronic/inference.py):
 
 ```bash
-uv run positronic-inference sim \
+uv run --frozen positronic-inference sim \
     --policy=@positronic.cfg.policy.openpi_absolute \
     --policy.base.checkpoints_dir=~/checkpoints/openpi/<run_id> \
     --driver.simulation_time=60 \
@@ -264,7 +264,7 @@ cd docker && docker compose run --rm --service-ports lerobot-0_3_3-server \
     --codec=@positronic.vendors.lerobot_0_3_3.codecs.ee
 
 # On robot:
-uv run positronic-inference sim \
+uv run --frozen positronic-inference sim \
     --policy=.remote \
     --policy.host=<server-ip>
 ```
@@ -312,12 +312,12 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pos
 Run tests and linters from the root directory:
 
 ```bash
-uv run pytest --no-cov
-uv run ruff check .
-uv run ruff format .
+uv run --frozen pytest --no-cov
+uv run --frozen ruff check .
+uv run --frozen ruff format .
 ```
 
-Use `uv add` / `uv remove` to modify dependencies and `uv lock` to refresh the lockfile.
+To modify dependencies: edit `pyproject.toml` (or `uv add` / `uv remove`), run `uv lock`, and commit `pyproject.toml` and `uv.lock` together in one reviewed change. Don't let `uv.lock` drift implicitly — CI and Docker pass `--frozen`, so any divergence between `pyproject.toml` and `uv.lock` fails the build.
 
 ### Contributing
 
