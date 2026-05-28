@@ -22,7 +22,7 @@ jobs:
         run: uv venv --python 3.11
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --frozen --extra dev
 
       - name: "Run tests (coverage: term, html)"
         env:
@@ -67,7 +67,7 @@ jobs:
         run: uv venv --python 3.11
 
       - name: Install dependencies
-        run: uv sync --extra dev --extra lerobot_0_3_3
+        run: uv sync --frozen --extra dev --extra lerobot_0_3_3
 
       - name: Run lerobot vendor tests
         env:
@@ -87,9 +87,25 @@ jobs:
         run: uv venv --python 3.11
 
       - name: Install dependencies
-        run: uv sync --extra dev --extra lerobot
+        run: uv sync --frozen --extra dev --extra lerobot
 
       - name: Run lerobot vendor tests
         env:
           PYTHONPATH: ${{ env.PYTHONPATH }}:$PWD
         run: uv run pytest positronic/vendors/lerobot/tests --no-cov
+
+  lockfile-portability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv venv --python 3.11
+      - name: uv sync --frozen succeeds on ${{ matrix.os }}
+        run: uv sync --frozen --extra dev
