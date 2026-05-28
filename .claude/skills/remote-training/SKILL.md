@@ -220,7 +220,7 @@ nebius ai endpoint list --parent-id "$NEBIUS_PARENT_ID" --format json \
 Point the `positronic-inference` CLI at the endpoint IP:
 
 ```bash
-uv run --frozen positronic-inference sim \
+uv run --locked positronic-inference sim \
   --policy=.remote --policy.host=<endpoint-ip> --policy.port=8000 \
   --output_dir=s3://inference/sim_stack_validation/<run_name>/<vendor>/
 ```
@@ -228,7 +228,7 @@ uv run --frozen positronic-inference sim \
 View results locally (top-level dir compares multiple runs):
 
 ```bash
-uv run --frozen python -m positronic.cfg.eval sim \
+uv run --locked python -m positronic.cfg.eval sim \
   --dataset.base.path=s3://inference/sim_stack_validation/<run_name> --reset_cache --https
 # http://localhost:5001
 ```
@@ -268,7 +268,7 @@ Run detached with `-d` for a background server; `docker --context <ctx> ps` /
 hostname:
 
 ```bash
-uv run --frozen positronic-inference sim \
+uv run --locked positronic-inference sim \
   --policy=.remote --policy.host=desktop --policy.port=8000 \
   --output_dir=<...>
 ```

@@ -22,7 +22,7 @@ jobs:
         run: uv venv --python 3.11
 
       - name: Install dependencies
-        run: uv sync --frozen --extra dev
+        run: uv sync --locked --extra dev
 
       - name: "Run tests (coverage: term, html)"
         env:
@@ -67,7 +67,7 @@ jobs:
         run: uv venv --python 3.11
 
       - name: Install dependencies
-        run: uv sync --frozen --extra dev --extra lerobot_0_3_3
+        run: uv sync --locked --extra dev --extra lerobot_0_3_3
 
       - name: Run lerobot vendor tests
         env:
@@ -87,7 +87,7 @@ jobs:
         run: uv venv --python 3.11
 
       - name: Install dependencies
-        run: uv sync --frozen --extra dev --extra lerobot
+        run: uv sync --locked --extra dev --extra lerobot
 
       - name: Run lerobot vendor tests
         env:
@@ -107,5 +107,5 @@ jobs:
           enable-cache: true
       - name: Set up Python
         run: uv venv --python 3.11
-      - name: uv sync --frozen succeeds on ${{ matrix.os }}
-        run: uv sync --frozen --extra dev
+      - name: uv sync --locked succeeds on ${{ matrix.os }}
+        run: uv sync --locked --extra dev

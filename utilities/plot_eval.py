@@ -2,7 +2,7 @@
 Script to generate evaluation plots from a dataset.
 
 Usage:
-    uv run --frozen utilities/plot_eval.py --dataset=@positronic.cfg.eval.sim_episodes --output=eval_plots.html
+    uv run --locked utilities/plot_eval.py --dataset=@positronic.cfg.eval.sim_episodes --output=eval_plots.html
 """
 
 from collections import defaultdict

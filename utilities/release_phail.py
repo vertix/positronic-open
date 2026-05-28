@@ -12,12 +12,12 @@ Display fields (model display name, UPH, completion, started) remain as
 server-side transforms.
 
 Usage:
-    uv run --frozen python utilities/release_phail.py all
-    uv run --frozen python utilities/release_phail.py training
-    uv run --frozen python utilities/release_phail.py inference
-    uv run --frozen python utilities/release_phail.py human
-    uv run --frozen python utilities/release_phail.py models
-    uv run --frozen python utilities/release_phail.py verify
+    uv run --locked python utilities/release_phail.py all
+    uv run --locked python utilities/release_phail.py training
+    uv run --locked python utilities/release_phail.py inference
+    uv run --locked python utilities/release_phail.py human
+    uv run --locked python utilities/release_phail.py models
+    uv run --locked python utilities/release_phail.py verify
 """
 
 import dataclasses
