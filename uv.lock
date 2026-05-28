@@ -19,6 +19,15 @@ conflicts = [[
     { package = "positronic", extra = "lerobot-0-3-3" },
 ]]
 
+[options]
+exclude-newer = "2026-05-21T00:00:00Z"
+
+[options.exclude-newer-package]
+configuronic = false
+pos3 = false
+positronic = false
+positronic-franka = false
+
 [manifest]
 constraints = [{ name = "cmake", specifier = "<4.3" }]
 overrides = [{ name = "rerun-sdk", specifier = "==0.30.0" }]

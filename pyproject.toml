@@ -99,12 +99,25 @@ dev = [
 override-dependencies = ["rerun-sdk==0.30.0"]
 # cmake 4.3.1 is missing x86_64 Linux wheels on PyPI
 constraint-dependencies = ["cmake<4.3"]
+# Pin third-party resolution to a fixed point in time so `uv sync --locked` is
+# reproducible across machines and CI regardless of contributors' personal uv
+# config. `uv lock` reads this date, so the lockfile can never drift ahead of
+# it; bump the date and re-run `uv lock` in the same commit to refresh deps.
+# Our own packages (exclude-newer-package below) are exempt so they always
+# resolve to the latest release.
+exclude-newer = "2026-05-21T00:00:00Z"
 conflicts = [
     [
         {extra = "lerobot"},
         {extra = "lerobot-0-3-3"},
     ],
 ]
+
+[tool.uv.exclude-newer-package]
+positronic = false
+configuronic = false
+pos3 = false
+positronic-franka = false
 
 [tool.uv.sources.pyzed]
 url = "https://download.stereolabs.com/zedsdk/5.0/whl/linux_x86_64/pyzed-5.0-cp311-cp311-linux_x86_64.whl"
