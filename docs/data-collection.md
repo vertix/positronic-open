@@ -65,7 +65,7 @@ uv run positronic-data-collection real \
     --webxr=.oculus
 ```
 
-Requires Franka Panda with FCI, gripper, cameras. Install extras: `uv sync --frozen --extra hardware` (Linux only). Configure network connection and udev rules (see [Drivers](../positronic/drivers/)).
+Requires Franka Panda with FCI, gripper, cameras. Install extras: `uv sync --locked --extra hardware` (Linux only). Configure network connection and udev rules (see [Drivers](../positronic/drivers/)).
 
 ### Other Platforms
 - **Kinova Gen3**: Add `--robot_arm=@positronic.cfg.hardware.roboarm.kinova`

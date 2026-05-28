@@ -54,9 +54,9 @@ ENV PIP_DEFAULT_TIMEOUT=600
 ENV UV_HTTP_TIMEOUT=600
 
 # Copy project metadata for deps
-COPY pyproject.toml .
+COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --extra hardware --no-install-project
+    uv sync --locked --no-dev --extra hardware --no-install-project
 
 WORKDIR /positronic
 

@@ -179,7 +179,7 @@ To evaluate the policy, run the inference client locally using the unified `.rem
 
 **Command:**
 ```bash
-uv run positronic-inference sim \
+uv run --locked positronic-inference sim \
   --policy=.remote \
   --policy.host=vm-h100 \
   --policy.port=8000 \

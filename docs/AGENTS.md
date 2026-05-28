@@ -16,12 +16,12 @@ Positronic is a Python-native toolkit for ML-driven robotics covering the full l
 - Don't add comments, docstrings, or type annotations to code you didn't change
 - Ask clarifying questions when requirements are ambiguous instead of guessing
 
-## ⚠️ CRITICAL: Always use `uv run` for Python commands
+## ⚠️ CRITICAL: Always use `uv run --locked` for Python commands
 
-**NEVER run Python directly** (`python`, `python3`, `python -m`). **ALWAYS use `uv run python`** instead.
+**NEVER run Python directly** (`python`, `python3`, `python -m`). **ALWAYS use `uv run --locked python`** instead.
 
 ❌ **WRONG:** `python script.py`, `python3 -m pytest`, `python -c "import foo"`
-✅ **CORRECT:** `uv run python script.py`, `uv run pytest`, `uv run python -c "import foo"`
+✅ **CORRECT:** `uv run --locked python script.py`, `uv run --locked pytest`, `uv run --locked python -c "import foo"`
 
 This applies to:
 - Running Python scripts
@@ -33,12 +33,16 @@ This applies to:
 **Why:** This project uses uv for dependency management. Running Python directly bypasses the virtual environment and will cause import errors or use wrong package versions.
 
 ## Commands
-- Run tests: `uv run pytest --no-cov`
-- Run single test file: `uv run pytest path/to/test_file.py --no-cov`
-- Lint: `uv run ruff check --fix .`
-- Format: `uv run ruff format .`
-- Run any Python: `uv run python script.py`
-- Syntax check: `uv run python -m py_compile file.py`
+- Run tests: `uv run --locked pytest --no-cov`
+- Run single test file: `uv run --locked pytest path/to/test_file.py --no-cov`
+- Lint: `uv run --locked ruff check --fix .`
+- Format: `uv run --locked ruff format .`
+- Run any Python: `uv run --locked python script.py`
+- Syntax check: `uv run --locked python -m py_compile file.py`
+
+## Dependency management
+- `uv.lock` is committed; CI and Docker run `uv sync --locked` to install exactly what's locked
+- To change deps: edit `pyproject.toml`, then run `uv lock`, then commit `pyproject.toml` and `uv.lock` together in one reviewed change — never let `uv.lock` drift implicitly
 
 ## Code style
 - No imports inside functions/methods; always place imports at the top of the file

@@ -510,7 +510,7 @@ class _RecordingPolicy(Policy):
     def meta(self):
         if self._active is not None:
             return self._active.meta
-        return self._codec.meta
+        return self._policy.meta | self._codec.meta
 
     def close(self):
         if self._active is not None:
