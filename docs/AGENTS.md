@@ -40,6 +40,10 @@ This applies to:
 - Run any Python: `uv run python script.py`
 - Syntax check: `uv run python -m py_compile file.py`
 
+## Dependency management
+- `uv.lock` is committed; CI and Docker run `uv sync --frozen` to install exactly what's locked
+- To change deps: edit `pyproject.toml`, then run `uv lock`, then commit `pyproject.toml` and `uv.lock` together in one reviewed change — never let `uv.lock` drift implicitly
+
 ## Code style
 - No imports inside functions/methods; always place imports at the top of the file
 - Exception: circular dependencies or truly unavoidable cases
