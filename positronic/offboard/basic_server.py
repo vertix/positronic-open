@@ -81,8 +81,9 @@ class InferenceServer:
             policy = policy_factory()
             session = policy.new_session()
 
-            # Send ready with metadata
-            await websocket.send_bytes(serialise({'status': 'ready', 'meta': session.meta}))
+            # Send ready with metadata. ``policy.meta`` is the static baseline;
+            # ``session.meta`` overlays per-episode specifics and wins on conflict.
+            await websocket.send_bytes(serialise({'status': 'ready', 'meta': {**policy.meta, **session.meta}}))
 
             # Inference Loop
             async for message in websocket.iter_bytes():
