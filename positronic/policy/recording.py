@@ -50,6 +50,10 @@ from positronic.utils.rerun_compat import log_numeric_series, set_timeline_seque
 
 DEFAULT_TIMELINES = {'wall_time': 'wall_time_ns', 'inference_time': 'inference_time_ns'}
 
+# Process-wide episode counter so files stay unique even across concurrent
+# ``Recorder`` instances (e.g. one per websocket session on a server).
+_EPISODE_COUNTER = itertools.count(1)
+
 
 def _squeeze_batch(arr: np.ndarray) -> np.ndarray:
     """Remove leading size-1 dims from a potential image array."""
@@ -172,7 +176,6 @@ class Recorder:
         self._dir = Path(recording_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._timelines = dict(timelines) if timelines is not None else dict(DEFAULT_TIMELINES)
-        self._counter = itertools.count(1)
         self._stream: rr.RecordingStream | None = None
         self._live = 0
         self._depth = 0
@@ -185,7 +188,7 @@ class Recorder:
 
     def _open_stream(self) -> rr.RecordingStream:
         if self._live == 0:
-            episode_num = next(self._counter)
+            episode_num = next(_EPISODE_COUNTER)
             ts = datetime.now().strftime('%y%m%d_%H%M%S')
             self._stream = rr.RecordingStream(application_id='positronic_inference')
             self._stream.save(str(self._dir / f'{ts}_{episode_num:04d}.rrd'))

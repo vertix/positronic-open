@@ -255,3 +255,15 @@ def test_action_chunk_arrays_skips_non_numeric():
     arrays = dict(action_chunk_arrays([{'note': 'hello', 'timestamp': 0.0}]))
     assert 'note' not in arrays
     assert 'timestamp' in arrays
+
+
+def test_concurrent_recorders_write_separate_files(tmp_path):
+    """Two overlapping recorders (e.g. one per websocket session) must not share a
+    stream or collide on filenames."""
+    rec_a = Recorder(tmp_path)
+    rec_b = Recorder(tmp_path)
+    rec_a.tap('inference').wrap(_TrackingPolicy()).new_session()
+    rec_b.tap('inference').wrap(_TrackingPolicy()).new_session()
+
+    assert rec_a._stream is not rec_b._stream
+    assert len(list(tmp_path.glob('*.rrd'))) == 2

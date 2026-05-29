@@ -125,7 +125,9 @@ class VendorServer(ABC):
         self.codec = codec
         self.host = host
         self.port = port
-        self._recorder = Recorder(pos3.sync(recording_dir)) if recording_dir else None
+        # Synced once; a fresh ``Recorder`` is created per websocket session so
+        # concurrent sessions never share a stream or recorder state.
+        self._recording_dir = pos3.sync(recording_dir) if recording_dir else None
 
         self.idle_timeout_min = idle_timeout_min
         self._active_sessions = 0
@@ -192,8 +194,8 @@ class VendorServer(ABC):
             model_handle, extra_meta = await self.resolve_model(model_id, websocket)
             base_policy = self.create_policy(model_handle)
             policy = self.codec.wrap(base_policy) if self.codec else base_policy
-            if self._recorder is not None:
-                policy = self._recorder.tap('inference').wrap(policy)
+            if self._recording_dir is not None:
+                policy = Recorder(self._recording_dir).tap('inference').wrap(policy)
             session = policy.new_session()
             meta = {**self.metadata, **extra_meta, **session.meta}
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
