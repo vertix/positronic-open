@@ -335,6 +335,48 @@ def test_run_emits_ds_start_with_meta(world, clock):
 
 
 @pytest.mark.timeout(3.0)
+def test_episode_meta_includes_policy_static_meta(world, clock):
+    """Static fields exposed only via ``Policy.meta`` (empty ``Session.meta``) must
+    still reach episode metadata once the policy is wrapped."""
+
+    class _StaticMetaSession(Session):
+        def __init__(self, command):
+            self._command = command
+
+        def __call__(self, obs):
+            return [{'robot_command': self._command, 'target_grip': 0.0, 'timestamp': 0.0}]
+
+    class _StaticMetaPolicy(Policy):
+        def __init__(self):
+            pose = Transform3D(translation=np.array([0.4, 0.5, 0.6], dtype=np.float32), rotation=Rotation.identity)
+            self._command = CartesianPosition(pose=pose)
+
+        def new_session(self, context=None):
+            return _StaticMetaSession(self._command)  # Session.meta defaults to {}
+
+        @property
+        def meta(self):
+            return {'checkpoint': 'v1', 'type': 'static'}
+
+    harness = Harness(_StaticMetaPolicy())
+    p = _pair_all(world, harness)
+    robot_state = make_robot_state([0.1, 0.2, 0.3], [0.4, 0.5, 0.6])
+    driver = ManualDriver([
+        (partial(p['directive_em'].emit, Directive.RUN(task='t')), 0.0),
+        (partial(emit_ready_payload, p['frame_em'], p['robot_em'], p['grip_em'], robot_state), 0.01),
+        (None, 0.02),
+    ])
+    scheduler = world.start([harness, driver])
+    drive_scheduler(scheduler, clock=clock, steps=15)
+
+    starts = [c for c in _ds_commands(p) if c.type == DsWriterCommandType.START_EPISODE]
+    assert len(starts) == 1
+    meta = starts[0].static_data
+    assert meta['inference.policy.checkpoint'] == 'v1'
+    assert meta['inference.policy.type'] == 'static'
+
+
+@pytest.mark.timeout(3.0)
 def test_stop_emits_ds_suspend(world, clock):
     policy = StubPolicy()
     harness = Harness(policy)

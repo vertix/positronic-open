@@ -201,7 +201,10 @@ class Harness(pimm.ControlSystem):
         meta = dict(self._static_meta)
         meta.update(self.robot_meta_in.value)
         meta['inference.simulate_inference'] = self.simulate_inference
-        session_meta = self._session.meta if self._session else self.policy.meta
+        # ``policy.meta`` is the static baseline (the wrapped policy aggregates model +
+        # codec meta); the session overlays per-episode specifics (e.g. the sampled
+        # sub-policy) and wins on conflict.
+        session_meta = self.policy.meta | (self._session.meta if self._session else {})
         for k, v in flatten_dict(session_meta).items():
             meta[f'inference.policy.{k}'] = v
         meta.update(context)

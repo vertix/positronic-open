@@ -197,7 +197,9 @@ class VendorServer(ABC):
             if self._recording_dir is not None:
                 policy = Recorder(self._recording_dir).tap('inference').wrap(policy)
             session = policy.new_session()
-            meta = {**self.metadata, **extra_meta, **session.meta}
+            # ``policy.meta`` is the static baseline; ``session.meta`` overlays
+            # per-episode specifics and wins on conflict.
+            meta = {**self.metadata, **extra_meta, **policy.meta, **session.meta}
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
 
             try:
