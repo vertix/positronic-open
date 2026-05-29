@@ -9,22 +9,14 @@ Two composition operators:
   (e.g. observation encoder & action decoder).
 """
 
-import itertools
-import time
-from datetime import datetime
-from pathlib import Path
 from typing import Any, final
 
 import numpy as np
-import rerun as rr
-import rerun.blueprint as rrb
 
 from positronic.dataset.transforms import Elementwise
 from positronic.dataset.transforms.episode import Derive, EpisodeTransform, Group, Identity
-from positronic.drivers.roboarm import command as roboarm_command
 from positronic.policy.base import DelegatingSession, PolicyWrapper, Session, _Pipeline
 from positronic.utils import merge_dicts
-from positronic.utils.rerun_compat import log_numeric_series, set_timeline_sequence, set_timeline_time
 
 
 def lerobot_state(dim: int, names: list[str] | None = None) -> dict[str, Any]:
@@ -323,135 +315,3 @@ class BinarizeGripInference(Codec):
         if self._key in data:
             data[self._key] = 1.0 if data[self._key] > self._threshold else 0.0
         return data
-
-
-def _squeeze_batch(arr: np.ndarray) -> np.ndarray:
-    """Remove leading size-1 dims from a potential image array."""
-    while arr.ndim > 3 and arr.shape[0] == 1:
-        arr = arr[0]
-    return arr
-
-
-def _as_image(value: Any) -> np.ndarray | None:
-    """Return squeezed RGB array if *value* looks like an image, else None."""
-    if not isinstance(value, np.ndarray):
-        return None
-    squeezed = _squeeze_batch(value)
-    if squeezed.ndim == 3 and squeezed.shape[-1] == 3:
-        return squeezed
-    return None
-
-
-def _as_numeric(value: Any) -> Any | None:
-    """Return a loggable numeric form of *value*, or None if not numeric."""
-    if isinstance(value, np.ndarray | int | float | np.integer | np.floating):
-        return value
-    if isinstance(value, list | tuple):
-        arr = np.asarray(value)
-        if np.issubdtype(arr.dtype, np.number):
-            return arr.astype(np.float64)
-    return None
-
-
-def _build_blueprint(image_paths: list[str], numeric_paths: list[str]) -> rrb.Blueprint | None:
-    if not image_paths and not numeric_paths:
-        return None
-    image_views = [rrb.Spatial2DView(name=p.rsplit('/', 1)[-1], origin=p) for p in image_paths]
-    numeric_views = [rrb.TimeSeriesView(name=p.rsplit('/', 1)[-1], origin=p) for p in numeric_paths]
-    grid_items: list[Any] = []
-    if image_views:
-        grid_items.append(rrb.Grid(*image_views))
-    if numeric_views:
-        grid_items.append(rrb.Grid(*numeric_views))
-    return rrb.Blueprint(rrb.Grid(*grid_items))
-
-
-class _RecordingSession(DelegatingSession):
-    """Per-session Session wrapper that logs obs + actions to a single ``.rrd`` file.
-
-    Created by ``RecordingWrapper.wrap_session()`` — one per episode, with independent state.
-    """
-
-    def __init__(self, inner: Session, rec: Any):
-        super().__init__(inner)
-        self._rec = rec
-        self._step = 0
-        self._image_paths: list[str] = []
-        self._numeric_paths: list[str] = []
-
-    def _set_timelines(self, time_ns: int, inference_time_ns: int | None):
-        set_timeline_time('wall_time', time_ns)
-        if inference_time_ns is not None:
-            set_timeline_time('inference_time', inference_time_ns)
-        set_timeline_sequence('step', self._step)
-
-    def _log(self, prefix: str, data: dict):
-        """Recursively log *data* under *prefix*, accumulating entity paths."""
-        for key, value in data.items():
-            if key.endswith('_time_ns') or isinstance(value, str):
-                continue
-            path = f'{prefix}/{key}'
-            if isinstance(value, dict):
-                self._log(path, value)
-            elif (img := _as_image(value)) is not None:
-                img_path = f'{prefix}/image/{key}'
-                rr.log(img_path, rr.Image(img).compress())
-                self._image_paths.append(img_path)
-            elif (num := _as_numeric(value)) is not None:
-                log_numeric_series(path, num)
-                self._numeric_paths.append(path)
-
-    def _send_blueprint(self):
-        # Deduplicate: _log appends on every step, but entity paths are stable after step 0
-        bp = _build_blueprint(list(dict.fromkeys(self._image_paths)), list(dict.fromkeys(self._numeric_paths)))
-        if bp is not None:
-            rr.send_blueprint(bp)
-
-    def __call__(self, obs):
-        time_ns = obs.get('wall_time_ns', time.time_ns())
-        inference_time_ns = obs.get('inference_time_ns')
-
-        with self._rec:
-            self._set_timelines(time_ns, inference_time_ns)
-            self._log('input', obs)
-
-        actions = self._inner(obs)
-
-        if actions is not None:
-            with self._rec:
-                for action in actions:
-                    loggable = {
-                        k: roboarm_command.to_wire(v) if isinstance(v, roboarm_command.CommandType) else v
-                        for k, v in action.items()
-                    }
-                    rel_sec = action.get('timestamp', 0.0)
-                    dt_ns = int(rel_sec * 1e9)
-                    inf_t = inference_time_ns + dt_ns if inference_time_ns is not None else None
-                    self._set_timelines(time_ns + dt_ns, inf_t)
-                    self._log('action', loggable)
-                if self._step == 0:
-                    self._send_blueprint()
-
-        self._step += 1
-        return actions
-
-
-class RecordingWrapper(PolicyWrapper):
-    """PolicyWrapper that logs each session's obs + actions to per-episode ``.rrd`` files.
-
-    Each ``new_session()`` creates a fresh ``_RecordingSession`` with independent state,
-    so concurrent sessions don't interfere. Place in a pipeline wherever you want the
-    capture point — outermost (raw obs + decoded actions) or inside a codec chain.
-    """
-
-    def __init__(self, recording_dir: str | Path):
-        self._dir = Path(recording_dir)
-        self._dir.mkdir(parents=True, exist_ok=True)
-        self._counter = itertools.count(1)
-
-    def wrap_session(self, inner: Session, context) -> Session:
-        episode_num = next(self._counter)
-        ts = datetime.now().strftime('%y%m%d_%H%M%S')
-        rec = rr.RecordingStream(application_id='positronic_inference')
-        rec.save(str(self._dir / f'{ts}_{episode_num:04d}.rrd'))
-        return _RecordingSession(inner, rec)

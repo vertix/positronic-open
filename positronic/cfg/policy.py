@@ -2,7 +2,7 @@ import configuronic as cfn
 import pos3
 
 from positronic.cfg import codecs
-from positronic.policy import Codec, Policy
+from positronic.policy import ActionHorizon, Codec, Policy, Recorder, RemotePolicy
 from positronic.utils import get_latest_checkpoint
 
 
@@ -80,15 +80,16 @@ def remote(
     secure: bool = False,
     recording_dir: str | None = None,
 ):
-    from positronic.policy.codec import ActionHorizon, RecordingCodec
-    from positronic.policy.remote import RemotePolicy
-
     effective_resize = None if codec and codec.meta.get('image_sizes') else resize
     policy = RemotePolicy(host, port, effective_resize, model_id=model_id, headers=headers, secure=secure)
     if horizon_sec is not None:
         codec = ActionHorizon(horizon_sec) | codec if codec else ActionHorizon(horizon_sec)
     if recording_dir is not None:
-        codec = RecordingCodec(codec, pos3.sync(recording_dir))
+        rec = Recorder(pos3.sync(recording_dir))
+        if codec is None:
+            # No codec: the raw and server boundaries coincide, so a single tap.
+            return rec.tap('raw').wrap(policy)
+        return (rec.tap('raw') | codec | rec.tap('server')).wrap(policy)
     return codec.wrap(policy) if codec else policy
 
 
@@ -118,15 +119,16 @@ def weighted_remote(
     if not host:
         return None
 
-    from positronic.policy.codec import ActionHorizon, RecordingCodec
-    from positronic.policy.remote import RemotePolicy
-
     effective_resize = None if codec and codec.meta.get('image_sizes') else resize
     policy = RemotePolicy(host, port, effective_resize, model_id=model_id, headers=headers, secure=secure)
     if horizon_sec is not None:
         codec = ActionHorizon(horizon_sec) | codec if codec else ActionHorizon(horizon_sec)
     if recording_dir is not None:
-        codec = RecordingCodec(codec, pos3.sync(recording_dir))
+        rec = Recorder(pos3.sync(recording_dir))
+        if codec is None:
+            # No codec: the raw and server boundaries coincide, so a single tap.
+            return rec.tap('raw').wrap(policy), weight
+        return (rec.tap('raw') | codec | rec.tap('server')).wrap(policy), weight
     return (codec.wrap(policy) if codec else policy), weight
 
 
@@ -159,7 +161,7 @@ def production(groot, openpi, act, smolvla, extra, sampler):
 
 @cfn.config()
 def phail_single(hostname, w_openpi=1.0, w_groot=1.0, w_act=1.0):
-    from positronic.policy import RemotePolicy, SampledPolicy
+    from positronic.policy import SampledPolicy
 
     openpi = RemotePolicy(hostname, 8000, resize=640)
     groot = RemotePolicy(hostname, 8001, resize=640)

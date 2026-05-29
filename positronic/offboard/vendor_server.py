@@ -11,7 +11,7 @@ import pos3
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-from positronic.policy import Codec, Policy, RecordingWrapper
+from positronic.policy import Codec, Policy, Recorder
 from positronic.utils.checkpoints import get_latest_checkpoint, list_checkpoints
 from positronic.utils.serialization import deserialise, serialise
 
@@ -125,7 +125,7 @@ class VendorServer(ABC):
         self.codec = codec
         self.host = host
         self.port = port
-        self._recording = RecordingWrapper(pos3.sync(recording_dir)) if recording_dir else None
+        self._recorder = Recorder(pos3.sync(recording_dir)) if recording_dir else None
 
         self.idle_timeout_min = idle_timeout_min
         self._active_sessions = 0
@@ -192,8 +192,8 @@ class VendorServer(ABC):
             model_handle, extra_meta = await self.resolve_model(model_id, websocket)
             base_policy = self.create_policy(model_handle)
             policy = self.codec.wrap(base_policy) if self.codec else base_policy
-            if self._recording is not None:
-                policy = self._recording.wrap(policy)
+            if self._recorder is not None:
+                policy = self._recorder.tap('inference').wrap(policy)
             session = policy.new_session()
             meta = {**self.metadata, **extra_meta, **session.meta}
             await websocket.send_bytes(serialise({'status': 'ready', 'meta': meta}))
