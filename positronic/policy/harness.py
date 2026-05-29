@@ -393,9 +393,9 @@ class Harness(pimm.ControlSystem):
         if recording:
             if self._session:
                 self._session.on_episode_complete()
-            # Cancel buffered trajectories before STOP: STOP_EPISODE flushes the
-            # serializers, which would otherwise commit the unexecuted tail of an
-            # in-flight chunk (matches the FINISH/RUN paths).
+            # Stop the live drivers before finalizing (matches FINISH/RUN). The
+            # recording's unexecuted chunk tail is dropped by the serializer flush
+            # cutoff at STOP, not by this cancel.
             self._cancel_trajectories()
             self.ds_command.emit(DsWriterCommand.STOP())
         if self._session:

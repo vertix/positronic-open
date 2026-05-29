@@ -522,3 +522,20 @@ def test_trajectory_override_serializer_empty_cancels_buffer():
     assert s([]) == []
     # Subsequent flush must not emit the canceled waypoints.
     assert s.flush() == []
+
+
+def test_trajectory_override_serializer_flush_cutoff():
+    """flush(now_ns) commits only points already due; the future tail is dropped."""
+    s = TrajectoryOverrideSerializer(None)
+    s.reset()
+
+    # Buffer a chunk scheduled at ts 1..4 (nothing committed yet).
+    assert s([(1, 'a'), (2, 'b'), (3, 'c'), (4, 'd')]) == []
+
+    # Episode ends at ts=2: only the due points (ts <= 2) are committed; 'c','d' dropped.
+    assert [(t.ts, t.value) for t in s.flush(now_ns=2)] == [(1, 'a'), (2, 'b')]
+
+    # No cutoff keeps the legacy "commit everything" behavior.
+    s.reset()
+    assert s([(1, 'a'), (2, 'b')]) == []
+    assert [(t.ts, t.value) for t in s.flush()] == [(1, 'a'), (2, 'b')]
