@@ -354,9 +354,12 @@ class Harness(pimm.ControlSystem):
         self.robot_commands.emit(robot_traj)
         # Empty ``actions`` is the session's explicit cancel signal — propagate
         # ``[]`` to *both* drivers so neither buffer keeps executing stale
-        # waypoints. For non-empty chunks without grip targets, skip grip emit
-        # so we don't spuriously cancel an in-flight gripper trajectory.
-        if grip_traj or not actions:
+        # waypoints. Entering recovery (a Recover-only chunk carries no
+        # ``target_grip``) likewise cancels the gripper, so recovery stops all
+        # in-flight motion, not just the arm. For ordinary chunks without grip
+        # targets, skip the grip emit so we don't spuriously cancel an in-flight
+        # gripper trajectory.
+        if grip_traj or not actions or is_recover_only:
             self.target_grip.emit(grip_traj)
 
     def run(self, should_stop: pimm.SignalReceiver, clock: pimm.Clock) -> Iterator[pimm.Sleep]:
@@ -387,6 +390,10 @@ class Harness(pimm.ControlSystem):
         if recording:
             if self._session:
                 self._session.on_episode_complete()
+            # Cancel buffered trajectories before STOP: STOP_EPISODE flushes the
+            # serializers, which would otherwise commit the unexecuted tail of an
+            # in-flight chunk (matches the FINISH/RUN paths).
+            self._cancel_trajectories()
             self.ds_command.emit(DsWriterCommand.STOP())
         if self._session:
             self._session.close()
