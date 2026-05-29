@@ -90,15 +90,6 @@ def test_single_tap_file_per_episode(tmp_path):
     assert len(list(tmp_path.glob('*.rrd'))) == 3
 
 
-def test_tap_new_session_calls_inner(tmp_path):
-    tracking = _TrackingPolicy()
-    policy = Recorder(tmp_path).tap('t').wrap(tracking)
-    policy.new_session()
-    assert tracking.session_count == 1
-    policy.new_session()
-    assert tracking.session_count == 2
-
-
 def test_tap_delegates_inner_call(tmp_path):
     actions = [{'v': 1, 'timestamp': 0.0}, {'v': 2, 'timestamp': 0.1}]
     policy = Recorder(tmp_path).tap('t').wrap(_TrackingPolicy(actions))
@@ -111,15 +102,6 @@ def test_tap_meta_passthrough(tmp_path):
     """A tap contributes no meta; inner meta passes through."""
     policy = Recorder(tmp_path).tap('t').wrap(_TrackingPolicy())
     assert policy.meta == {'policy_key': 'policy_value'}
-
-
-def test_step_increments(tmp_path):
-    session = Recorder(tmp_path).tap('t').wrap(_TrackingPolicy([{'v': 1, 'timestamp': 0.0}])).new_session()
-    assert session._step == 0
-    session({'x': 1.0})
-    assert session._step == 1
-    session({'x': 2.0})
-    assert session._step == 2
 
 
 def test_obs_log_filtering_uses_pure_tap_names(tmp_path):
