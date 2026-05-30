@@ -185,8 +185,9 @@ class _Pipeline(PolicyWrapper):
 
 
 class _KeyedSession(DelegatingSession):
-    """Annotates session meta with the sampler's chosen key when the sub-policy doesn't
-    expose ``key_field`` itself, so completion counting reads the same key that was sampled."""
+    """Forces the sampler's chosen key onto session meta so completion counting records the
+    key that was actually sampled, even if the sub-policy exposes ``key_field`` only per
+    session (which could otherwise differ from the fallback key used at sampling time)."""
 
     def __init__(self, inner: Session, key_field: str, key: str):
         super().__init__(inner)
@@ -195,7 +196,7 @@ class _KeyedSession(DelegatingSession):
 
     @property
     def meta(self):
-        return {self._key_field: self._key, **self._inner.meta}
+        return {**self._inner.meta, self._key_field: self._key}
 
 
 class SampledPolicy(Policy):
