@@ -84,10 +84,15 @@ class ChunkedSchedule(PolicyWrapper):
                 return None
             result = self._inner(obs)
             if result is not None:
+                # A single-action session may return a bare dict, and a no-codec path may
+                # omit ``timestamp`` (servers can stamp/truncate themselves); normalize both
+                # so an immediate action executes instead of raising.
+                if isinstance(result, dict):
+                    result = [result]
                 # Anchor to post-inference time so execution starts when inference *finished*.
                 # Copy dicts so we don't mutate caller-owned data (sessions may reuse templates).
                 now = self._clock.now()
-                result = [{**r, 'timestamp': now + r['timestamp']} for r in result]
+                result = [{**r, 'timestamp': now + r.get('timestamp', 0.0)} for r in result]
                 self._trajectory_end = result[-1]['timestamp'] if result else None
             return result
 
