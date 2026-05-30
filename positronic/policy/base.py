@@ -185,18 +185,22 @@ class _Pipeline(PolicyWrapper):
 
 
 class _KeyedSession(DelegatingSession):
-    """Forces the sampler's chosen key onto session meta so completion counting records the
-    key that was actually sampled, even if the sub-policy exposes ``key_field`` only per
-    session (which could otherwise differ from the fallback key used at sampling time)."""
+    """Wraps the selected sub-policy's session so sampled episodes keep the selected policy's
+    metadata. ``SampledPolicy.meta`` is ``{}``, so without this the selected policy's static
+    fields (type, checkpoint, codec) would vanish from episode/handshake metadata when a
+    sub-policy exposes them only via ``Policy.meta`` (with an empty ``Session.meta``). The
+    sampler's chosen key is merged last so completion counting always records the exact key
+    that was sampled, even if it differs from a per-session ``key_field``."""
 
-    def __init__(self, inner: Session, key_field: str, key: str):
+    def __init__(self, inner: Session, policy_meta: dict[str, Any], key_field: str, key: str):
         super().__init__(inner)
+        self._policy_meta = policy_meta
         self._key_field = key_field
         self._key = key
 
     @property
     def meta(self):
-        return {**self._inner.meta, self._key_field: self._key}
+        return {**self._policy_meta, **self._inner.meta, self._key_field: self._key}
 
 
 class SampledPolicy(Policy):
@@ -235,8 +239,9 @@ class SampledPolicy(Policy):
         keys = self._get_keys()
         ctx = context or {}
         key = self.sampler.sample(keys, ctx, self.counter.counts(keys, ctx))
-        session = self._policies[keys.index(key)].new_session(context)
-        return _KeyedSession(session, self._key_field, key)
+        policy = self._policies[keys.index(key)]
+        session = policy.new_session(context)
+        return _KeyedSession(session, policy.meta, self._key_field, key)
 
     @property
     def meta(self):
