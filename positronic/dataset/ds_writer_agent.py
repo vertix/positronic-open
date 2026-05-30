@@ -100,6 +100,15 @@ class StatefulSerializer:
     def reset(self) -> None:
         pass
 
+    def cancel(self) -> None:
+        """Drop buffered, not-yet-committed samples without finalizing the episode.
+
+        Called when an episode is suspended mid-trajectory so a canceled trajectory
+        tail is not flushed at episode end. Default is a no-op for serializers that
+        don't buffer.
+        """
+        pass
+
     def __call__(self, value: Any) -> Any | dict[str, Any] | list['Timestamped']:
         raise NotImplementedError
 
@@ -220,6 +229,10 @@ class TrajectoryOverrideSerializer(StatefulSerializer):
         self._buffer = []
         self._last_ts = None
 
+    def cancel(self) -> None:
+        # Mirror the empty-trajectory cancel: drop the buffered tail, keep `_last_ts`.
+        self._buffer = []
+
     def _encode(self, value: Any) -> Any:
         return self._inner(value) if self._inner is not None else value
 
@@ -332,7 +345,7 @@ class DsWriterAgent(pimm.ControlSystem):
                 cmd_msg = self.command.read()
                 if cmd_msg.updated:
                     ep_writer, ep_counter, suspended = self._handle_command(
-                        cmd_msg.data, ep_writer, ep_counter, suspended, clock.now_ns()
+                        cmd_msg.data, ep_writer, ep_counter, suspended, cmd_msg.ts
                     )
 
                 if ep_writer is not None and not suspended:
@@ -365,7 +378,7 @@ class DsWriterAgent(pimm.ControlSystem):
             cmd_msg = self.command.read()
             if cmd_msg.updated:
                 ep_writer, ep_counter, suspended = self._handle_command(
-                    cmd_msg.data, ep_writer, ep_counter, suspended, clock.now_ns()
+                    cmd_msg.data, ep_writer, ep_counter, suspended, cmd_msg.ts
                 )
 
             if ep_writer is not None:
@@ -422,6 +435,11 @@ class DsWriterAgent(pimm.ControlSystem):
                 if ep_writer is not None:
                     logger.info(f'DsWriterAgent: [SUSPEND] Episode {ep_counter}')
                     suspended = True
+                    # While suspended the loop skips inputs, so the harness's `[]` cancel
+                    # never reaches the serializers; drop the canceled tail here so a later
+                    # STOP_EPISODE flush doesn't commit waypoints the robot never executed.
+                    for ser in self._serializers.values():
+                        ser.cancel()
                 else:
                     logger.warning('Episode not started, ignoring suspend command')
         return ep_writer, ep_counter, suspended

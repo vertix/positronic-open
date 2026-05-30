@@ -276,9 +276,9 @@ class Harness(pimm.ControlSystem):
                 self.ds_command.emit(DsWriterCommand.START(self._build_episode_meta(self.context)))
                 return True, True
             case DirectiveType.STOP:
+                self._cancel_trajectories()
                 if recording:
                     self.ds_command.emit(DsWriterCommand.SUSPEND())
-                self._cancel_trajectories()
                 return False, recording
             case DirectiveType.FINISH:
                 if recording:
