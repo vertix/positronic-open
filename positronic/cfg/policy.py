@@ -140,10 +140,10 @@ def balanced(balance: int):
 
 
 @cfn.config(
-    groot=weighted_remote,
-    openpi=weighted_remote,
-    act=weighted_remote,
-    smolvla=weighted_remote,
+    groot=weighted_remote.copy(),
+    openpi=weighted_remote.copy(),
+    act=weighted_remote.copy(),
+    smolvla=weighted_remote.copy(),
     extra=None,
     sampler=None,
     group_fields=None,
