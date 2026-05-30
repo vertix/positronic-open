@@ -35,7 +35,12 @@ def _pack(obj):
     if isinstance(obj, _roboarm_command.CommandType):
         return {b'__cmd__': _roboarm_command.to_wire(obj)}
     if isinstance(obj, _roboarm.RobotStatus):
-        return {b'__robotstatus__': obj.value}
+        # Plain int rather than an envelope: `robot_state.status` is consumed only
+        # client-side (harness ErrorRecovery, before serialization), so the wire value is
+        # never reconstructed into an enum. A pre-PR server that doesn't know this type must
+        # still tolerate the value — a bytes-keyed `{b'__robotstatus__': ...}` map would be
+        # left undecoded and can crash old server-side recording.
+        return obj.value
     return obj
 
 
@@ -66,8 +71,6 @@ def _unpack(obj):
         if isinstance(inner, _roboarm_command.CommandType):
             return inner
         return _roboarm_command.from_wire(inner)
-    if b'__robotstatus__' in obj:
-        return _roboarm.RobotStatus(obj[b'__robotstatus__'])
     # TODO(remove-pre-PR-server-compat): see _LEGACY_COMMAND_TYPES above.
     if obj.get('type') in _LEGACY_COMMAND_TYPES:
         return _roboarm_command.from_wire(obj)
