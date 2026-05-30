@@ -127,12 +127,11 @@ def test_sampled_policy_e2e():
     sampler = BalancedSampler(balance=2)
     sampled = SampledPolicy(wrapped_a, wrapped_b, sampler=sampler)
 
-    harness = Harness(sampled)
+    # The harness records each completed episode into the policy's counter on FINISH.
+    harness = Harness(sampled, on_episode_complete=sampled.counter.record)
 
     with pimm.World(clock=clock) as world:
         p = _pair_all(world, harness)
-
-        # Counting happens via session.on_episode_complete() called by the harness on FINISH.
 
         # Run 4 episodes: RUN → sensors → wait → FINISH, repeat
         script = []
@@ -166,8 +165,8 @@ def test_sampled_policy_e2e():
     all_cmds = p['cmd_recorder'].emitted
     assert len(all_cmds) > 0, 'No commands emitted'
 
-    # 5. Sampler counted episodes
-    counts = sampler._counts
+    # 5. Counter tallied episodes
+    counts = sampled.counter._counts
     total_counted = sum(sum(v.values()) for v in counts.values()) if counts else 0
     assert total_counted == 4, f'Expected 4 counted episodes, got {total_counted}'
 

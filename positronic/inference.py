@@ -23,7 +23,6 @@ from positronic.gui.eval import EvalUI
 from positronic.gui.keyboard import KeyboardControl
 from positronic.policy.base import SampledPolicy
 from positronic.policy.harness import Directive, Harness
-from positronic.policy.sampler import BalancedSampler
 from positronic.simulator.mujoco.observers import BodyDistance, StackingSuccess
 from positronic.simulator.mujoco.sim import MujocoCameras, MujocoFranka, MujocoGripper, MujocoSim
 from positronic.simulator.mujoco.transforms import MujocoSceneTransform
@@ -93,9 +92,9 @@ def timed(num_iterations, simulation_time, show_gui, task):
     return gui, (driver.directives, pimm.utils.identity), [driver]
 
 
-def _seed_sampler(policy, output_dir: Path):
-    """If policy has a BalancedSampler, seed it from existing episodes in output_dir."""
-    if not isinstance(policy, SampledPolicy) or not isinstance(policy.sampler, BalancedSampler):
+def _seed_counter(policy, output_dir: Path):
+    """If policy is a SampledPolicy, seed its episode counter from existing episodes in output_dir."""
+    if not isinstance(policy, SampledPolicy):
         return
     try:
         dataset = load_all_datasets(output_dir)
@@ -103,23 +102,22 @@ def _seed_sampler(policy, output_dir: Path):
         return
     if len(dataset) == 0:
         return
-    meta_key = f'inference.policy.{policy._key_field}'
-    group_fields = policy.sampler.group_fields or ()
-    for i in range(len(dataset)):
-        static = dataset[i].static
-        key = static.get(meta_key)
-        if key is not None:
-            policy.sampler.count(key, {f: static.get(f) for f in group_fields})
-    logger.info(f'Seeded sampler from {len(dataset)} existing episodes')
+    seeded = policy.counter.seed_from(dataset)
+    logger.info(f'Seeded counter from {seeded} existing episodes')
+
+
+def _completion_sink(policy):
+    """Harness ``on_episode_complete`` callback that tallies completed episodes.
+
+    Returns the ``SampledPolicy``'s counter ``record`` (which reads the sampled
+    key from the session and bumps its tally), or ``None`` for non-sampled
+    policies. The harness fires it on each clean episode completion.
+    """
+    return policy.counter.record if isinstance(policy, SampledPolicy) else None
 
 
 def _connect_ds_command(world, harness, ds_agent, policy):
-    """Connect harness.ds_command to ds_agent.
-
-    Stage 2: ``SampledPolicy`` counting happens via
-    ``Session.on_episode_complete()`` (invoked by the harness on ``FINISH``/
-    ``RUN`` restart), so no sampler tap is needed here.
-    """
+    """Connect harness.ds_command to ds_agent."""
     if ds_agent is None:
         return
     world.connect(harness.ds_command, ds_agent.command)
@@ -134,7 +132,7 @@ def main(
     output_dir: str | Path | None = None,
 ):
     """Runs inference on real hardware."""
-    harness = Harness(policy, static_meta=wire.ROBOT_STATIC_META)
+    harness = Harness(policy, static_meta=wire.ROBOT_STATIC_META, on_episode_complete=_completion_sink(policy))
 
     camera_instances = cameras
     camera_emitters = {name: cam.frame for name, cam in camera_instances.items()}
@@ -143,7 +141,7 @@ def main(
     if output_dir is not None:
         output_dir = pos3.sync(output_dir, sync_on_error=True)
         utils.save_run_metadata(output_dir, patterns=['*.py', '*.toml'])
-        _seed_sampler(policy, output_dir)
+        _seed_counter(policy, output_dir)
 
     writer_cm = LocalDatasetWriter(output_dir) if output_dir is not None else nullcontext(None)
     with writer_cm as dataset_writer, pimm.World() as world:
@@ -176,7 +174,12 @@ def main_sim(
     cameras = {name: mujoco_cameras.cameras[orig_name] for name, orig_name in camera_dict.items()}
 
     static_meta = {'simulation.mujoco_model_path': mujoco_model_path, **wire.ROBOT_STATIC_META}
-    harness = Harness(policy, static_meta=static_meta, simulate_inference=simulate_inference)
+    harness = Harness(
+        policy,
+        static_meta=static_meta,
+        simulate_inference=simulate_inference,
+        on_episode_complete=_completion_sink(policy),
+    )
     control_systems = [mujoco_cameras, sim, robot_arm, gripper, harness]
 
     gui, harness_emitter, foreground_cs = driver
@@ -184,7 +187,7 @@ def main_sim(
     if output_dir is not None:
         output_dir = pos3.sync(output_dir, sync_on_error=True)
         utils.save_run_metadata(output_dir, patterns=['*.py', '*.toml'])
-        _seed_sampler(policy, output_dir)
+        _seed_counter(policy, output_dir)
 
     writer_cm = LocalDatasetWriter(output_dir) if output_dir is not None else nullcontext(None)
     with writer_cm as dataset_writer, pimm.World(clock=sim) as world:

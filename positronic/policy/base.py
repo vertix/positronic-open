@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from positronic.policy.sampler import Sampler, UniformSampler
+from positronic.policy.sampler import EpisodeCounter, Sampler, UniformSampler
 
 
 class Session(ABC):
@@ -35,15 +35,6 @@ class Session(ABC):
         """Session metadata (may include policy meta + per-session info)."""
         return {}
 
-    def on_episode_complete(self):
-        """Called when the episode using this session is finalized (successful stop).
-
-        Distinct from ``close()``: fires only on successful episode completion
-        (e.g. used by samplers to count completed runs), whereas ``close()``
-        releases resources for any session end, successful or aborted.
-        """
-        return None
-
     def cancel(self):
         """Drop any in-flight trajectory state. Wrappers that buffer/schedule a
         trajectory (e.g. ``ChunkedSchedule``) should reset so the next call
@@ -68,9 +59,6 @@ class DelegatingSession(Session):
     @property
     def meta(self):
         return self._inner.meta
-
-    def on_episode_complete(self):
-        self._inner.on_episode_complete()
 
     def cancel(self):
         self._inner.cancel()
@@ -205,25 +193,16 @@ class SampledPolicy(Policy):
         sampler: Sampler | None = None,
         weights: list[float] | None = None,
         key_field: str = 'server.checkpoint_path',
+        group_fields: list[str] | None = None,
     ):
         self._policies = policies
         self._sampler = sampler
         self._weights = weights
         self._key_field = key_field
         self._keys: tuple[str, ...] | None = None
-
-    class _SampledSession(DelegatingSession):
-        """Session created by SampledPolicy — wraps an inner session + tracks sampling."""
-
-        def __init__(self, inner: Session, key: str, sampler: Sampler, context: dict):
-            super().__init__(inner)
-            self._key = key
-            self._sampler = sampler
-            self._context = context
-
-        def on_episode_complete(self):
-            self._sampler.count(self._key, self._context)
-            super().on_episode_complete()
+        # The harness bumps this on each completed episode (via ``counter.record``);
+        # the sampler reads it to balance. Seeded from prior recordings by the caller.
+        self.counter = EpisodeCounter(key_field, group_fields)
 
     @property
     def sampler(self) -> Sampler | None:
@@ -240,9 +219,8 @@ class SampledPolicy(Policy):
     def new_session(self, context=None):
         keys = self._get_keys()
         ctx = context or {}
-        key = self.sampler.sample(keys, ctx)
-        sub_policy = self._policies[keys.index(key)]
-        return SampledPolicy._SampledSession(sub_policy.new_session(context), key, self.sampler, ctx)
+        key = self.sampler.sample(keys, ctx, self.counter.counts(keys, ctx))
+        return self._policies[keys.index(key)].new_session(context)
 
     @property
     def meta(self):

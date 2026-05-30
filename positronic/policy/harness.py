@@ -172,9 +172,14 @@ class Harness(pimm.ControlSystem):
         static_meta: dict[str, Any] | None = None,
         wrap: PolicyWrapper | Callable[[pimm.Clock], PolicyWrapper] | None = default_wrappers,
         simulate_inference: bool | float = False,
+        on_episode_complete: Callable[[Session, dict[str, Any]], None] | None = None,
     ):
         self._raw_policy = policy
         self._wrap = wrap
+        # Called with (session, context) when an episode completes successfully (clean
+        # STOP/FINISH), never on abort. Used to feed completion bookkeeping like a
+        # ``SampledPolicy``'s episode counter, with no sampling knowledge in the harness.
+        self._on_complete = on_episode_complete or (lambda session, context: None)
         # Wrapping happens in ``run()`` once we have the clock — some wrappers (e.g.
         # ``ChunkedSchedule``) need it. Until then ``self.policy`` mirrors the raw policy.
         self.policy: Policy = policy
@@ -254,7 +259,7 @@ class Harness(pimm.ControlSystem):
             case DirectiveType.RUN:
                 if recording:
                     if self._session:
-                        self._session.on_episode_complete()
+                        self._on_complete(self._session, self.context)
                     self._cancel_trajectories()
                     self.ds_command.emit(DsWriterCommand.STOP())
                     self._home(clock)
@@ -273,7 +278,7 @@ class Harness(pimm.ControlSystem):
             case DirectiveType.FINISH:
                 if recording:
                     if self._session:
-                        self._session.on_episode_complete()
+                        self._on_complete(self._session, self.context)
                     self._cancel_trajectories()
                     self.ds_command.emit(DsWriterCommand.STOP(directive.payload or {}))
                     recording = False
@@ -392,7 +397,7 @@ class Harness(pimm.ControlSystem):
 
         if recording:
             if self._session:
-                self._session.on_episode_complete()
+                self._on_complete(self._session, self.context)
             # Stop the live drivers before finalizing (matches FINISH/RUN). The
             # recording's unexecuted chunk tail is dropped by the serializer flush
             # cutoff at STOP, not by this cancel.

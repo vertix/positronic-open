@@ -132,11 +132,11 @@ def weighted_remote(
     return (codec.wrap(policy) if codec else policy), weight
 
 
-@cfn.config(balance=2, group_fields=None)
-def balanced(balance: int, group_fields: list[str] | None):
+@cfn.config(balance=2)
+def balanced(balance: int):
     from positronic.policy.sampler import BalancedSampler
 
-    return BalancedSampler(balance=balance, group_fields=group_fields)
+    return BalancedSampler(balance=balance)
 
 
 @cfn.config(
@@ -146,8 +146,9 @@ def balanced(balance: int, group_fields: list[str] | None):
     smolvla=weighted_remote,
     extra=None,
     sampler=None,
+    group_fields=None,
 )
-def production(groot, openpi, act, smolvla, extra, sampler):
+def production(groot, openpi, act, smolvla, extra, sampler, group_fields):
     from positronic.policy import SampledPolicy
 
     entries = [e for e in [groot, openpi, act, smolvla] if e is not None]
@@ -156,7 +157,7 @@ def production(groot, openpi, act, smolvla, extra, sampler):
     if not entries:
         raise ValueError('At least one vendor policy must be enabled')
     policies, weights = zip(*entries, strict=False)
-    return SampledPolicy(*policies, weights=weights, sampler=sampler)
+    return SampledPolicy(*policies, weights=weights, sampler=sampler, group_fields=group_fields)
 
 
 @cfn.config()
@@ -180,7 +181,7 @@ phail_multiple = production.override(**{
     'openpi.host': 'vm-openpi',
     'openpi.port': 8000,
     'sampler': balanced,
-    'sampler.group_fields': ['task', 'eval.object', 'eval.tote_placement', 'eval.external_camera'],
+    'group_fields': ['task', 'eval.object', 'eval.tote_placement', 'eval.external_camera'],
 })
 
 
@@ -192,5 +193,5 @@ spoons_ablation = production.override(**{
     'act.host': 'vm-openpi',
     'act.port': 8002,
     'sampler': balanced,
-    'sampler.group_fields': ['task', 'eval.object', 'eval.tote_placement', 'eval.external_camera'],
+    'group_fields': ['task', 'eval.object', 'eval.tote_placement', 'eval.external_camera'],
 })
