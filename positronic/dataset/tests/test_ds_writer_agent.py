@@ -541,30 +541,21 @@ def test_trajectory_override_serializer_flush_cutoff():
     assert [(t.ts, t.value) for t in s.flush()] == [(1, 'a'), (2, 'b')]
 
 
-def test_trajectory_override_serializer_cancel_drops_buffer():
-    """cancel() drops the buffered tail without finalizing (used on episode suspend)."""
-    s = TrajectoryOverrideSerializer(None)
-    s.reset()
-    assert s([(1, 'a'), (2, 'b'), (3, 'c')]) == []
-    s.cancel()
-    # Buffer dropped: a later flush commits nothing, even with a cutoff past the tail.
-    assert s.flush(now_ns=10) == []
-
-
-def test_suspend_drops_buffered_trajectory(world, clock):
-    """A mid-trajectory SUSPEND drops the canceled tail so STOP_EPISODE never flushes it."""
+def test_suspend_commits_due_drops_future_trajectory(world, clock):
+    """A mid-trajectory SUSPEND commits already-due samples and drops the un-executed tail."""
     ds = FakeDatasetWriter()
     agent, cmd_em, emitters = build_agent_with_pipes({'traj': TrajectoryOverrideSerializer(None)}, ds, world)
 
+    future = 10**18  # far beyond the test clock, so it stays an un-executed tail
     script = [
         (partial(cmd_em.emit, DsWriterCommand(DsWriterCommandType.START_EPISODE)), 0.001),
-        (partial(emitters['traj'].emit, [(1, 'a'), (2, 'b'), (3, 'c')]), 0.001),
+        (partial(emitters['traj'].emit, [(0, 'due'), (future, 'tail')]), 0.001),
         (partial(cmd_em.emit, DsWriterCommand(DsWriterCommandType.SUSPEND_EPISODE)), 0.001),
         (partial(cmd_em.emit, DsWriterCommand(DsWriterCommandType.STOP_EPISODE)), 0.001),
     ]
     run_scripted_agent(agent, script, world=world, clock=clock)
 
     w = ds.created[-1]
-    # The buffered (canceled) trajectory must not be committed.
-    assert [(s, v) for (s, v, _, _) in w.appends] == []
+    # 'due' (ts <= suspend time) is committed; the future 'tail' is dropped.
+    assert [(s, v) for (s, v, _, _) in w.appends] == [('traj', 'due')]
     assert w.exited is True

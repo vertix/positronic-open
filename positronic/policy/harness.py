@@ -276,9 +276,12 @@ class Harness(pimm.ControlSystem):
                 self.ds_command.emit(DsWriterCommand.START(self._build_episode_meta(self.context)))
                 return True, True
             case DirectiveType.STOP:
-                self._cancel_trajectories()
+                # SUSPEND before the cancel: the writer flushes the due trajectory
+                # prefix (dropping the future tail) when it handles SUSPEND, then skips
+                # inputs — so the `[]` cancel that follows is only acted on by the robot.
                 if recording:
                     self.ds_command.emit(DsWriterCommand.SUSPEND())
+                self._cancel_trajectories()
                 return False, recording
             case DirectiveType.FINISH:
                 if recording:

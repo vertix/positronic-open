@@ -100,15 +100,6 @@ class StatefulSerializer:
     def reset(self) -> None:
         pass
 
-    def cancel(self) -> None:
-        """Drop buffered, not-yet-committed samples without finalizing the episode.
-
-        Called when an episode is suspended mid-trajectory so a canceled trajectory
-        tail is not flushed at episode end. Default is a no-op for serializers that
-        don't buffer.
-        """
-        pass
-
     def __call__(self, value: Any) -> Any | dict[str, Any] | list['Timestamped']:
         raise NotImplementedError
 
@@ -228,10 +219,6 @@ class TrajectoryOverrideSerializer(StatefulSerializer):
     def reset(self) -> None:
         self._buffer = []
         self._last_ts = None
-
-    def cancel(self) -> None:
-        # Mirror the empty-trajectory cancel: drop the buffered tail, keep `_last_ts`.
-        self._buffer = []
 
     def _encode(self, value: Any) -> Any:
         return self._inner(value) if self._inner is not None else value
@@ -436,10 +423,12 @@ class DsWriterAgent(pimm.ControlSystem):
                     logger.info(f'DsWriterAgent: [SUSPEND] Episode {ep_counter}')
                     suspended = True
                     # While suspended the loop skips inputs, so the harness's `[]` cancel
-                    # never reaches the serializers; drop the canceled tail here so a later
-                    # STOP_EPISODE flush doesn't commit waypoints the robot never executed.
-                    for ser in self._serializers.values():
-                        ser.cancel()
+                    # never reaches the serializers. Flush at the suspend time now: commit
+                    # samples already due and drop the un-executed future tail, so a later
+                    # STOP_EPISODE doesn't commit waypoints the robot never executed.
+                    for name, ser in self._serializers.items():
+                        for sample in ser.flush(now_ns):
+                            _append(ep_writer, name, sample.value, sample.ts, None)
                 else:
                     logger.warning('Episode not started, ignoring suspend command')
         return ep_writer, ep_counter, suspended
