@@ -7,7 +7,7 @@ Codecs compose via two operators:
 - `|` (sequential): left's output feeds into right. Use for codecs that modify data before others see it (e.g. grip binarization before observation/action encoders).
 - `&` (parallel): both see the same input, outputs merged. Use for independent codecs (e.g. observation encoder & action decoder).
 
-The standard layout is `ActionHorizon | ActionTimestamp | BinarizeGrip | obs & action`.
+The standard layout is `[ActionHorizon] | ActionTimestamp | [BinarizeGripTraining | BinarizeGripInference] | obs & action`, where the bracketed parts are optional (the `ActionHorizon` and `BinarizeGrip*` stages are controlled by the `horizon` and `binarize_grip=` args to `compose`).
 
 Codecs enable **store once, use everywhere** – record demonstrations once, then project the same raw data to different model formats (LeRobot, GR00T, OpenPI) without re-recording.
 
@@ -22,6 +22,16 @@ Positronic uses codecs to project raw data to any model format. Record once, try
 By default, codecs use **commanded** targets (`robot_commands.pose`, `target_grip`) as action labels — "what the controller was told to do". The `_traj` variants use the **actual** robot trajectory (`robot_state.ee_pose`, `grip`) — "what the robot actually did". This lets you compare training on commanded vs observed actions using identical raw data.
 
 Trajectory codecs automatically binarize grip signals (threshold at 0.5) since observed grip values are continuous but the model should learn discrete open/close.
+
+## Timing Codecs
+
+These codecs handle action-chunk timing and are composed to the left of the obs/action codecs (see `compose` in [`positronic/cfg/codecs.py`](../positronic/cfg/codecs.py)). See [`positronic/policy/codec.py`](../positronic/policy/codec.py) for implementation.
+
+| Codec | Signature | Effect |
+|-------|-----------|--------|
+| `ActionTimestamp` | `ActionTimestamp(fps=...)` (keyword-only) | Stamps each decoded action with a relative `timestamp = i / fps` (seconds from chunk start, starting at 0). At training time surfaces `action_fps` as transform metadata. (`codec.py:183`) |
+| `ActionHorizon` | `ActionHorizon(horizon_sec)` (positional) | Drops decoded actions whose relative `timestamp` is `>= horizon_sec`. Single (untimestamped) actions pass through. At training time surfaces `action_horizon_sec`. (`codec.py:217`) |
+| `ActionTiming` | `ActionTiming(fps=..., horizon_sec=None)` | Factory: returns `ActionTimestamp(fps=fps) \| ActionHorizon(horizon_sec)` when `horizon_sec` is set, otherwise just `ActionTimestamp(fps=fps)`. (`codec.py:247`) |
 
 ## Available Codecs by Vendor
 
@@ -140,7 +150,7 @@ cd docker && docker compose run --rm --service-ports lerobot-0_3_3-server \
 
 ## Writing Custom Codecs
 
-Subclass `positronic.policy.codec.Codec` and implement `encode()` and/or `_decode_single()`. The base class returns `{}` from both — observation codecs override `encode()`, action codecs override `_decode_single()`. Middleware codecs that pass data through (like `BinarizeGrip`) must explicitly `return data`. Compose observation and action codecs with `&`, chain middleware with `|`. See existing implementations in vendor codec files for reference patterns.
+Subclass `positronic.policy.codec.Codec` and implement `encode()` and/or `_decode_single()`. The base class returns `{}` from both — observation codecs override `encode()`, action codecs override `_decode_single()`. Middleware codecs that pass data through must explicitly `return data` (e.g. `BinarizeGripTraining`, which is a pure pass-through at decode and only binarizes via its `training_encoder`); middleware that transforms decoded actions modifies and returns `data` instead (e.g. `BinarizeGripInference`, which thresholds `target_grip` in `_decode_single`). Compose observation and action codecs with `&`, chain middleware with `|`. See existing implementations in vendor codec files for reference patterns.
 
 ## See Also
 

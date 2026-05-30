@@ -248,11 +248,11 @@ Run trained policies through the [inference script](positronic/inference.py):
 
 ```bash
 uv run --locked positronic-inference sim \
-    --policy=@positronic.cfg.policy.openpi_absolute \
-    --policy.base.checkpoints_dir=~/checkpoints/openpi/<run_id> \
+    --policy=@positronic.cfg.policy.act_absolute \
+    --policy.base.checkpoints_dir=~/checkpoints/lerobot/<run_id> \
     --driver.simulation_time=60 \
     --driver.show_gui=True \
-    --output_dir=~/datasets/inference_logs/stack_cubes_pi0
+    --output_dir=~/datasets/inference_logs/stack_cubes_act
 ```
 
 **Remote inference** (run policy on a different machine):

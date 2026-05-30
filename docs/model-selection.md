@@ -4,7 +4,7 @@ Positronic supports three foundation models with different capabilities and reso
 
 ## Quick Recommendation
 
-**Start with [SmolVLA](../positronic/vendors/lerobot/README.md) or [LeRobot ACT](../positronic/vendors/lerobot_0_3_3/README.md)** if you want something quick and low-cost. Progress to [OpenPI (π₀.₅)](../positronic/vendors/openpi/README.md) or [GR00T](../positronic/vendors/groot/README.md) when you need more capable models. Positronic makes switching easy.
+**Start with [SmolVLA](../positronic/vendors/lerobot/README.md) or [LeRobot ACT](../positronic/vendors/lerobot_0_3_3/README.md)** if you want something quick and low-cost. Progress to [OpenPI (π₀.₅)](../positronic/vendors/openpi/README.md) or [GR00T](../positronic/vendors/gr00t/README.md) when you need more capable models. Positronic makes switching easy.
 
 ## Detailed Comparison
 

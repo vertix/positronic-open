@@ -170,17 +170,17 @@ Your server must expose:
 
 ### Using Positronic's Server Base Class
 
-For a fast-loading, in-process model, subclass `InferenceServer` and provide a `Policy`. `select_action` receives the raw observation dict and returns wire-format actions directly:
+For a fast-loading, in-process model, subclass `InferenceServer` and provide a `Policy`. A `Policy` is a factory: its `new_session(context)` creates a per-episode `Session`, and that `Session` is called once per timestep to return wire-format actions. `Policy.meta` is static (about the model); per-episode info can be exposed via `Session.meta`.
 
 ```python
 from positronic.offboard.basic_server import InferenceServer
-from positronic.policy import Policy
+from positronic.policy import Policy, Session
 
-class MyPolicy(Policy):
+class MySession(Session):
     def __init__(self, model):
         self._model = model
 
-    def select_action(self, obs):
+    def __call__(self, obs):
         # obs keys: robot_state.ee_pose, robot_state.q, robot_state.dq, grip,
         #           image.exterior, image.wrist, inference_time_ns, wall_time_ns, task
         # Pick what your model needs:
@@ -196,8 +196,13 @@ class MyPolicy(Policy):
             for pose in predicted_poses
         ]
 
-    def reset(self, context=None):
-        pass
+class MyPolicy(Policy):
+    def __init__(self, model):
+        self._model = model
+
+    def new_session(self, context=None):
+        # Called once per episode; do any per-episode setup here, then return a Session.
+        return MySession(self._model)
 
     @property
     def meta(self):
@@ -226,7 +231,7 @@ uv run positronic-inference sim \
 The built-in OpenPI and GR00T servers don't use `InferenceServer` — they subclass `VendorServer` (`positronic/offboard/vendor_server.py`), which is the pattern to follow for checkpoints that take minutes to download or run as a separate process. `VendorServer` adds, on top of the same Protocol v1:
 
 - **Progress during loading** — it streams `{"status": "loading", ...}` messages while a checkpoint downloads or a subprocess boots, so the client keepalive doesn't expire.
-- **A built-in codec boundary** — you construct it with a `Codec`, and the base wraps your policy via `codec.wrap(policy)`. Your `Policy` then works entirely in *model space* (it receives codec-encoded observations and returns model-native actions); the codec translates to and from the wire format described above. This is why `OpenpiPolicy.select_action` simply returns `[{'action': a} for a in actions]` rather than building `robot_command` dicts itself.
+- **A built-in codec boundary** — you construct it with a `Codec`, and the base wraps your policy via `codec.wrap(policy)`. Your `Policy`/`Session` then works entirely in *model space* (it receives codec-encoded observations and returns model-native actions); the codec translates to and from the wire format described above. This is why OpenPI's session simply returns `[{'action': a} for a in actions]` rather than building `robot_command` dicts itself.
 - **Lifecycle hooks** — subclasses implement `resolve_model()`, `create_policy()`, and `get_models()`; the base handles the WebSocket loop, warmup, multi-model switching, optional `recording_dir`, and idle shutdown.
 
 See `positronic/vendors/openpi/server.py` and `positronic/vendors/gr00t/server.py` for complete working references.
@@ -255,10 +260,11 @@ Positronic provides `serialise()` and `deserialise()` in `positronic.utils.seria
 from positronic.utils.serialization import serialise, deserialise
 
 # Server-side WebSocket handler
+session = policy.new_session()           # one Session per episode/connection
 async for message in websocket.iter_bytes():
     obs = deserialise(message)           # dict with numpy arrays
-    action = policy.select_action(obs)
-    await websocket.send_bytes(serialise({"result": action}))
+    actions = session(obs)               # list of action dicts (or None)
+    await websocket.send_bytes(serialise({"result": actions}))
 ```
 
 ## See Also
