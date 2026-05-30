@@ -193,9 +193,16 @@ class VendorServer(ABC):
         try:
             model_handle, extra_meta = await self.resolve_model(model_id, websocket)
             base_policy = self.create_policy(model_handle)
-            policy = self.codec.wrap(base_policy) if self.codec else base_policy
             if self._recording_dir is not None:
-                policy = Recorder(self._recording_dir).tap('inference').wrap(policy)
+                # Tap both sides of the codec so one recording holds the obs/action at the
+                # wire boundary ('raw') and the encoded obs / raw model output ('inference').
+                rec = Recorder(self._recording_dir)
+                if self.codec:
+                    policy = (rec.tap('raw') | self.codec | rec.tap('inference')).wrap(base_policy)
+                else:
+                    policy = rec.tap('inference').wrap(base_policy)
+            else:
+                policy = self.codec.wrap(base_policy) if self.codec else base_policy
             session = policy.new_session()
             # ``policy.meta`` is the static baseline; ``session.meta`` overlays
             # per-episode specifics and wins on conflict.
